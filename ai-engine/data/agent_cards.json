@@ -1,0 +1,197 @@
+[
+  {
+    "agent_id": "intent_agent",
+    "name": "意图识别Agent",
+    "description": "分析工单内容，识别业务场景和工单类型",
+    "version": "1.0.0",
+    "skills": [
+      {
+        "id": "intent_recognition",
+        "name": "意图识别",
+        "description": "识别工单业务场景：优惠券补发、地址修改、交易争议",
+        "examples": ["识别优惠券补发请求", "识别地址修改请求", "识别交易争议请求"]
+      }
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "ticket_content": {"type": "string", "description": "工单原文内容"}
+      },
+      "required": ["ticket_content"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "type": {"type": "string", "enum": ["COUPON_REISSUE", "CUSTOMER_ADDRESS_UPDATE", "TRANSACTION_DISPUTE", "UNKNOWN"]},
+        "label": {"type": "string"},
+        "confidence": {"type": "number"},
+        "workflow_name": {"type": "string"},
+        "reason": {"type": "string"}
+      }
+    },
+    "requires_human_review": false,
+    "max_risk_level": "high",
+    "timeout_seconds": 30,
+    "retry_policy": "no_retry",
+    "dependencies": []
+  },
+  {
+    "agent_id": "extract_agent",
+    "name": "字段抽取Agent",
+    "description": "从工单内容中抽取结构化业务字段",
+    "version": "1.0.0",
+    "skills": [
+      {
+        "id": "field_extraction",
+        "name": "字段抽取",
+        "description": "根据意图类型抽取对应的结构化字段",
+        "examples": ["抽取优惠券补发所需字段", "抽取地址修改所需字段", "抽取交易核查所需字段"]
+      }
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "ticket_content": {"type": "string"},
+        "intent_type": {"type": "string"}
+      },
+      "required": ["ticket_content", "intent_type"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {"type": "string"},
+              "name": {"type": "string"},
+              "value": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "requires_human_review": false,
+    "max_risk_level": "high",
+    "timeout_seconds": 30,
+    "retry_policy": "no_retry",
+    "dependencies": ["intent_agent"]
+  },
+  {
+    "agent_id": "tool_agent",
+    "name": "工具调用Agent",
+    "description": "根据意图和字段选择合适的工具并生成调用参数",
+    "version": "1.0.0",
+    "skills": [
+      {
+        "id": "tool_selection",
+        "name": "工具选择与调用",
+        "description": "从工具注册表中匹配并调用正确的业务工具",
+        "examples": ["调用coupon.reissue补发优惠券", "调用customer.update-address修改地址", "调用transaction.query查询交易"]
+      }
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "intent": {"type": "object"},
+        "fields": {"type": "array"},
+        "available_tools": {"type": "string"}
+      },
+      "required": ["intent", "fields", "available_tools"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "tool_name": {"type": "string"},
+        "tool_params": {"type": "object"},
+        "skip": {"type": "boolean"},
+        "skip_reason": {"type": "string"}
+      }
+    },
+    "requires_human_review": false,
+    "max_risk_level": "medium",
+    "timeout_seconds": 30,
+    "retry_policy": "retry_on_error",
+    "dependencies": ["intent_agent", "extract_agent"]
+  },
+  {
+    "agent_id": "verify_agent",
+    "name": "审核校验Agent",
+    "description": "校验字段完整性，评估风险等级，决定是否需要人工复核",
+    "version": "1.0.0",
+    "skills": [
+      {
+        "id": "risk_assessment",
+        "name": "风险评估",
+        "description": "评估工单风险等级并决定处理路径",
+        "examples": ["低风险工单自动放行", "中风险工单需人工确认", "高风险工单直接升级"]
+      },
+      {
+        "id": "completeness_check",
+        "name": "完整性校验",
+        "description": "检查必填字段是否完整",
+        "examples": ["检查客户号是否缺失", "检查交易金额是否完整"]
+      }
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "ticket": {"type": "object"},
+        "intent": {"type": "object"},
+        "fields": {"type": "array"},
+        "tool_result": {"type": "object"}
+      },
+      "required": ["ticket", "intent", "fields"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "checks": {"type": "array"},
+        "risk_level": {"type": "string"},
+        "risk_decision": {"type": "string"},
+        "can_auto_proceed": {"type": "boolean"}
+      }
+    },
+    "requires_human_review": true,
+    "max_risk_level": "high",
+    "timeout_seconds": 30,
+    "retry_policy": "no_retry",
+    "dependencies": ["intent_agent", "extract_agent"]
+  },
+  {
+    "agent_id": "reply_agent",
+    "name": "回单生成Agent",
+    "description": "根据全流程处理结果生成标准化的回单话术",
+    "version": "1.0.0",
+    "skills": [
+      {
+        "id": "reply_generation",
+        "name": "回单话术生成",
+        "description": "生成专业、简洁、温暖的客户回单话术",
+        "examples": ["生成优惠券补发成功的话术", "生成地址修改完成的话术", "生成交易争议转人工的话术"]
+      }
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "intent": {"type": "object"},
+        "fields": {"type": "array"},
+        "tool_result": {"type": "object"},
+        "verify_result": {"type": "object"}
+      },
+      "required": ["intent", "fields"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "reply_draft": {"type": "string"}
+      }
+    },
+    "requires_human_review": true,
+    "max_risk_level": "high",
+    "timeout_seconds": 30,
+    "retry_policy": "no_retry",
+    "dependencies": ["intent_agent", "extract_agent", "tool_agent", "verify_agent"]
+  }
+]

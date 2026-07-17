@@ -1,0 +1,44 @@
+[
+  {
+    "id": "coupon",
+    "no": "T20260715001",
+    "title": "活动达标未收到餐饮优惠券",
+    "customer_name": "张三",
+    "phone": "138****8888",
+    "card_last4": "1234",
+    "scene": "补发优惠券",
+    "created_at": "2026-07-15 09:12",
+    "risk_label": "低风险",
+    "risk_level": "low",
+    "status": "open",
+    "content": "客户反馈参加信用卡满减活动后已满足消费条件，但App优惠券中心未收到满100减20餐饮券，希望协助核实并补发。"
+  },
+  {
+    "id": "address",
+    "no": "T20260715002",
+    "title": "客户要求修改账单寄送地址",
+    "customer_name": "李四",
+    "phone": "139****6666",
+    "card_last4": "8899",
+    "scene": "资料修改",
+    "created_at": "2026-07-15 09:35",
+    "risk_label": "中风险",
+    "risk_level": "medium",
+    "status": "open",
+    "content": "客户来电要求修改账单寄送地址为新地址上海市徐汇区XX路XX号，已通过短信验证码核验身份。"
+  },
+  {
+    "id": "dispute",
+    "no": "T20260715003",
+    "title": "客户反馈199元交易非本人消费",
+    "customer_name": "王五",
+    "phone": "137****2222",
+    "card_last4": "5678",
+    "scene": "交易核查",
+    "created_at": "2026-07-15 10:08",
+    "risk_label": "高风险",
+    "risk_level": "high",
+    "status": "open",
+    "content": "客户投诉2026年7月10日一笔398元的交易非本人操作，怀疑卡片被盗刷，要求核查交易详情并申请拒付。"
+  }
+]

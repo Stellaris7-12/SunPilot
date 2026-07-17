@@ -1,0 +1,67 @@
+﻿# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Python packaging and virtual environments
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# uv
+.uv-cache/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs and runtime output
+*.log
+logs/
+*.tmp
+*.temp
+
+# SQLite / local data stores
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+ai-engine/data/traces/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.vite-inspect/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Agent/tool local state
+.claude/
+.codex/

@@ -1,0 +1,18 @@
+:root {
+  --ink: #1a1a2e;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --paper: #f9fafb;
+  --panel: #ffffff;
+  --green: #059669;
+  --blue: #2563eb;
+  --red: #dc2626;
+  --amber: #d97706;
+  --green-soft: #d1fae5;
+  --blue-soft: #dbeafe;
+  --red-soft: #fee2e2;
+  --amber-soft: #fef3c7;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif; color: var(--ink); background: var(--paper); }

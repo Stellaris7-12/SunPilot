@@ -1,0 +1,57 @@
+[
+  {
+    "name": "coupon.reissue",
+    "display_name": "优惠券补发",
+    "description": "为客户补发指定面额的优惠券",
+    "category": "coupon",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10001"},
+      {"name": "couponType", "type": "string", "description": "券类型编码", "required": true, "example": "DINING_100_20"},
+      {"name": "reason", "type": "string", "description": "补发原因", "required": true, "example": "活动达标未到账"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {"success": true, "couponId": "CP{{TIMESTAMP}}", "status": "ISSUED", "evidenceId": "CP{{TIMESTAMP}}"},
+    "mock_delay_ms": 500,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "customer.update-address",
+    "display_name": "修改客户地址",
+    "description": "修改客户的账单寄送地址",
+    "category": "customer",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10002"},
+      {"name": "newAddress", "type": "string", "description": "新地址", "required": true, "example": "上海市徐汇区XX路XX号"},
+      {"name": "verifyStatus", "type": "string", "description": "身份核验状态", "required": true, "example": "PASSED"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "medium",
+    "mock_enabled": true,
+    "mock_response": {"success": true, "changeId": "ADDR{{TIMESTAMP}}", "status": "UPDATED", "evidenceId": "ADDR{{TIMESTAMP}}"},
+    "mock_delay_ms": 800,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "transaction.query",
+    "display_name": "查询交易流水",
+    "description": "查询指定交易的详细信息",
+    "category": "transaction",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10003"},
+      {"name": "transactionDate", "type": "string", "description": "交易日期", "required": true, "example": "2026-07-10"},
+      {"name": "amount", "type": "number", "description": "交易金额", "required": true, "example": "398.00"},
+      {"name": "merchantName", "type": "string", "description": "商户名称", "required": true, "example": "某某超市"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "medium",
+    "mock_enabled": true,
+    "mock_response": {"success": true, "transactionId": "TXN{{TIMESTAMP}}", "status": "POSTED", "channel": "线下POS", "needManualReview": true, "evidenceId": "TXN{{TIMESTAMP}}"},
+    "mock_delay_ms": 1200,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  }
+]

@@ -1,0 +1,17 @@
+[project]
+name = "ticket-agent"
+version = "0.1.0"
+description = "Credit card multi-agent ticket processing demo"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "openai>=1.50.0",
+    "aiosqlite>=0.20.0",
+    "sse-starlette>=2.0.0",
+]
+
+[tool.uv]
+package = false
