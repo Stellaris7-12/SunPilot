@@ -10,24 +10,28 @@ REQUIRED_FIELDS = {
     "COUPON_REISSUE": ["customerId", "couponType", "reason"],
     "CUSTOMER_ADDRESS_UPDATE": ["customerId", "newAddress", "verifyStatus"],
     "TRANSACTION_DISPUTE": ["customerId", "transactionDate", "amount", "merchantName"],
+    "BENEFIT_QUERY": ["customerId", "benefitCode", "queryReason"],
+    "APPLICATION_PROGRESS_QUERY": ["customerId", "applicationNo"],
     "UNKNOWN": [],
 }
 
 MISSING_VALUES = {"", "未提取", "未提供", "N/A", "UNKNOWN", None}
+TOOL_ESCALATION_KEYWORDS = ("冲突", "权限", "拒绝", "失败", "异常", "不存在")
 
-ESCALATION_SYSTEM_PROMPT = """你是信用卡工单升级与兜底专家。请根据工单、分类结果和字段提取结果，以 JSON 返回：
+ESCALATION_SYSTEM_PROMPT = """你是信用卡工单升级与兜底专家。
+请根据工单、分类结果、字段提取结果和工具执行结果，以 JSON 返回：
 {
-  "risk_level": "low" | "medium" | "high",
+  "risk_level": "low | medium | high",
   "risk_decision": "一句话风险和升级判断",
-  "can_auto_proceed": true | false,
-  "additional_checks": [{"label": "检查项", "status": "通过" | "待确认" | "需复核" | "已拦截"}]
+  "can_auto_proceed": true,
+  "additional_checks": [{"label": "检查项", "status": "通过 | 待确认 | 需复核 | 已拦截"}]
 }
 
 规则：
 - low: 常规业务操作，字段完整，无明显异常。
-- medium: 涉及敏感信息修改、身份核验或需操作员确认。
-- high: 交易争议、疑似盗刷、大额或合规敏感场景，需人工介入。
-只返回JSON。"""
+- medium: 涉及敏感信息修改、身份核验或需要操作员确认。
+- high: 交易争议、疑似盗刷、大额、合规敏感或工具异常场景，需人工介入。
+只返回 JSON。"""
 
 
 def _required_fields(intent_type: str, workflow_config: dict) -> list[str]:
@@ -38,6 +42,14 @@ def _required_fields(intent_type: str, workflow_config: dict) -> list[str]:
     return REQUIRED_FIELDS.get(intent_type, [])
 
 
+def _tool_dict(tool_result) -> dict:
+    if not tool_result:
+        return {}
+    if hasattr(tool_result, "model_dump"):
+        return tool_result.model_dump()
+    return tool_result if isinstance(tool_result, dict) else {}
+
+
 class EscalationAgent(BaseAgent):
     """Decide missing-info, auto-proceed, human confirmation, and escalation."""
 
@@ -45,12 +57,12 @@ class EscalationAgent(BaseAgent):
         ticket = input_data.get("ticket", {})
         intent = input_data.get("intent", {})
         fields = input_data.get("fields", [])
-        tool_result = input_data.get("tool_result")
+        tool_result = _tool_dict(input_data.get("tool_result"))
         workflow_config = input_data.get("workflow_config", {})
 
         intent_type = intent.get("type", "UNKNOWN")
         ticket_risk = ticket.get("risk_level", "low")
-        fields_dict = {f.get("name"): f.get("value") for f in fields}
+        fields_dict = {field.get("name"): field.get("value") for field in fields}
 
         checks = []
         required = _required_fields(intent_type, workflow_config)
@@ -66,13 +78,56 @@ class EscalationAgent(BaseAgent):
             return {
                 "checks": checks,
                 "risk_level": ticket_risk,
-                "risk_decision": "信息不足，需补充必填字段后继续处理",
+                "risk_decision": "信息不足，需要补充必填字段后继续处理",
                 "can_auto_proceed": False,
                 "missing_fields": missing,
                 "needs_more_info": True,
             }
 
         checks.append({"label": "必填字段完整", "status": "通过"})
+
+        if tool_result:
+            failure_reason = tool_result.get("failure_reason") or tool_result.get("message", "")
+            business_result = tool_result.get("business_result", "")
+            if not tool_result.get("success", False):
+                checks.append({
+                    "label": f"工具执行失败: {failure_reason}",
+                    "status": "已拦截",
+                })
+                return {
+                    "checks": checks,
+                    "risk_level": "high",
+                    "risk_decision": failure_reason or "工具执行失败，已升级人工处理",
+                    "can_auto_proceed": False,
+                    "missing_fields": [],
+                    "needs_more_info": False,
+                }
+            if any(keyword in f"{failure_reason}{business_result}" for keyword in TOOL_ESCALATION_KEYWORDS):
+                checks.append({
+                    "label": "工具结果存在冲突、权限或异常信号",
+                    "status": "需复核",
+                })
+                return {
+                    "checks": checks,
+                    "risk_level": "high",
+                    "risk_decision": "工具结果存在冲突或权限异常，已升级人工复核",
+                    "can_auto_proceed": False,
+                    "missing_fields": [],
+                    "needs_more_info": False,
+                }
+            if tool_result.get("requires_human"):
+                checks.append({
+                    "label": "工具结果要求人工复核",
+                    "status": "需复核",
+                })
+                return {
+                    "checks": checks,
+                    "risk_level": "medium",
+                    "risk_decision": "业务工具返回需人工复核，已转人工确认",
+                    "can_auto_proceed": False,
+                    "missing_fields": [],
+                    "needs_more_info": False,
+                }
 
         confidence = intent.get("confidence", 0)
         if confidence < 0.7:
@@ -119,13 +174,13 @@ class EscalationAgent(BaseAgent):
 请评估是否需要人工确认或升级。"""
             llm_result = await self.call_llm(ESCALATION_SYSTEM_PROMPT, user_prompt)
 
-            for c in llm_result.get("additional_checks", []):
-                checks.append(c)
+            for check in llm_result.get("additional_checks", []):
+                checks.append(check)
 
             return {
                 "checks": checks,
                 "risk_level": llm_result.get("risk_level", ticket_risk),
-                "risk_decision": llm_result.get("risk_decision", "中风险，需人工确认后执行"),
+                "risk_decision": llm_result.get("risk_decision", "中风险，需要人工确认后执行"),
                 "can_auto_proceed": llm_result.get("can_auto_proceed", ticket_risk != "high"),
                 "missing_fields": [],
                 "needs_more_info": False,

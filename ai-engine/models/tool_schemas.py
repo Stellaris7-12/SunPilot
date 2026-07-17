@@ -34,6 +34,11 @@ class ToolResult(ApiModel):
     success: bool
     tool_name: str
     evidence_id: str
+    action: str = ""
+    business_result: str = ""
+    next_step: str = ""
+    requires_human: bool = False
+    failure_reason: str = ""
     data: dict = Field(default_factory=dict)
     message: str = ""
     duration_ms: int = 0

@@ -2,17 +2,23 @@
   {
     "name": "coupon.reissue",
     "display_name": "优惠券补发",
-    "description": "为客户补发指定面额的优惠券",
+    "description": "为客户补发指定类型的信用卡优惠券",
     "category": "coupon",
     "parameters": [
       {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10001"},
-      {"name": "couponType", "type": "string", "description": "券类型编码", "required": true, "example": "DINING_100_20"},
+      {"name": "couponType", "type": "string", "description": "券类型编码或描述", "required": true, "example": "DINING_100_20"},
       {"name": "reason", "type": "string", "description": "补发原因", "required": true, "example": "活动达标未到账"}
     ],
     "requires_confirmation": false,
     "risk_level": "low",
     "mock_enabled": true,
-    "mock_response": {"success": true, "couponId": "CP{{TIMESTAMP}}", "status": "ISSUED", "evidenceId": "CP{{TIMESTAMP}}"},
+    "mock_response": {
+      "success": true,
+      "couponId": "CP{{TIMESTAMP}}",
+      "status": "ISSUED",
+      "businessResult": "优惠券已补发到账",
+      "nextStep": "通知客户在 App 优惠券中心查收"
+    },
     "mock_delay_ms": 500,
     "mcp_server_name": null,
     "mcp_tool_path": null
@@ -30,7 +36,13 @@
     "requires_confirmation": true,
     "risk_level": "medium",
     "mock_enabled": true,
-    "mock_response": {"success": true, "changeId": "ADDR{{TIMESTAMP}}", "status": "UPDATED", "evidenceId": "ADDR{{TIMESTAMP}}"},
+    "mock_response": {
+      "success": true,
+      "changeId": "ADDR{{TIMESTAMP}}",
+      "status": "UPDATED",
+      "businessResult": "客户账单寄送地址已更新",
+      "nextStep": "进入人工终审后向客户发送资料变更结果"
+    },
     "mock_delay_ms": 800,
     "mcp_server_name": null,
     "mcp_tool_path": null
@@ -49,8 +61,65 @@
     "requires_confirmation": true,
     "risk_level": "medium",
     "mock_enabled": true,
-    "mock_response": {"success": true, "transactionId": "TXN{{TIMESTAMP}}", "status": "POSTED", "channel": "线下POS", "needManualReview": true, "evidenceId": "TXN{{TIMESTAMP}}"},
+    "mock_response": {
+      "success": true,
+      "transactionId": "TXN{{TIMESTAMP}}",
+      "status": "POSTED",
+      "channel": "线下POS",
+      "needManualReview": true,
+      "businessResult": "已查询到交易流水，争议处理需人工复核",
+      "nextStep": "转人工争议岗复核并联系客户确认材料"
+    },
     "mock_delay_ms": 1200,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "benefit.query",
+    "display_name": "查询权益资格",
+    "description": "查询客户是否具备指定活动或权益资格",
+    "category": "benefit",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10004"},
+      {"name": "benefitCode", "type": "string", "description": "权益或活动编码", "required": true, "example": "AIRPORT_LOUNGE_2026"},
+      {"name": "queryReason", "type": "string", "description": "查询原因", "required": true, "example": "客户咨询贵宾厅权益资格"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {
+      "success": true,
+      "benefitCode": "AIRPORT_LOUNGE_2026",
+      "eligible": true,
+      "status": "ACTIVE",
+      "businessResult": "客户具备该权益使用资格",
+      "nextStep": "向客户说明权益使用规则和有效期"
+    },
+    "mock_delay_ms": 450,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "application.progress-query",
+    "display_name": "查询申请进度",
+    "description": "查询信用卡申请、资料补充或业务办理进度",
+    "category": "application",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10005"},
+      {"name": "applicationNo", "type": "string", "description": "申请单号或业务流水号", "required": true, "example": "APP20260718001"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {
+      "success": true,
+      "applicationNo": "APP{{TIMESTAMP}}",
+      "stage": "资料审核中",
+      "eta": "1-2个工作日",
+      "businessResult": "申请正在资料审核中",
+      "nextStep": "告知客户预计完成时间并提醒保持联系方式畅通"
+    },
+    "mock_delay_ms": 600,
     "mcp_server_name": null,
     "mcp_tool_path": null
   }

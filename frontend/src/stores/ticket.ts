@@ -27,6 +27,17 @@ export const useTicketStore = defineStore('ticket', () => {
     resetState();
   }
 
+  async function loadTicketContext(id: string) {
+    selectedTicketId.value = id;
+    resetState();
+    try {
+      const result = await ticketApi.getAiResult(id);
+      applyProcessResult(result);
+    } catch {
+      // A newly opened ticket may not have any AI result yet.
+    }
+  }
+
   function applyProcessResult(result: AiProcessResult | null | undefined) {
     if (!result) return;
     aiResult.value = result;
@@ -132,6 +143,7 @@ export const useTicketStore = defineStore('ticket', () => {
     closedCount,
     fetchTickets,
     selectTicket,
+    loadTicketContext,
     startAiProcess,
     confirmAction,
     closeTicket,

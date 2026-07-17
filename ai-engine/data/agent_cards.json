@@ -8,8 +8,8 @@
       {
         "id": "scenario_classification",
         "name": "业务场景分类",
-        "description": "识别工单业务场景：优惠券补发、资料修改、交易争议等",
-        "examples": ["识别优惠券补发请求", "识别地址修改请求", "识别交易争议请求"]
+        "description": "识别工单业务场景：优惠券补发、资料修改、交易争议、权益资格查询、申请进度查询等",
+        "examples": ["识别优惠券补发请求", "识别地址修改请求", "识别权益资格查询", "识别申请进度查询"]
       }
     ],
     "input_schema": {
@@ -23,7 +23,17 @@
     "output_schema": {
       "type": "object",
       "properties": {
-        "type": {"type": "string", "enum": ["COUPON_REISSUE", "CUSTOMER_ADDRESS_UPDATE", "TRANSACTION_DISPUTE", "UNKNOWN"]},
+        "type": {
+          "type": "string",
+          "enum": [
+            "COUPON_REISSUE",
+            "CUSTOMER_ADDRESS_UPDATE",
+            "TRANSACTION_DISPUTE",
+            "BENEFIT_QUERY",
+            "APPLICATION_PROGRESS_QUERY",
+            "UNKNOWN"
+          ]
+        },
         "label": {"type": "string"},
         "confidence": {"type": "number"},
         "workflow_name": {"type": "string"},
@@ -46,7 +56,7 @@
         "id": "field_extraction",
         "name": "字段抽取",
         "description": "根据场景配置抽取对应的结构化业务字段",
-        "examples": ["抽取优惠券补发所需字段", "抽取资料修改所需字段", "抽取交易核查所需字段"]
+        "examples": ["抽取补券字段", "抽取资料修改字段", "抽取权益查询字段", "抽取申请进度字段"]
       }
     ],
     "input_schema": {
@@ -90,14 +100,14 @@
       {
         "id": "routing_guardrail",
         "name": "升级与兜底判断",
-        "description": "识别字段缺失、合规敏感、工具失败和需要人工介入的场景",
-        "examples": ["信息不足暂停", "中风险人工确认", "高风险直接升级"]
+        "description": "识别字段缺失、合规敏感、工具失败、权限不足、结果冲突和需要人工介入的场景",
+        "examples": ["信息不足暂停", "中风险人工确认", "工具失败升级", "高风险直接升级"]
       },
       {
         "id": "completeness_check",
         "name": "完整性校验",
         "description": "根据 workflow_config 检查必填字段是否完整",
-        "examples": ["检查客户号是否缺失", "检查交易金额是否完整"]
+        "examples": ["检查客户号是否缺失", "检查权益编码是否缺失", "检查申请单号是否缺失"]
       }
     ],
     "input_schema": {
@@ -138,7 +148,7 @@
         "id": "tool_selection",
         "name": "工具选择与执行准备",
         "description": "从工具注册表中匹配正确业务工具，并生成调用参数",
-        "examples": ["调用coupon.reissue补发优惠券", "调用customer.update-address修改地址", "调用transaction.query查询交易"]
+        "examples": ["调用coupon.reissue补发优惠券", "调用benefit.query查询权益资格", "调用application.progress-query查询进度"]
       }
     ],
     "input_schema": {
@@ -176,7 +186,7 @@
         "id": "reply_generation",
         "name": "回单与通知生成",
         "description": "生成专业、简洁、可解释的客户回单和状态说明",
-        "examples": ["生成优惠券补发成功的话术", "生成地址修改完成的话术", "生成交易争议转人工的话术"]
+        "examples": ["生成优惠券补发成功的话术", "生成进度查询说明", "生成交易争议转人工的话术"]
       }
     ],
     "input_schema": {

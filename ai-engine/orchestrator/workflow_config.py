@@ -56,6 +56,33 @@ DEFAULT_WORKFLOW_CONFIG = {
             "requires_human_confirmation": True,
             "notification_template": "已记录客户交易争议诉求，并说明需人工复核的原因和后续处理流程。",
         },
+        "BENEFIT_QUERY": {
+            "workflow_name": "benefit_query_flow",
+            "label": "权益资格查询",
+            "fields": [
+                {"name": "customerId", "label": "客户号"},
+                {"name": "phone", "label": "手机号（脱敏后）"},
+                {"name": "benefitCode", "label": "权益或活动编码"},
+                {"name": "queryReason", "label": "查询原因"},
+            ],
+            "required_fields": ["customerId", "benefitCode", "queryReason"],
+            "recommended_tool": "benefit.query",
+            "requires_human_confirmation": False,
+            "notification_template": "已查询客户权益资格，并向客户说明可用状态、使用规则和后续建议。",
+        },
+        "APPLICATION_PROGRESS_QUERY": {
+            "workflow_name": "application_progress_query_flow",
+            "label": "申请进度查询",
+            "fields": [
+                {"name": "customerId", "label": "客户号"},
+                {"name": "phone", "label": "手机号（脱敏后）"},
+                {"name": "applicationNo", "label": "申请单号或业务流水号"},
+            ],
+            "required_fields": ["customerId", "applicationNo"],
+            "recommended_tool": "application.progress-query",
+            "requires_human_confirmation": False,
+            "notification_template": "已查询业务申请进度，并向客户同步当前节点、预计完成时间和注意事项。",
+        },
         "UNKNOWN": {
             "workflow_name": "unknown_flow",
             "label": "未知场景",
@@ -77,8 +104,8 @@ DEFAULT_WORKFLOW_CONFIG = {
 def load_workflow_config() -> dict:
     """Load lightweight workflow config from disk."""
     try:
-        with open(WORKFLOW_CONFIG_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(WORKFLOW_CONFIG_JSON, "r", encoding="utf-8") as file:
+            return json.load(file)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Falling back to built-in workflow config: %s", exc)
         return DEFAULT_WORKFLOW_CONFIG

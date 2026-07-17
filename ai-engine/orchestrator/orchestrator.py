@@ -112,76 +112,26 @@ class Orchestrator:
                 push,
             )
 
-            verify_result = await self._run_agent_step(
-                "escalation_agent",
-                "Escalation Agent / 升级与兜底",
-                self.escalation_agent,
-                {
-                    "ticket": {
-                        "risk_level": ticket.risk_level,
-                        "risk_label": ticket.risk_label,
-                        "scene": ticket.scene,
-                    },
-                    "intent": intent_result,
-                    "fields": extract_result.get("fields", []),
-                    "workflow_config": workflow_config,
-                },
+            verify_result = await self._run_escalation_step(
+                ticket,
+                intent_result,
+                extract_result,
+                workflow_config,
                 trace,
                 push,
             )
 
-            if verify_result.get("needs_more_info"):
-                result = self._build_result(
-                    ticket,
-                    intent_result,
-                    extract_result,
-                    None,
-                    verify_result,
-                    "",
-                    status=TicketState.PENDING_INFO.value,
-                    total_start=overall_start,
-                    missing_fields=verify_result.get("missing_fields", []),
-                    failure_reason=verify_result.get("risk_decision", ""),
-                    pause_type="missing_info",
-                )
-                await self._set_ticket_status(ticket, TicketState.PENDING_INFO.value)
-                await self._emit_terminal(push, ticket_id, result)
-                return result
-
-            risk_level = verify_result.get("risk_level", "low")
-            can_auto = verify_result.get("can_auto_proceed", True)
-
-            if not can_auto:
-                result = self._build_result(
-                    ticket,
-                    intent_result,
-                    extract_result,
-                    None,
-                    verify_result,
-                    "",
-                    status=TicketState.ESCALATED.value,
-                    total_start=overall_start,
-                    failure_reason=verify_result.get("risk_decision", "需要人工处理"),
-                )
-                await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
-                await self._emit_terminal(push, ticket_id, result)
-                return result
-
-            if risk_level == "medium" and not confirmed:
-                result = self._build_result(
-                    ticket,
-                    intent_result,
-                    extract_result,
-                    None,
-                    verify_result,
-                    "",
-                    status=TicketState.PENDING_HUMAN_CONFIRM.value,
-                    total_start=overall_start,
-                    pause_type="human_confirm",
-                )
-                await self._set_ticket_status(ticket, TicketState.PENDING_HUMAN_CONFIRM.value)
-                await self._emit_terminal(push, ticket_id, result)
-                return result
+            early_result = await self._maybe_stop_before_resolution(
+                ticket,
+                intent_result,
+                extract_result,
+                verify_result,
+                overall_start,
+                confirmed,
+                push,
+            )
+            if early_result:
+                return early_result
 
             available_tools = tool_registry.get_all_summaries()
             tool_agent_result = await self._run_agent_step(
@@ -202,10 +152,34 @@ class Orchestrator:
             tool_name = tool_agent_result.get("tool_name", "")
             tool_params = tool_agent_result.get("tool_params", {})
             if not tool_agent_result.get("skip") and tool_name:
+                missing_result = await self._handle_tool_missing_params(
+                    ticket,
+                    intent_result,
+                    extract_result,
+                    verify_result,
+                    tool_name,
+                    tool_params,
+                    overall_start,
+                    push,
+                )
+                if missing_result:
+                    return missing_result
+
                 logger.info("[Orchestrator] Executing tool: %s", tool_name)
                 tool_result = await mock_executor.execute(tool_name, tool_params)
                 await self._persist_tool_call(ticket.id, tool_name, tool_params, tool_result)
-                if not tool_result.success:
+
+                verify_result = await self._run_escalation_step(
+                    ticket,
+                    intent_result,
+                    extract_result,
+                    workflow_config,
+                    trace,
+                    push,
+                    tool_result=tool_result,
+                )
+
+                if not tool_result.success or not verify_result.get("can_auto_proceed", True):
                     result = self._build_result(
                         ticket,
                         intent_result,
@@ -216,7 +190,12 @@ class Orchestrator:
                         status=TicketState.ESCALATED.value,
                         total_start=overall_start,
                         tool_request=tool_params,
-                        failure_reason=tool_result.message or "工具调用失败",
+                        failure_reason=(
+                            verify_result.get("risk_decision")
+                            or tool_result.failure_reason
+                            or tool_result.message
+                            or "工具调用需要人工处理"
+                        ),
                     )
                     await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
                     await self._emit_terminal(push, ticket_id, result)
@@ -262,6 +241,158 @@ class Orchestrator:
             finally:
                 await self._emit_terminal(push, ticket_id, result)
             return result
+
+    async def _run_escalation_step(
+        self,
+        ticket: Ticket,
+        intent_result: dict,
+        extract_result: dict,
+        workflow_config: dict,
+        trace: TraceCollector,
+        push,
+        *,
+        tool_result=None,
+    ) -> dict:
+        return await self._run_agent_step(
+            "escalation_agent",
+            "Escalation Agent / 升级与兜底",
+            self.escalation_agent,
+            {
+                "ticket": {
+                    "risk_level": ticket.risk_level,
+                    "risk_label": ticket.risk_label,
+                    "scene": ticket.scene,
+                },
+                "intent": intent_result,
+                "fields": extract_result.get("fields", []),
+                "tool_result": tool_result,
+                "workflow_config": workflow_config,
+            },
+            trace,
+            push,
+        )
+
+    async def _maybe_stop_before_resolution(
+        self,
+        ticket: Ticket,
+        intent_result: dict,
+        extract_result: dict,
+        verify_result: dict,
+        overall_start: float,
+        confirmed: bool,
+        push,
+    ) -> dict | None:
+        if verify_result.get("needs_more_info"):
+            result = self._build_result(
+                ticket,
+                intent_result,
+                extract_result,
+                None,
+                verify_result,
+                "",
+                status=TicketState.PENDING_INFO.value,
+                total_start=overall_start,
+                missing_fields=verify_result.get("missing_fields", []),
+                failure_reason=verify_result.get("risk_decision", ""),
+                pause_type="missing_info",
+            )
+            await self._set_ticket_status(ticket, TicketState.PENDING_INFO.value)
+            await self._emit_terminal(push, ticket.id, result)
+            return result
+
+        risk_level = verify_result.get("risk_level", "low")
+        can_auto = verify_result.get("can_auto_proceed", True)
+
+        if not can_auto:
+            result = self._build_result(
+                ticket,
+                intent_result,
+                extract_result,
+                None,
+                verify_result,
+                "",
+                status=TicketState.ESCALATED.value,
+                total_start=overall_start,
+                failure_reason=verify_result.get("risk_decision", "需要人工处理"),
+            )
+            await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
+            await self._emit_terminal(push, ticket.id, result)
+            return result
+
+        if risk_level == "medium" and not confirmed:
+            result = self._build_result(
+                ticket,
+                intent_result,
+                extract_result,
+                None,
+                verify_result,
+                "",
+                status=TicketState.PENDING_HUMAN_CONFIRM.value,
+                total_start=overall_start,
+                pause_type="human_confirm",
+            )
+            await self._set_ticket_status(ticket, TicketState.PENDING_HUMAN_CONFIRM.value)
+            await self._emit_terminal(push, ticket.id, result)
+            return result
+
+        return None
+
+    async def _handle_tool_missing_params(
+        self,
+        ticket: Ticket,
+        intent_result: dict,
+        extract_result: dict,
+        verify_result: dict,
+        tool_name: str,
+        tool_params: dict,
+        overall_start: float,
+        push,
+    ) -> dict | None:
+        missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
+        if not missing_params:
+            return None
+
+        missing_fields = [item["name"] for item in missing_params]
+        follow_up_builder = getattr(self.intake_agent, "build_follow_up_prompt", None)
+        if callable(follow_up_builder):
+            follow_up = follow_up_builder(missing_params)
+        else:
+            details = [
+                item.get("description") or item.get("name")
+                for item in missing_params
+            ]
+            follow_up = "为继续办理该工单，请补充以下信息：" + "、".join(details)
+        next_verify = {
+            **verify_result,
+            "checks": [
+                *verify_result.get("checks", []),
+                {
+                    "label": f"工具参数缺失: {', '.join(missing_fields)}",
+                    "status": "待补充",
+                },
+            ],
+            "risk_decision": "工具执行参数不足，需要回到接单环节补充信息",
+            "missing_fields": missing_fields,
+            "needs_more_info": True,
+            "can_auto_proceed": False,
+        }
+        result = self._build_result(
+            ticket,
+            intent_result,
+            extract_result,
+            None,
+            next_verify,
+            follow_up,
+            status=TicketState.PENDING_INFO.value,
+            total_start=overall_start,
+            tool_request=tool_params,
+            missing_fields=missing_fields,
+            failure_reason=next_verify["risk_decision"],
+            pause_type="missing_info",
+        )
+        await self._set_ticket_status(ticket, TicketState.PENDING_INFO.value)
+        await self._emit_terminal(push, ticket.id, result)
+        return result
 
     async def _handle_high_risk(
         self,
@@ -402,7 +533,7 @@ class Orchestrator:
             return f"已识别为{result.get('label', '未知')}场景（置信度 {result.get('confidence', 0):.0%}）"
         if agent_id == "intake_agent":
             fields = result.get("fields", [])
-            valid = [f for f in fields if f.get("value") not in {"", "未提取", "未提供", None}]
+            valid = [field for field in fields if field.get("value") not in {"", "未提取", "未提供", None}]
             return f"已提取 {len(valid)}/{len(fields)} 个有效字段"
         if agent_id == "resolution_agent":
             if result.get("skip"):
@@ -439,21 +570,22 @@ class Orchestrator:
             reason=intent_result.get("reason", ""),
         )
 
-        fields = [FieldResult(**f) for f in extract_result.get("fields", [])]
-        checks = [VerifyCheck(**c) for c in verify_result.get("checks", [])]
+        fields = [FieldResult(**field) for field in extract_result.get("fields", [])]
+        checks = [VerifyCheck(**check) for check in verify_result.get("checks", [])]
 
         tool_evidence = ""
         tool_name = ""
         tool_response = {}
         if tool_result:
             tool_name = tool_result.tool_name
-            tool_response = tool_result.data
+            tool_response = tool_result.model_dump(by_alias=True)
             if tool_result.success:
                 tool_evidence = (
-                    f"{tool_result.tool_name} 调用成功，证据编号 {tool_result.evidence_id}"
+                    f"{tool_result.action or tool_result.tool_name}调用成功，"
+                    f"证据编号 {tool_result.evidence_id}"
                 )
             else:
-                tool_evidence = f"{tool_result.tool_name} 调用失败：{tool_result.message}"
+                tool_evidence = f"{tool_result.tool_name}调用失败：{tool_result.message}"
 
         result = AiProcessResult(
             workflow_name=intent.workflow_name,
@@ -536,14 +668,14 @@ class Orchestrator:
                     tool_result.evidence_id,
                     1 if tool_result.success else 0,
                     tool_result.duration_ms,
-                    "" if tool_result.success else tool_result.message,
+                    "" if tool_result.success else (tool_result.failure_reason or tool_result.message),
                 ),
             )
             await db.commit()
 
     @staticmethod
     def public_result(result: dict) -> dict:
-        payload = {k: v for k, v in result.items() if not k.startswith("_")}
+        payload = {key: value for key, value in result.items() if not key.startswith("_")}
         return AiProcessResult(**payload).model_dump(by_alias=True)
 
     @staticmethod

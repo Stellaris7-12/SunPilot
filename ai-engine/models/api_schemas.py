@@ -59,6 +59,19 @@ class CloseTicketRequest(ApiModel):
     final_reply: str
 
 
+class ToolCallLogResponse(ApiModel):
+    id: int
+    ticket_id: str
+    tool_name: str
+    request: dict
+    response: dict
+    evidence_id: str = ""
+    success: bool
+    duration_ms: int
+    failure_reason: str = ""
+    created_at: str
+
+
 class EvaluationMetrics(ApiModel):
     intent_accuracy: float
     field_completeness: float

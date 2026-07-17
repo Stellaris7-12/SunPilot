@@ -76,17 +76,17 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - 模块 A 冒烟测试继续通过，证明命名重构没有破坏既有契约。
 - 旧导入在兼容期内仍能运行，不因命名调整造成外部调用或测试断裂。
 
-## 模块 C：Resolution 执行能力与工具审计（P0）
+## 模块 C：Resolution 执行能力与工具审计（P0）已完成
 
 目标：把“AI 给建议”升级为“AI 调用业务能力并留下证据”。
 
-- [ ] 梳理现有 Mock Tool：补券、查询交易、修改资料、查询权益、进度查询等。
-- [ ] 为每次工具调用记录审计日志：ticket_id、tool_name、request_json、response_json、evidence_id、success、duration_ms、failure_reason。
-- [ ] 统一工具返回结构：处理动作、业务结果、证据编号、下一步建议、是否需要人工。
-- [ ] 工具参数缺失时回到 Intake Agent 生成追问或补充提示。
-- [ ] 工具失败、结果冲突、权限不足时交给 Escalation Agent 升级人工。
-- [ ] MCP 作为进阶接入方式预留接口边界，不在核心闭环中强依赖。
-- [ ] Page Agent 采用三阶段引入，不直接进入高风险外部系统自动化：
+- [x] 梳理现有 Mock Tool：补券、查询交易、修改资料、查询权益、进度查询等。
+- [x] 为每次工具调用记录审计日志：ticket_id、tool_name、request_json、response_json、evidence_id、success、duration_ms、failure_reason。
+- [x] 统一工具返回结构：处理动作、业务结果、证据编号、下一步建议、是否需要人工。
+- [x] 工具参数缺失时回到 Intake Agent 生成追问或补充提示。
+- [x] 工具失败、结果冲突、权限不足时交给 Escalation Agent 升级人工。
+- [x] MCP 作为进阶接入方式预留接口边界，不在核心闭环中强依赖。
+- [x] Page Agent 采用三阶段引入，不直接进入高风险外部系统自动化：
   - 第一阶段：前端页面助手。在 `frontend/src/views/TicketDetailView.vue` 增加“页面助手”入口，只操作当前工单详情页，支持把 AI 回单草稿填入回单框、检查当前工单风险和缺失字段、打开工具面板并定位补券工具、滚动到审核区域等低风险动作。
   - 第二阶段：发单/回单表单自动填充。等动态工单表单更完整后，将 Intake Agent/ExtractAgent 的抽取结果转成页面填充动作，用于减少人工复制粘贴。
   - 第三阶段：外部遗留系统自动化。仅当行内系统没有 API 时，才考虑 Page Agent Ext / MCP 方案操作浏览器页面；该能力属于高风险扩展，必须有白名单、脱敏、审计、人工确认。
@@ -208,9 +208,9 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - [x] 前端可构建，可展示工单处理过程。
 - [x] Intake/Classifier/Resolution/Notification/Escalation 五类核心 Agent 口径清晰。
 - [x] Dispatcher 被明确标记为进阶模块。
-- [ ] 至少 5 类以上工单场景可演示或可评测。
-- [ ] Resolution Agent 能调用 Mock Tool/API 并生成证据编号。
-- [ ] 工具失败、字段缺失、复杂争议能升级人工。
+- [x] 至少 5 类以上工单场景可演示或可评测。
+- [x] Resolution Agent 能调用 Mock Tool/API 并生成证据编号。
+- [x] 工具失败、字段缺失、复杂争议能升级人工。
 - [ ] 至少 20 条标注样本可跑评测。
 - [ ] Agent 测评能输出准确率、完整率、工具命中率、闭环成功率、耗时节省等指标。
 - [ ] Demo 讲解、README、AGENTS.md 与当前 Agent 口径一致。

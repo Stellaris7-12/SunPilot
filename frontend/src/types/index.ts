@@ -85,6 +85,19 @@ export interface AiProcessResult {
   failureReason: string;
 }
 
+export interface ToolCallLog {
+  id: number;
+  ticketId: string;
+  toolName: string;
+  request: Record<string, unknown>;
+  response: ToolResult;
+  evidenceId: string;
+  success: boolean;
+  durationMs: number;
+  failureReason: string;
+  createdAt: string;
+}
+
 export interface ProcessTicketResponse {
   ticketId: string;
   status: TicketStatus | string;
@@ -121,6 +134,11 @@ export interface ToolResult {
   success: boolean;
   toolName: string;
   evidenceId: string;
+  action: string;
+  businessResult: string;
+  nextStep: string;
+  requiresHuman: boolean;
+  failureReason: string;
   data: Record<string, unknown>;
   message: string;
   durationMs: number;

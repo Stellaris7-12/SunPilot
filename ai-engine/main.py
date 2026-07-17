@@ -22,6 +22,7 @@ from models.api_schemas import (
     EvaluationMetrics,
     ProcessTicketResponse,
     TicketResponse,
+    ToolCallLogResponse,
 )
 from models.database import get_db, init_db
 from orchestrator.orchestrator import orchestrator
@@ -433,6 +434,33 @@ async def get_ai_result(ticket_id: str):
     if row is None:
         raise HTTPException(status_code=404, detail="No AI result found")
     return json.loads(row["result_json"])
+
+
+@app.get("/api/tickets/{ticket_id}/tool-calls")
+async def get_tool_calls(ticket_id: str):
+    async with get_db() as db:
+        cursor = await db.execute(
+            """SELECT * FROM tool_call_log
+               WHERE ticket_id = ?
+               ORDER BY created_at DESC, id DESC""",
+            (ticket_id,),
+        )
+        rows = await cursor.fetchall()
+    return [
+        ToolCallLogResponse(
+            id=row["id"],
+            ticket_id=row["ticket_id"],
+            tool_name=row["tool_name"],
+            request=json.loads(row["request_json"] or "{}"),
+            response=json.loads(row["response_json"] or "{}"),
+            evidence_id=row["evidence_id"] or "",
+            success=bool(row["success"]),
+            duration_ms=row["duration_ms"],
+            failure_reason=row["failure_reason"] or "",
+            created_at=row["created_at"],
+        ).model_dump(by_alias=True)
+        for row in rows
+    ]
 
 
 @app.get("/api/agent-cards")

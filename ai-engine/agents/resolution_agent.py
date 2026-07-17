@@ -11,22 +11,25 @@ _INTENT_TOOL_MAP = {
     "COUPON_REISSUE": "coupon.reissue",
     "CUSTOMER_ADDRESS_UPDATE": "customer.update-address",
     "TRANSACTION_DISPUTE": "transaction.query",
+    "BENEFIT_QUERY": "benefit.query",
+    "APPLICATION_PROGRESS_QUERY": "application.progress-query",
 }
 
-RESOLUTION_SYSTEM_PROMPT = """你是一个信用卡工单解决方案与业务执行专家。根据分类结果和已抽取字段，选择合适的业务工具并生成调用参数。
-你需要返回一个JSON对象：
+RESOLUTION_SYSTEM_PROMPT = """你是一个信用卡工单解决方案与业务执行专家。
+根据分类结果和已抽取字段，选择合适的业务工具并生成调用参数。
+你需要返回一个 JSON 对象：
 {
   "tool_name": "要调用的工具名称",
-  "tool_params": {参数名: 参数值},
+  "tool_params": {"参数名": "参数值"},
   "skip": false,
   "skip_reason": ""
 }
 
 规则：
-1. 如果分类是 TRANSACTION_DISPUTE（交易争议），且风险较高，可以设置 skip=true，理由为"高风险争议需转人工处理"
-2. 工具名称必须从可用工具列表中选择
-3. tool_params 中的参数值从已抽取字段中获取
-4. 只返回JSON，不要包含任何其他文字"""
+1. 工具名称必须从可用工具列表中选择。
+2. tool_params 中的参数值从已抽取字段中获取，不要编造关键业务参数。
+3. 高风险交易争议可以 skip=true，并说明需要人工复核。
+4. 只返回 JSON。"""
 
 
 def _recommended_tool(intent_type: str, workflow_config: dict) -> str | None:
@@ -44,7 +47,11 @@ class ResolutionAgent(BaseAgent):
         workflow_config = input_data.get("workflow_config", {})
         intent_type = intent.get("type", "UNKNOWN")
 
-        fields_dict = {f["name"]: f["value"] for f in fields}
+        fields_dict = {
+            field["name"]: field["value"]
+            for field in fields
+            if field.get("value") not in {"", "未提取", "未提供", None}
+        }
 
         user_prompt = f"""可用工具列表：
 {available_tools}
@@ -55,7 +62,7 @@ class ResolutionAgent(BaseAgent):
 已抽取字段：
 {json.dumps(fields, ensure_ascii=False, indent=2)}
 
-请选出最合适的工具并生成调用参数。"""
+请选择最合适的工具并生成调用参数。"""
 
         if intent_type == "TRANSACTION_DISPUTE":
             logger.info("[ResolutionAgent] TRANSACTION_DISPUTE detected - skipping tool")
@@ -77,12 +84,13 @@ class ResolutionAgent(BaseAgent):
                     fallback_tool,
                 )
                 result["tool_name"] = fallback_tool
-                result["tool_params"] = {
-                    k: v for k, v in fields_dict.items()
-                    if v != "未提供"
-                }
+                result["tool_params"] = dict(fields_dict)
                 result["skip"] = False
                 result["skip_reason"] = ""
+
+        result["tool_params"] = result.get("tool_params") or {}
+        result["skip"] = bool(result.get("skip", False))
+        result["skip_reason"] = result.get("skip_reason", "")
 
         logger.info(
             "[ResolutionAgent] Selected: %s, skip=%s",

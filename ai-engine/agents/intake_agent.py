@@ -26,6 +26,17 @@ _FIELD_SCHEMAS = {
         ("merchantName", "商户名称"),
         ("disputeReason", "争议原因"),
     ],
+    "BENEFIT_QUERY": [
+        ("customerId", "客户号"),
+        ("phone", "手机号（脱敏后）"),
+        ("benefitCode", "权益或活动编码"),
+        ("queryReason", "查询原因"),
+    ],
+    "APPLICATION_PROGRESS_QUERY": [
+        ("customerId", "客户号"),
+        ("phone", "手机号（脱敏后）"),
+        ("applicationNo", "申请单号或业务流水号"),
+    ],
     "UNKNOWN": [
         ("customerId", "客户号"),
         ("phone", "手机号"),
@@ -51,11 +62,12 @@ def _build_intake_prompt(intent_type: str, intent_label: str, workflow_config: d
     fields = _fields_from_config(intent_type, workflow_config)
     field_descriptions = "\n".join(f"- {name}: {label}" for name, label in fields)
 
-    return f"""你是一个信用卡工单接单与信息提取专家。当前工单场景为：{intent_label}（{intent_type}）。
+    return f"""你是一个信用卡工单接单与信息提取专家。
+当前工单场景为：{intent_label}（{intent_type}）。
 请从工单内容中抽取以下字段：
 {field_descriptions}
 
-以JSON格式返回，包含一个 fields 数组：
+以 JSON 格式返回，包含 fields 数组：
 {{
   "fields": [
     {{"label": "客户号", "name": "customerId", "value": "C10001"}},
@@ -63,11 +75,22 @@ def _build_intake_prompt(intent_type: str, intent_label: str, workflow_config: d
   ]
 }}
 
-对于无法从工单中抽取的字段，value 设为 "未提供"。只返回JSON，不要包含任何其他文字。"""
+对于无法从工单中抽取的字段，value 设为 "未提供"。只返回 JSON。"""
 
 
 class IntakeAgent(BaseAgent):
     """Extract structured business fields from ticket content."""
+
+    def build_follow_up_prompt(self, missing_fields: list[dict]) -> str:
+        """Build a customer-facing prompt for fields needed before tool execution."""
+        if not missing_fields:
+            return "当前信息不足，请补充关键业务信息后继续处理。"
+        lines = []
+        for item in missing_fields:
+            example = item.get("example", "")
+            suffix = f"，示例：{example}" if example else ""
+            lines.append(f"- {item.get('description') or item.get('name')}{suffix}")
+        return "为继续办理该工单，请补充以下信息：\n" + "\n".join(lines)
 
     async def run(self, input_data: dict, context: dict = None) -> dict:
         ticket_content = input_data.get("ticket_content", "")

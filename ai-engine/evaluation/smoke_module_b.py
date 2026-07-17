@@ -199,6 +199,7 @@ async def main():
             "intake_agent",
             "escalation_agent",
             "resolution_agent",
+            "escalation_agent",
             "notification_agent",
         ], agent_ids
         assert events[0]["data"]["agent_id"] == "classifier_agent", events

@@ -189,6 +189,17 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 - `workflow_config` 加载具备内置 fallback；Classifier 会基于配置回填 `workflow_name` 并归一异常类型。
 - Agent 执行异常时，当前 Agent Trace 会落为 `FAILED`，再由 Orchestrator 发出统一失败终态。
 
+## 模块 C 完成后的实现事实
+
+- Mock Tool 已扩展到 5 类：`coupon.reissue`、`customer.update-address`、`transaction.query`、`benefit.query`、`application.progress-query`。
+- `ToolResult` 已统一包含 `action`、`business_result`、`evidence_id`、`next_step`、`requires_human`、`failure_reason`，前端通过 camelCase 展示。
+- Orchestrator 在工具执行前校验参数，缺参时进入 `pending_info`，并由 Intake Agent 生成客户可读补充提示。
+- 每次 Orchestrator 工具执行都会写入 `tool_call_log`；直接调试工具接口如提供 `ticketId` 也会写入审计日志。
+- 工具执行后会再次经过 Escalation Agent 复核；失败、权限不足、结果冲突或工具要求人工都会升级人工。
+- 新增 `/api/tickets/{ticket_id}/tool-calls` 只读审计接口，用于展示工具请求、响应、证据编号、耗时和失败原因。
+- 前端 `AiResultCard` 已展示工具名称、关键入参、业务结果、证据编号、下一步建议和是否需人工；详情页刷新后会恢复最新 AI 结果。
+- Page Agent 第一阶段已落为当前工单页内的“页面助手”，只支持填入回单、检查风险/缺失字段、定位工具面板和滚动审核区域，不操作外部系统。
+
 ## 风险与兜底
 
 | 风险 | 兜底方式 |

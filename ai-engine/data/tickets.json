@@ -11,7 +11,7 @@
     "risk_label": "低风险",
     "risk_level": "low",
     "status": "open",
-    "content": "客户反馈参加信用卡满减活动后已满足消费条件，但App优惠券中心未收到满100减20餐饮券，希望协助核实并补发。"
+    "content": "客户号C10001反馈参加信用卡满减活动后已满足消费条件，但App优惠券中心未收到满100减20餐饮券，券类型DINING_100_20，希望协助核实并补发，原因是活动达标未到账。"
   },
   {
     "id": "address",
@@ -25,7 +25,7 @@
     "risk_label": "中风险",
     "risk_level": "medium",
     "status": "open",
-    "content": "客户来电要求修改账单寄送地址为新地址上海市徐汇区XX路XX号，已通过短信验证码核验身份。"
+    "content": "客户号C10002来电要求修改账单寄送地址为上海市徐汇区XX路XX号，已通过短信验证码核验身份，verifyStatus为PASSED。"
   },
   {
     "id": "dispute",
@@ -39,6 +39,34 @@
     "risk_label": "高风险",
     "risk_level": "high",
     "status": "open",
-    "content": "客户投诉2026年7月10日一笔398元的交易非本人操作，怀疑卡片被盗刷，要求核查交易详情并申请拒付。"
+    "content": "客户号C10003投诉2026-07-10一笔199元的交易非本人操作，商户为某某超市，怀疑卡片被盗刷，要求核查交易详情并申请拒付。"
+  },
+  {
+    "id": "benefit",
+    "no": "T20260715004",
+    "title": "客户咨询机场贵宾厅权益资格",
+    "customer_name": "赵六",
+    "phone": "136****3333",
+    "card_last4": "2468",
+    "scene": "权益资格查询",
+    "created_at": "2026-07-15 10:42",
+    "risk_label": "低风险",
+    "risk_level": "low",
+    "status": "open",
+    "content": "客户号C10004咨询白金卡是否具备机场贵宾厅权益，权益编码AIRPORT_LOUNGE_2026，查询原因是客户准备出行前确认权益资格。"
+  },
+  {
+    "id": "progress",
+    "no": "T20260715005",
+    "title": "客户查询信用卡申请进度",
+    "customer_name": "孙七",
+    "phone": "135****5555",
+    "card_last4": "0000",
+    "scene": "申请进度查询",
+    "created_at": "2026-07-15 11:20",
+    "risk_label": "低风险",
+    "risk_level": "low",
+    "status": "open",
+    "content": "客户号C10005咨询信用卡申请进度，申请单号APP20260718001，客户表示已补充资料，希望了解当前处理节点和预计完成时间。"
   }
 ]

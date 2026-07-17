@@ -1,5 +1,45 @@
 ﻿# 进度日志
 
+## 会话：2026-07-18（模块C完成：Resolution 执行能力与工具审计）
+
+### 背景
+
+用户要求继续完成模块 C 代码，并使用子 Agent 进行代码审查、测试、debug 和优化，直到满足 `task_plan.md` 中模块 C 的要求清单。
+
+### 执行内容
+
+- 扩展 Mock Tool 到 5 类：补券、资料修改、交易查询、权益查询、进度查询。
+- 扩展 `workflow_config`、Classifier、Intake、Escalation、Resolution 和 Agent Card，使 5 类场景都能被识别、抽取、校验和选择工具。
+- 统一 `ToolResult` 返回结构：`action`、`business_result`、`evidence_id`、`next_step`、`requires_human`、`failure_reason`。
+- 重构 `MockExecutor`，生成业务证据编号，并对权限、冲突、失败等业务异常标记人工复核。
+- 重构 Orchestrator 工具执行链：执行前缺参校验，缺参时生成补充提示并暂停；执行后再次调用 Escalation Agent 做失败、冲突、权限和人工复核判断。
+- 补齐工具审计：Orchestrator 路径写 `tool_call_log`，直接工具调试接口在传入 `ticketId` 时也写审计。
+- 新增 `GET /api/tickets/{ticket_id}/tool-calls` 只读审计接口。
+- 前端新增业务执行审计展示：工具名、关键入参、业务结果、证据编号、下一步建议、是否需人工、失败原因。
+- 前端新增当前工单页“页面助手”，仅支持本页低风险动作：填入回单、检查风险、定位工具、滚动审核区。
+- 修复详情页刷新/路由切换后不恢复 AI 结果、可能操作错工单，以及 `AppSidebar` 未显式导入的问题。
+- 新增 `ai-engine/evaluation/smoke_module_c.py`，覆盖 5 类工具、工具审计接口、缺参暂停、失败升级、业务冲突升级和直接工具接口审计。
+
+### 子 Agent 审查与修复
+
+- 后端子 Agent 发现直接工具接口绕过审计、缺参缺少客户可读补充提示、成功但业务冲突时可能跳过升级；已全部修复并加回归断言。
+- 前端子 Agent 发现刷新后不恢复 AI 结果、路由切换与 store 状态可能脱节、`AppSidebar` 未导入；已全部修复。
+- 子 Agent 未发现 P0 问题。
+
+### 验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_a.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_b.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_c.py`：通过。
+- `cd frontend && npm.cmd run build`：通过。
+
+### 当前阶段
+
+- **状态：** completed
+- **阶段名称：** 模块C：Resolution 执行能力与工具审计
+- **下一步：** 进入模块D：Notification 与回单闭环；重点把工具结果、证据编号、人工复核原因转成更标准的客户回单、内部通知和结案建议。
+
 ## 会话：2026-07-17（模块B完成：业务 Agent 受控重构）
 
 ### 背景

@@ -6,20 +6,25 @@ from agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)
 
-CLASSIFIER_SYSTEM_PROMPT = """你是一个信用卡工单分类与优先级判定专家。你需要分析工单内容，判断客户诉求属于以下哪类场景：
-1. COUPON_REISSUE - 补发优惠券/权益：客户反馈优惠券未到账、过期要求补发、活动达标未收到券等
-2. CUSTOMER_ADDRESS_UPDATE - 修改客户地址/资料：客户要求修改账单地址、联系电话、个人信息等
-3. TRANSACTION_DISPUTE - 账单争议/交易核查：客户质疑某笔交易、声称非本人消费、要求核查交易等
-4. UNKNOWN - 无法识别：不属于以上任何场景
+CLASSIFIER_SYSTEM_PROMPT = """你是一个信用卡工单分类与优先级判定专家。
+请分析工单内容，判断客户诉求属于以下哪类场景：
+1. COUPON_REISSUE - 优惠券/权益补发：客户反馈优惠券未到账、过期或活动达标未收到券
+2. CUSTOMER_ADDRESS_UPDATE - 资料修改：客户要求修改账单地址、联系电话、个人信息等
+3. TRANSACTION_DISPUTE - 交易争议/交易核查：客户质疑交易、声称非本人消费或要求核查交易
+4. BENEFIT_QUERY - 权益资格查询：客户咨询活动资格、权益可用状态、贵宾厅/积分/权益资格
+5. APPLICATION_PROGRESS_QUERY - 申请进度查询：客户查询办卡、资料补充、调额或业务办理进度
+6. UNKNOWN - 无法识别：不属于以上任何场景
 
-请以JSON格式返回结果，包含以下字段：
-- type: 场景类型编码（COUPON_REISSUE / CUSTOMER_ADDRESS_UPDATE / TRANSACTION_DISPUTE / UNKNOWN）
-- label: 场景中文名称
-- confidence: 置信度（0-1之间的浮点数）
-- workflow_name: 对应的处理流程名称（coupon_reissue_flow / address_update_flow / transaction_dispute_flow / unknown_flow）
-- reason: 简短的判断依据（一句话说明为什么这样分类）
+请以 JSON 格式返回：
+{
+  "type": "COUPON_REISSUE | CUSTOMER_ADDRESS_UPDATE | TRANSACTION_DISPUTE | BENEFIT_QUERY | APPLICATION_PROGRESS_QUERY | UNKNOWN",
+  "label": "场景中文名称",
+  "confidence": 0.0,
+  "workflow_name": "对应流程名",
+  "reason": "一句话说明分类依据"
+}
 
-重要：只返回JSON，不要包含任何其他文字。"""
+只返回 JSON，不要包含其他文字。"""
 
 
 class ClassifierAgent(BaseAgent):
@@ -37,7 +42,7 @@ class ClassifierAgent(BaseAgent):
                 "reason": "工单内容为空",
             }
 
-        user_prompt = f"请分析以下工单内容，识别其业务场景和处理路径：\n\n{ticket_content}"
+        user_prompt = f"请分析以下工单内容，识别业务场景和处理路径：\n\n{ticket_content}"
 
         logger.info("[ClassifierAgent] Analyzing ticket content (%s chars)", len(ticket_content))
         result = await self.call_llm(CLASSIFIER_SYSTEM_PROMPT, user_prompt)

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTicketStore } from '../stores/ticket'
 import AppHeader from '../components/layout/AppHeader.vue'
+import AppSidebar from '../components/layout/AppSidebar.vue'
 import TicketInfo from '../components/ticket/TicketInfo.vue'
 import TicketContent from '../components/ticket/TicketContent.vue'
 import AiProcessPanel from '../components/ai/AiProcessPanel.vue'
@@ -10,6 +11,7 @@ import AgentTraceTimeline from '../components/ai/AgentTraceTimeline.vue'
 import AiResultCard from '../components/ai/AiResultCard.vue'
 import ReplyDraftEditor from '../components/ai/ReplyDraftEditor.vue'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
+import PageAssistantPanel from '../components/ai/PageAssistantPanel.vue'
 import ToolRegistryPanel from '../components/tools/ToolRegistryPanel.vue'
 
 const route = useRoute()
@@ -20,7 +22,11 @@ const ticket = computed(() => store.selectedTicket)
 
 onMounted(async () => {
   await store.fetchTickets()
-  if (ticketId.value) store.selectTicket(ticketId.value)
+  if (ticketId.value) await store.loadTicketContext(ticketId.value)
+})
+
+watch(ticketId, async id => {
+  if (id) await store.loadTicketContext(id)
 })
 
 function handleProcess() {
@@ -28,6 +34,21 @@ function handleProcess() {
 }
 function handleReset() {
   store.resetState()
+}
+
+function scrollToId(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function fillReplyDraft() {
+  if (store.aiResult?.replyDraft) {
+    store.replyDraft = store.aiResult.replyDraft
+    scrollToId('reply-review')
+  }
+}
+
+function checkCurrentTicket() {
+  scrollToId(store.aiResult?.missingFields?.length ? 'tool-audit' : 'ai-result-card')
 }
 </script>
 <template>
@@ -48,14 +69,28 @@ function handleReset() {
         <div class="insight-col">
           <AiProcessPanel :trace-steps="store.traceSteps" :is-processing="store.isProcessing" />
           <AgentTraceTimeline :steps="store.traceSteps" />
-          <AiResultCard v-if="store.aiResult" :result="store.aiResult" />
-          <ReplyDraftEditor
-            v-if="store.aiResult"
-            v-model:draft="store.replyDraft"
-            :disabled="store.isProcessing"
-            @close="(reply: string) => store.closeTicket(ticketId, reply)"
+          <PageAssistantPanel
+            :ticket="ticket"
+            :result="store.aiResult"
+            @fill-reply="fillReplyDraft"
+            @check-ticket="checkCurrentTicket"
+            @locate-tools="scrollToId('tool-registry')"
+            @scroll-review="scrollToId('reply-review')"
           />
-          <ToolRegistryPanel />
+          <div id="ai-result-card">
+            <AiResultCard v-if="store.aiResult" :result="store.aiResult" />
+          </div>
+          <div id="reply-review">
+            <ReplyDraftEditor
+              v-if="store.aiResult"
+              v-model:draft="store.replyDraft"
+              :disabled="store.isProcessing"
+              @close="(reply: string) => store.closeTicket(ticketId, reply)"
+            />
+          </div>
+          <div id="tool-registry">
+            <ToolRegistryPanel />
+          </div>
         </div>
       </div>
       <div v-else class="detail-empty">未找到工单</div>
