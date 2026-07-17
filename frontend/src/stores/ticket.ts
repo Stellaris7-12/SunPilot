@@ -66,10 +66,10 @@ export const useTicketStore = defineStore('ticket', () => {
     });
 
     eventSource.addEventListener('agent_complete', (e: MessageEvent) => {
-      const { agent_id, summary, duration_ms } = JSON.parse(e.data);
+      const { agent_id, summary, duration_ms, status } = JSON.parse(e.data);
       const step = traceSteps.value.find(s => s.agentId === agent_id && s.status === 'RUNNING');
       if (step) {
-        step.status = 'SUCCESS';
+        step.status = status || 'SUCCESS';
         step.duration = `${duration_ms}ms`;
         step.summary = summary || step.summary;
       }

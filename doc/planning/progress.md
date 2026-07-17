@@ -1,5 +1,72 @@
 ﻿# 进度日志
 
+## 会话：2026-07-17（模块B完成：业务 Agent 受控重构）
+
+### 背景
+
+用户要求按照计划完成模块 B 代码，并使用子 Agent 进行代码审查、测试、debug 和优化，直到满足 `task_plan.md` 中模块 B 的要求清单。
+
+### 执行内容
+
+- 新增业务 Agent 文件：`classifier_agent.py`、`intake_agent.py`、`escalation_agent.py`、`resolution_agent.py`、`notification_agent.py`。
+- 将旧 `intent_agent.py`、`extract_agent.py`、`verify_agent.py`、`tool_agent.py`、`reply_agent.py` 改为短期兼容 shim。
+- 更新 Orchestrator：使用新业务 Agent 属性和 `agentId`，Trace/SSE 改为 `classifier_agent`、`intake_agent`、`escalation_agent`、`resolution_agent`、`notification_agent`。
+- 新增 `ai-engine/data/workflow_config.json` 和 `orchestrator/workflow_config.py`，描述场景、必填字段、推荐工具、人工确认策略和通知模板。
+- 更新 `agent_cards.json` 为新业务 Agent Card 和依赖关系。
+- 更新前端流程条、Trace 标题、AI 结果卡片、人工确认提示等业务化文案，并让 SSE `agent_complete.status` 可驱动失败状态。
+- 更新 `doc/guides/启动与使用指南.md` 的演示轨迹、目录结构、架构流程和新增场景说明。
+- 新增 `ai-engine/evaluation/smoke_module_b.py`，覆盖新 Agent ID、`pausedAt=escalation_agent`、高风险升级、旧 shim、workflow_config fallback、Classifier fallback 和 Agent 异常 Trace 失败状态。
+- 通过子 Agent 做后端只读审查，并修复：
+  - `workflow_config` 加载失败缺少内置 fallback。
+  - Classifier 缺失或异常 `workflow_name/type` 时回填不稳。
+  - Agent 抛异常时 Trace/SSE 可能保留 RUNNING 状态。
+- API 级验证发现 `/api/agent-cards` 仍返回 snake_case 字段，已将 `AgentCard` 接入统一 camelCase API 模型。
+
+### 验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_a.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_b.py`：通过。
+- `cd frontend && npm.cmd run build`：通过。
+- 临时数据库 + FastAPI TestClient 验证 `GET /api/tickets`、`GET /api/agent-cards`、`GET /api/tools` 均返回 200，且 Agent Card 对外字段为 `agentId`、`inputSchema`。
+- Agent Registry 当前加载顺序为 `classifier_agent -> intake_agent -> escalation_agent -> resolution_agent -> notification_agent`。
+- `workflow_config` 可加载三类核心场景和 `UNKNOWN` 兜底，旧 Agent shim 继承关系验证通过。
+
+### 当前阶段
+
+- **状态：** completed
+- **阶段名称：** 模块B：Agent 编排与业务化封装
+- **下一步：** 进入模块C：Resolution 执行能力与工具审计；重点梳理 Mock Tool、统一工具返回结构、强化工具参数缺失和失败升级链路。
+
+## 会话：2026-07-17（模块B实施策略调整：受控重构新业务 Agent）
+
+### 背景
+
+用户质疑单独增加 Agent 映射层是否冗余，并提出相比维护 `IntentAgent -> ClassifierAgent` 这类翻译关系，是否更适合直接把旧 Agent 重构为新业务 Agent。
+
+### 执行内容
+
+- 读取 `planning-with-files-zh` 技能说明。
+- 重新读取 `doc/planning/task_plan.md`、`doc/planning/findings.md`、`doc/planning/progress.md`。
+- 更新 `doc/planning/task_plan.md`：将模块 B 从“映射/adapter 方案”调整为“代码层受控重构为新业务 Agent”。
+- 更新 `doc/planning/findings.md`：记录映射层在当前 Demo 阶段偏冗余，模块 B 改为受控重构。
+- 明确旧 Agent 文件短期保留为兼容 shim，模块 B/C 稳定后再评估删除。
+- 明确模块 A 不重新开发；模块 B 完成后只做 API、SSE 终态、状态机、持久化和工具审计契约的回归验证。
+
+### 当前共识
+
+- 模块 B 采用受控重构，不长期维护单独业务映射层。
+- 新 Agent 代码命名目标：`ExtractAgent -> IntakeAgent`、`IntentAgent -> ClassifierAgent`、`ToolCallingAgent -> ResolutionAgent`、`ReplyAgent -> NotificationAgent`、`VerifyAgent -> EscalationAgent`。
+- 旧文件短期作为兼容 shim，避免测试或旧导入立刻断裂。
+- 模块 A 不重做；模块 B 必须保持模块 A 契约不变，并通过模块 A smoke 回归。
+
+### 当前阶段
+
+- **状态：** in_progress
+- **阶段名称：** 模块B：Agent 编排与业务化封装
+- **当前任务：** 按受控重构方案统一代码层、Trace、前端和文档中的业务 Agent 命名。
+- **下一步：** 开始模块 B 代码改造：新增业务 Agent 文件、旧文件改兼容 shim、调整 Orchestrator/Agent Card/前端流程条，并补充模块 B smoke 测试。
+
 ## 会话：2026-07-17（Page Agent 进阶路线补充）
 
 ### 背景
@@ -44,7 +111,7 @@
 
 - 新业务 Agent 主口径：Intake、Classifier、Resolution、Notification、Escalation。
 - Dispatcher Agent 难度较高，先作为进阶模块，不进入当前核心闭环。
-- 当前代码不需要完全推倒重构，先用映射/adapter/trace label 对齐新业务命名。
+- 当前代码不长期维护映射层，模块 B 采用受控重构，旧 Agent 文件短期保留为兼容 shim。
 - Resolution Agent 必须明确包含 API/Mock Tool 调用和审计证据；MCP 与 PageAgent 是进阶扩展。
 - 风险分级不再作为核心模块，只作为分类、执行和升级策略中的细节。
 - 工单场景需要扩展到 10 类以上，用于数据集和测评，而不是只围绕 3 个固定 Demo。
@@ -101,11 +168,11 @@
 
 | 问题 | 当前答案 |
 |------|----------|
-| 我在哪里？ | 初版系统已完成，正在把 planning 对齐到新的业务型 Agent 方案 |
-| 我要去哪里？ | 先跑通接单、分类、执行、通知、升级的核心工单闭环，再做数据集、测评和前端呈现 |
+| 我在哪里？ | 模块 A 和模块 B 已完成，系统已统一到业务 Agent 命名和轻量 workflow_config |
+| 我要去哪里？ | 进入模块 C，强化 Resolution 执行能力、工具审计和失败兜底 |
 | 目标是什么？ | 做出可演示、可测评、可解释的信用卡工单智能处理系统 |
-| 我学到了什么？ | 新 Agent 分类更适合业务表达；旧代码不必推倒，可先映射；Resolution 执行链和测评是核心亮点 |
-| 我做了什么？ | 重构 planning 三文件，保留 `任务顺序.md` 不动，将规划从旧技术 Agent 和风险分级主轴迁移到业务型 Agent 编排 |
+| 我学到了什么？ | 受控重构比长期映射层更适合当前项目；workflow_config 需要内置 fallback，Agent 失败 Trace 也要明确落为 FAILED |
+| 我做了什么？ | 完成模块 B 代码改造、前端和文档同步、模块 A/B smoke 回归、前端构建和子 Agent 审查修复 |
 
 ## 会话：2026-07-17（模块A完成：后端契约与状态稳定化）
 

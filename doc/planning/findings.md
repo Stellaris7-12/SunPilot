@@ -26,26 +26,31 @@
 
 ## 是否需要完全重构 Agent 代码
 
-结论：不需要立即完全重构。
+结论：当前项目规模下，不建议长期维护单独映射层；模块 B 改为受控重构。
 
-更稳的路线是三步走：
+之前考虑过“旧 Agent + adapter/metadata/trace label 映射”的路线，但用户指出该映射层在当前 Demo 阶段偏冗余。复盘后确认：项目还没有外部插件生态、大量历史调用方或稳定第三方集成，直接把代码层统一为业务 Agent 命名，反而能降低认知成本，更利于答辩和后续开发。
 
-1. 文档、演示、前端 Trace 先使用新业务 Agent 名称。
-2. 代码层保留旧类名，通过角色映射、metadata、adapter 或 trace label 对齐新口径。
-3. 当核心闭环稳定后，再考虑逐步重命名、拆分或合并 Agent 文件。
+新的实施路线：
 
-当前映射建议：
+1. 代码层直接采用业务 Agent 命名。
+2. 旧文件只作为短期兼容 shim，避免测试和旧导入立刻断裂。
+3. Orchestrator、Trace、SSE、前端流程条和 Agent Card 全部使用新业务 ID。
+4. 模块 B/C 稳定后，再评估删除旧 shim。
 
-| 当前实现 | 新业务口径 | 说明 |
-|----------|------------|------|
-| 工单输入 + ExtractAgent | Intake Agent | 接单、字段抽取、缺失信息提示 |
-| IntentAgent | Classifier Agent | 意图识别、工单类型、优先级 |
-| ToolCallingAgent + MockExecutor | Resolution Agent | 自动执行、接口调用、证据链 |
-| ReplyAgent | Notification Agent | 回单、状态通知、后续回访预留 |
-| VerifyAgent + 状态机 | Escalation Agent | 异常兜底、人工升级、合规判断 |
+当前重构建议：
+
+| 旧实现 | 新业务 Agent | 兼容策略 |
+|----------|---------------|----------|
+| `ExtractAgent` | `IntakeAgent` | `extract_agent.py` 短期转发到 `intake_agent.py` |
+| `IntentAgent` | `ClassifierAgent` | `intent_agent.py` 短期转发到 `classifier_agent.py` |
+| `ToolCallingAgent` + `MockExecutor` | `ResolutionAgent` | `tool_agent.py` 短期转发到 `resolution_agent.py` |
+| `ReplyAgent` | `NotificationAgent` | `reply_agent.py` 短期转发到 `notification_agent.py` |
+| `VerifyAgent` + 状态机 | `EscalationAgent` | `verify_agent.py` 短期转发到 `escalation_agent.py` |
 | 暂无 | Dispatcher Agent | 后续根据人员/团队/Agent 能力派单 |
 
-这样做的好处是：业务表达先升级，工程风险可控，不会在还没跑通核心闭环前陷入大规模改名和迁移。
+这样做的好处是：代码、Trace 和文档的语言保持一致，减少“旧技术名”和“新业务名”之间的翻译成本；旧 shim 则保留了必要的安全垫，避免一次性破坏模块 A 已稳定的契约和测试。
+
+模块 A 不需要重做。模块 A 的价值是 API、SSE 终态、状态机、持久化和工具审计契约；模块 B 的 Agent 命名重构只要保持这些边界不变，完成后跑回归验证即可。
 
 ## 编排策略判断
 
@@ -165,8 +170,8 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 
 | 问题 | 当前结论 |
 |------|----------|
-| 是否沿用旧 Agent 代码 | 沿用，不立即推倒重构 |
-| 是否采用新 Agent 命名 | 采用，作为产品和业务主口径 |
+| 是否沿用旧 Agent 代码 | 不长期沿用旧命名；模块 B 受控重构为业务 Agent |
+| 是否采用新 Agent 命名 | 采用，产品、文档、Trace、前端和代码层都统一 |
 | 风险分级是否作为核心模块 | 否，只作为 Escalation/Classifier/Resolution 的策略细节 |
 | Dispatcher 是否现在做 | 暂不做完整实现，作为进阶模块 |
 | 是否引入 LangGraph | 暂不引入，先做轻量配置化 |
@@ -175,11 +180,20 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 | 是否做真实语音 ASR | 后置，先用通话文本或预置转写 |
 | 是否扩展更多工单场景 | 是，数据集和演示都需要超过 3 类 |
 
+## 模块 B 完成后的实现事实
+
+- 代码层已经使用 `ClassifierAgent`、`IntakeAgent`、`EscalationAgent`、`ResolutionAgent`、`NotificationAgent` 五个业务 Agent。
+- 旧 Agent 文件短期保留为 shim，只转发到新业务 Agent 类。
+- Trace、SSE、Agent Card 和前端流程条均使用新业务 `agentId`。
+- `workflow_config.json` 已覆盖优惠券补发、资料修改、交易争议和 UNKNOWN 兜底场景。
+- `workflow_config` 加载具备内置 fallback；Classifier 会基于配置回填 `workflow_name` 并归一异常类型。
+- Agent 执行异常时，当前 Agent Trace 会落为 `FAILED`，再由 Orchestrator 发出统一失败终态。
+
 ## 风险与兜底
 
 | 风险 | 兜底方式 |
 |------|----------|
-| 大规模改名导致代码不稳 | 先做业务标签映射，后续再渐进重构 |
+| 大规模改名导致代码不稳 | 受控重构 5 个 Agent，旧文件短期保留兼容 shim，模块 A smoke 回归必须通过 |
 | 工具调用不稳定 | 先 Mock Tool/API，真实服务后接 |
 | 数据集构建耗时 | 先做 20 条高质量样本，再逐步扩展 |
 | 前端过技术化 | 默认展示业务流程，开发 Trace 折叠 |

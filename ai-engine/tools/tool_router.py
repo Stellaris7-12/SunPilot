@@ -24,7 +24,7 @@ async def execute_tool(tool_name: str, params: dict):
     """Execute a tool directly with the given parameters.
 
     This is a demo/debug endpoint. In production, tool execution
-    would go through the Orchestrator → ToolCallingAgent path.
+    would go through the Orchestrator → ResolutionAgent path.
     """
     tool_def = tool_registry.get(tool_name)
     if tool_def is None:

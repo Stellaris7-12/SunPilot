@@ -5,7 +5,7 @@ const iconMap: Record<string, string> = { '通过': '✅', '待确认': '⚠️'
 </script>
 <template>
   <div class="section">
-    <h5>审核校验</h5>
+    <h5>升级与兜底检查</h5>
     <div v-for="c in checks" :key="c.label" class="check-row">
       <span class="check-icon">{{ iconMap[c.status] || '❓' }}</span>
       <span class="check-label">{{ c.label }}</span>

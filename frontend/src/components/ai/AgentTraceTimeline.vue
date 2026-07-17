@@ -4,7 +4,7 @@ defineProps<{ steps: TraceStep[] }>()
 </script>
 <template>
   <div class="card">
-    <h4 class="card-title">Agent Trace</h4>
+    <h4 class="card-title">业务处理轨迹</h4>
     <div v-if="steps.length === 0" class="empty">点击 AI智能处理 开始</div>
     <ol class="trace-list">
       <li v-for="(s, i) in steps" :key="i" class="trace-step">

@@ -18,7 +18,7 @@ ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
 
-class FakeIntentAgent:
+class FakeClassifierAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         content = input_data.get("ticket_content", "")
         if "地址" in content or "address" in content:
@@ -38,7 +38,7 @@ class FakeIntentAgent:
         }
 
 
-class FakeExtractAgent:
+class FakeIntakeAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         content = input_data.get("ticket_content", "")
         intent_type = input_data.get("intent_type")
@@ -67,7 +67,7 @@ class FakeExtractAgent:
         }
 
 
-class FakeVerifyAgent:
+class FakeEscalationAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         fields = input_data.get("fields", [])
         fields_dict = {field["name"]: field["value"] for field in fields}
@@ -103,7 +103,7 @@ class FakeVerifyAgent:
         }
 
 
-class FakeToolAgent:
+class FakeResolutionAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         fields = {field["name"]: field["value"] for field in input_data.get("fields", [])}
         intent_type = input_data.get("intent", {}).get("type")
@@ -122,7 +122,7 @@ class FakeToolAgent:
         }
 
 
-class FakeReplyAgent:
+class FakeNotificationAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         return {"reply_draft": "已核实并完成处理，请客户留意后续状态。"}
 
@@ -157,11 +157,11 @@ async def main():
 
         await init_db()
 
-        orchestrator.intent_agent = FakeIntentAgent()
-        orchestrator.extract_agent = FakeExtractAgent()
-        orchestrator.verify_agent = FakeVerifyAgent()
-        orchestrator.tool_agent = FakeToolAgent()
-        orchestrator.reply_agent = FakeReplyAgent()
+        orchestrator.classifier_agent = FakeClassifierAgent()
+        orchestrator.intake_agent = FakeIntakeAgent()
+        orchestrator.escalation_agent = FakeEscalationAgent()
+        orchestrator.resolution_agent = FakeResolutionAgent()
+        orchestrator.notification_agent = FakeNotificationAgent()
 
         async def run(ticket_id: str, *, confirmed: bool = False):
             trace = TraceCollector(ticket_id)

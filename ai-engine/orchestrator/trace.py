@@ -19,7 +19,7 @@ class TraceCollector:
     Usage:
         trace = TraceCollector(ticket_id="coupon")
         trace.start()  # generates run_id
-        trace.add_step(agent="意图识别Agent", agent_id="intent_agent", ...)
+        trace.add_step(agent="Classifier Agent / 分类与优先级判定", agent_id="classifier_agent", ...)
         # ... more steps ...
         steps = trace.to_list()
     """

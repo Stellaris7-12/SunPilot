@@ -1,0 +1,61 @@
+{
+  "default_workflow": "unknown_flow",
+  "scenarios": {
+    "COUPON_REISSUE": {
+      "workflow_name": "coupon_reissue_flow",
+      "label": "优惠券补发",
+      "fields": [
+        {"name": "customerId", "label": "客户号"},
+        {"name": "phone", "label": "手机号（脱敏后）"},
+        {"name": "couponType", "label": "券类型描述"},
+        {"name": "reason", "label": "补发原因"}
+      ],
+      "required_fields": ["customerId", "couponType", "reason"],
+      "recommended_tool": "coupon.reissue",
+      "requires_human_confirmation": false,
+      "notification_template": "已核实客户权益或活动达标情况，并根据处理结果反馈优惠券补发状态。"
+    },
+    "CUSTOMER_ADDRESS_UPDATE": {
+      "workflow_name": "address_update_flow",
+      "label": "资料修改",
+      "fields": [
+        {"name": "customerId", "label": "客户号"},
+        {"name": "phone", "label": "手机号（脱敏后）"},
+        {"name": "newAddress", "label": "新地址"},
+        {"name": "verifyStatus", "label": "身份核验状态"}
+      ],
+      "required_fields": ["customerId", "newAddress", "verifyStatus"],
+      "recommended_tool": "customer.update-address",
+      "requires_human_confirmation": true,
+      "notification_template": "已根据客户申请和身份核验结果处理资料修改，并提示客户关注后续生效状态。"
+    },
+    "TRANSACTION_DISPUTE": {
+      "workflow_name": "transaction_dispute_flow",
+      "label": "交易争议",
+      "fields": [
+        {"name": "customerId", "label": "客户号"},
+        {"name": "transactionDate", "label": "交易日期"},
+        {"name": "amount", "label": "交易金额"},
+        {"name": "merchantName", "label": "商户名称"},
+        {"name": "disputeReason", "label": "争议原因"}
+      ],
+      "required_fields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "recommended_tool": "transaction.query",
+      "requires_human_confirmation": true,
+      "notification_template": "已记录客户交易争议诉求，并说明需人工复核的原因和后续处理流程。"
+    },
+    "UNKNOWN": {
+      "workflow_name": "unknown_flow",
+      "label": "未知场景",
+      "fields": [
+        {"name": "customerId", "label": "客户号"},
+        {"name": "phone", "label": "手机号"},
+        {"name": "summary", "label": "诉求摘要"}
+      ],
+      "required_fields": [],
+      "recommended_tool": "",
+      "requires_human_confirmation": true,
+      "notification_template": "当前诉求无法稳定识别，建议补充信息或转人工处理。"
+    }
+  }
+}

@@ -15,16 +15,16 @@
 5. 先沿用当前手写 Orchestrator，等分支和状态管理复杂后再评估 LangGraph。
 6. 风险分级不作为独立核心模块，只作为分类、执行、升级策略中的业务规则。
 
-## 当前代码与新 Agent 口径映射
+## 当前代码与新 Agent 重构口径
 
-| 新业务 Agent | 职责 | 当前代码映射 | 当前策略 |
+| 新业务 Agent | 职责 | 代码重构目标 | 当前策略 |
 |-------------|------|--------------|----------|
-| Intake Agent / 接单与信息提取 | 接收工单、通话文本、表单输入，抽取标题、描述、用户、关键字段；信息不足时生成追问 | 当前工单输入 + `ExtractAgent` 部分能力 | P0 先业务化封装，不急着重命名代码 |
-| Classifier Agent / 分类与优先级判定 | 判断工单类型、业务场景、处理优先级；规则先行，LLM 处理复杂表达 | `IntentAgent` + 部分规则策略 | P0 核心 |
+| Intake Agent / 接单与信息提取 | 接收工单、通话文本、表单输入，抽取标题、描述、用户、关键字段；信息不足时生成追问 | `ExtractAgent` 重构为 `IntakeAgent` | P0 直接采用业务命名，旧文件短期做兼容 shim |
+| Classifier Agent / 分类与优先级判定 | 判断工单类型、业务场景、处理优先级；规则先行，LLM 处理复杂表达 | `IntentAgent` 重构为 `ClassifierAgent` | P0 核心 |
 | Dispatcher Agent / 智能派单 | 根据类型、紧急程度、技能、负载，把工单派给人、团队或 Agent | 当前暂无完整实现 | P2 进阶，不抢主线 |
-| Resolution Agent / 解决方案与执行 | 查询知识库，调用接口/API/Mock Tool，未来接 MCP 或 PageAgent 执行业务动作 | `ToolCallingAgent` + `MockExecutor` + `ToolRegistry` | P0 核心，必须有审计证据 |
-| Notification Agent / 通知与回访 | 生成处理说明、客户回单、状态通知、满意度回访 | `ReplyAgent` + 工单状态更新 | P0/P1，先做回单和状态通知 |
-| Escalation Agent / 升级与兜底 | 处理字段缺失、工具失败、SLA 即将超时、合规或异常场景，转人工或升级 | `VerifyAgent` + 状态机 + 人工确认逻辑 | P0 先做兜底策略，不单独炫技 |
+| Resolution Agent / 解决方案与执行 | 查询知识库，调用接口/API/Mock Tool，未来接 MCP 或 PageAgent 执行业务动作 | `ToolCallingAgent` 重构为 `ResolutionAgent`，继续使用 `MockExecutor` + `ToolRegistry` | P0 核心，必须有审计证据 |
+| Notification Agent / 通知与回访 | 生成处理说明、客户回单、状态通知、满意度回访 | `ReplyAgent` 重构为 `NotificationAgent` | P0/P1，先做回单和状态通知 |
+| Escalation Agent / 升级与兜底 | 处理字段缺失、工具失败、SLA 即将超时、合规或异常场景，转人工或升级 | `VerifyAgent` 重构为 `EscalationAgent`，继续结合状态机和人工确认逻辑 | P0 先做兜底策略，不单独炫技 |
 
 ## 推荐主流程
 
@@ -57,21 +57,24 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - 前端能稳定消费同一套 AI 结果结构。
 - 失败、暂停、升级都有明确状态和可解释原因。
 
-## 模块 B：Agent 编排与业务化封装（P0）
+## 模块 B：Agent 编排与业务化封装（P0）已完成
 
-目标：用新的业务 Agent 命名组织系统，同时避免推倒当前代码。
+目标：用新的业务 Agent 命名组织系统，采用受控重构统一代码、Trace、前端和文档口径。
 
-- [ ] 在文档、Trace、前端展示中采用 Intake、Classifier、Resolution、Notification、Escalation 的业务命名。
-- [ ] 代码层先保留当前 Agent 文件和类名，通过 adapter、metadata 或 trace label 做业务角色映射。
-- [ ] 在 Orchestrator 中明确每个业务 Agent 的输入、输出和失败处理。
-- [ ] 将规则策略和 LLM 判断分层：规则覆盖高频明确场景，LLM 处理口语化和复杂表达。
-- [ ] 设计轻量 `workflow_config`，描述场景、必填字段、推荐工具、是否需人工确认、默认通知模板。
-- [ ] 暂不迁移 LangGraph；等出现复杂分支、checkpoint、replay、跨会话恢复需求后再评估。
+- [x] 在文档、Trace、前端展示中采用 Intake、Classifier、Resolution、Notification、Escalation 的业务命名。
+- [x] 代码层直接重构为 `IntakeAgent`、`ClassifierAgent`、`ResolutionAgent`、`NotificationAgent`、`EscalationAgent`，避免长期维护冗余映射层。
+- [x] 旧 Agent 文件短期保留为兼容 shim，只转发到新业务 Agent 类；模块 B/C 稳定后再评估删除。
+- [x] 在 Orchestrator 中明确每个业务 Agent 的输入、输出和失败处理。
+- [x] 将规则策略和 LLM 判断分层：规则覆盖高频明确场景，LLM 处理口语化和复杂表达。
+- [x] 设计轻量 `workflow_config`，描述场景、必填字段、推荐工具、是否需人工确认、默认通知模板。
+- [x] 保持模块 A 的 API、SSE 终态、状态机、持久化和工具审计契约不变；模块 B 完成后只做回归验证，不重做模块 A。
+- [x] 暂不迁移 LangGraph；等出现复杂分支、checkpoint、replay、跨会话恢复需求后再评估。
 
 验收标准：
 - 汇报时能用业务 Agent 名称讲清流程。
 - 新增一个工单场景时，优先改配置、样本和工具，不大改 Orchestrator 主体。
-- 旧 Agent 代码仍能运行，不因命名调整造成大规模重构风险。
+- 模块 A 冒烟测试继续通过，证明命名重构没有破坏既有契约。
+- 旧导入在兼容期内仍能运行，不因命名调整造成外部调用或测试断裂。
 
 ## 模块 C：Resolution 执行能力与工具审计（P0）
 
@@ -201,10 +204,10 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 
 ## 当前验收清单
 
-- [ ] 后端服务可启动，核心 API 可访问。
-- [ ] 前端可构建，可展示工单处理过程。
-- [ ] Intake/Classifier/Resolution/Notification/Escalation 五类核心 Agent 口径清晰。
-- [ ] Dispatcher 被明确标记为进阶模块。
+- [x] 后端服务可启动，核心 API 可访问。
+- [x] 前端可构建，可展示工单处理过程。
+- [x] Intake/Classifier/Resolution/Notification/Escalation 五类核心 Agent 口径清晰。
+- [x] Dispatcher 被明确标记为进阶模块。
 - [ ] 至少 5 类以上工单场景可演示或可评测。
 - [ ] Resolution Agent 能调用 Mock Tool/API 并生成证据编号。
 - [ ] 工具失败、字段缺失、复杂争议能升级人工。
@@ -215,7 +218,7 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 ## 不做或后置
 
 - 暂不把风险分级包装成核心模块。
-- 暂不为了改名推倒重构现有 Agent 代码。
+- 暂不为了改名做无边界重构；模块 B 允许对 5 个旧 Agent 做受控重命名，并保留短期兼容 shim。
 - 暂不强依赖真实 ASR。
 - 暂不做完整 A2A 协议。
 - 暂不做外部遗留系统级 Page Agent 自动操作；只允许先做当前工单详情页内的低风险页面助手。

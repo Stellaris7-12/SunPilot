@@ -7,17 +7,18 @@ import time
 from typing import Optional
 
 from agents.agent_registry import agent_registry
-from agents.extract_agent import ExtractAgent
-from agents.intent_agent import IntentAgent
-from agents.reply_agent import ReplyAgent
-from agents.tool_agent import ToolCallingAgent
-from agents.verify_agent import VerifyAgent
+from agents.classifier_agent import ClassifierAgent
+from agents.escalation_agent import EscalationAgent
+from agents.intake_agent import IntakeAgent
+from agents.notification_agent import NotificationAgent
+from agents.resolution_agent import ResolutionAgent
 from models.agent_card import AgentCard
 from models.ai_result import AiProcessResult, FieldResult, IntentResult, VerifyCheck
 from models.database import get_db
 from models.ticket import RiskLevel, Ticket, TicketStatus
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
+from orchestrator.workflow_config import load_workflow_config
 from tools.mock_executor import mock_executor
 from tools.registry import tool_registry
 
@@ -25,34 +26,36 @@ logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    """Coordinates the current 5-agent pipeline.
-
-    Public business labels are handled in later modules. Module A keeps the
-    existing code-level agents and stabilizes contract, state, SSE, and DB
-    persistence.
-    """
+    """Coordinates the business-agent ticket-processing pipeline."""
 
     def __init__(self):
-        self.intent_agent = IntentAgent(
-            agent_registry.get("intent_agent")
-            or AgentCard(agent_id="intent_agent", name="IntentAgent", description="")
+        self.classifier_agent = ClassifierAgent(
+            agent_registry.get("classifier_agent")
+            or AgentCard(agent_id="classifier_agent", name="Classifier Agent", description="")
         )
-        self.extract_agent = ExtractAgent(
-            agent_registry.get("extract_agent")
-            or AgentCard(agent_id="extract_agent", name="ExtractAgent", description="")
+        self.intake_agent = IntakeAgent(
+            agent_registry.get("intake_agent")
+            or AgentCard(agent_id="intake_agent", name="Intake Agent", description="")
         )
-        self.tool_agent = ToolCallingAgent(
-            agent_registry.get("tool_agent")
-            or AgentCard(agent_id="tool_agent", name="ToolCallingAgent", description="")
+        self.resolution_agent = ResolutionAgent(
+            agent_registry.get("resolution_agent")
+            or AgentCard(agent_id="resolution_agent", name="Resolution Agent", description="")
         )
-        self.verify_agent = VerifyAgent(
-            agent_registry.get("verify_agent")
-            or AgentCard(agent_id="verify_agent", name="VerifyAgent", description="")
+        self.escalation_agent = EscalationAgent(
+            agent_registry.get("escalation_agent")
+            or AgentCard(agent_id="escalation_agent", name="Escalation Agent", description="")
         )
-        self.reply_agent = ReplyAgent(
-            agent_registry.get("reply_agent")
-            or AgentCard(agent_id="reply_agent", name="ReplyAgent", description="")
+        self.notification_agent = NotificationAgent(
+            agent_registry.get("notification_agent")
+            or AgentCard(agent_id="notification_agent", name="Notification Agent", description="")
         )
+
+        # Backward-compatible aliases for tests or older local scripts.
+        self.intent_agent = self.classifier_agent
+        self.extract_agent = self.intake_agent
+        self.tool_agent = self.resolution_agent
+        self.verify_agent = self.escalation_agent
+        self.reply_agent = self.notification_agent
 
     async def process_ticket(
         self,
@@ -69,6 +72,7 @@ class Orchestrator:
                 await event_queue.put({"event": event, "data": data})
 
         try:
+            workflow_config = load_workflow_config()
             ticket = await self._load_ticket(ticket_id)
             if ticket is None:
                 result = self._error_result(f"Ticket {ticket_id} not found", trace, overall_start)
@@ -83,31 +87,35 @@ class Orchestrator:
                 return result
 
             intent_result = await self._run_agent_step(
-                "intent_agent",
-                "意图识别Agent",
-                self.intent_agent,
-                {"ticket_content": ticket.content},
+                "classifier_agent",
+                "Classifier Agent / 分类与优先级判定",
+                self.classifier_agent,
+                {
+                    "ticket_content": ticket.content,
+                    "workflow_config": workflow_config,
+                },
                 trace,
                 push,
             )
 
             extract_result = await self._run_agent_step(
-                "extract_agent",
-                "字段抽取Agent",
-                self.extract_agent,
+                "intake_agent",
+                "Intake Agent / 接单与信息提取",
+                self.intake_agent,
                 {
                     "ticket_content": ticket.content,
                     "intent_type": intent_result.get("type", "UNKNOWN"),
                     "intent_label": intent_result.get("label", "未知"),
+                    "workflow_config": workflow_config,
                 },
                 trace,
                 push,
             )
 
             verify_result = await self._run_agent_step(
-                "verify_agent",
-                "审核校验Agent",
-                self.verify_agent,
+                "escalation_agent",
+                "Escalation Agent / 升级与兜底",
+                self.escalation_agent,
                 {
                     "ticket": {
                         "risk_level": ticket.risk_level,
@@ -116,6 +124,7 @@ class Orchestrator:
                     },
                     "intent": intent_result,
                     "fields": extract_result.get("fields", []),
+                    "workflow_config": workflow_config,
                 },
                 trace,
                 push,
@@ -176,13 +185,14 @@ class Orchestrator:
 
             available_tools = tool_registry.get_all_summaries()
             tool_agent_result = await self._run_agent_step(
-                "tool_agent",
-                "工具调用Agent",
-                self.tool_agent,
+                "resolution_agent",
+                "Resolution Agent / 解决方案与执行",
+                self.resolution_agent,
                 {
                     "intent": intent_result,
                     "fields": extract_result.get("fields", []),
                     "available_tools": available_tools,
+                    "workflow_config": workflow_config,
                 },
                 trace,
                 push,
@@ -213,14 +223,15 @@ class Orchestrator:
                     return result
 
             reply_result = await self._run_agent_step(
-                "reply_agent",
-                "回单生成Agent",
-                self.reply_agent,
+                "notification_agent",
+                "Notification Agent / 通知与回访",
+                self.notification_agent,
                 {
                     "intent": intent_result,
                     "fields": extract_result.get("fields", []),
                     "tool_result": tool_result.model_dump() if tool_result else None,
                     "verify_result": verify_result,
+                    "workflow_config": workflow_config,
                 },
                 trace,
                 push,
@@ -259,8 +270,8 @@ class Orchestrator:
         total_start: float,
     ) -> dict:
         trace.add_step(
-            agent="审核校验Agent",
-            agent_id="verify_agent",
+            agent="Escalation Agent / 升级与兜底",
+            agent_id="escalation_agent",
             summary="高风险工单，跳过自动处理并升级人工",
             duration="0ms",
             status=TraceStatus.SKIPPED,
@@ -354,7 +365,22 @@ class Orchestrator:
             status=TraceStatus.RUNNING,
         )
 
-        result = await agent.run(input_data)
+        try:
+            result = await agent.run(input_data)
+        except Exception as exc:
+            elapsed_ms = int((time.time() - start) * 1000)
+            summary = f"{agent_name}执行失败：{exc}"
+            trace.update_last(summary, f"{elapsed_ms}ms", TraceStatus.FAILED)
+            if push:
+                await push("agent_complete", {
+                    "agent_id": agent_id,
+                    "summary": summary,
+                    "duration_ms": elapsed_ms,
+                    "status": TraceStatus.FAILED.value,
+                    "result": {"error": str(exc)},
+                })
+            raise
+
         elapsed_ms = int((time.time() - start) * 1000)
         summary = self._build_step_summary(agent_id, result)
         trace.update_last(summary, f"{elapsed_ms}ms", TraceStatus.SUCCESS)
@@ -364,6 +390,7 @@ class Orchestrator:
                 "agent_id": agent_id,
                 "summary": summary,
                 "duration_ms": elapsed_ms,
+                "status": TraceStatus.SUCCESS.value,
                 "result": result,
             })
 
@@ -371,19 +398,19 @@ class Orchestrator:
         return result
 
     def _build_step_summary(self, agent_id: str, result: dict) -> str:
-        if agent_id == "intent_agent":
+        if agent_id == "classifier_agent":
             return f"已识别为{result.get('label', '未知')}场景（置信度 {result.get('confidence', 0):.0%}）"
-        if agent_id == "extract_agent":
+        if agent_id == "intake_agent":
             fields = result.get("fields", [])
             valid = [f for f in fields if f.get("value") not in {"", "未提取", "未提供", None}]
             return f"已提取 {len(valid)}/{len(fields)} 个有效字段"
-        if agent_id == "tool_agent":
+        if agent_id == "resolution_agent":
             if result.get("skip"):
                 return f"跳过工具调用: {result.get('skip_reason', '')}"
             return f"已选择工具: {result.get('tool_name', '无')}"
-        if agent_id == "verify_agent":
+        if agent_id == "escalation_agent":
             return result.get("risk_decision", "校验完成")
-        if agent_id == "reply_agent":
+        if agent_id == "notification_agent":
             draft = result.get("reply_draft", "")
             return f"已生成回单草稿（{len(draft)}字）"
         return "处理完成"
@@ -488,7 +515,7 @@ class Orchestrator:
         }
         if result.get("_pause_type"):
             data["pauseType"] = result["_pause_type"]
-            data["pausedAt"] = "verify_agent"
+            data["pausedAt"] = "escalation_agent"
             data["reason"] = result.get("_failure_reason") or result.get("risk_decision", "")
         if result.get("_failure_reason"):
             data["failureReason"] = result["_failure_reason"]

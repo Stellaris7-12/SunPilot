@@ -1,8 +1,8 @@
 """
-Base agent module — provides LLMClient and BaseAgent abstract class.
+Base agent module - provides LLMClient and BaseAgent abstract class.
 
-All 5 specialised agents (IntentAgent, FieldExtractionAgent, VerificationAgent,
-DecisionAgent, HumanReviewAgent) inherit from BaseAgent.
+All business agents (Classifier, Intake, Escalation, Resolution, Notification)
+inherit from BaseAgent.
 """
 
 import json
@@ -149,7 +149,7 @@ class BaseAgent(ABC):
         Parameters
         ----------
         input_data : dict
-            The primary input payload for this agent (e.g. ticket fields).
+            The primary input payload for this business agent.
         context : dict, optional
             Additional context such as upstream agent results, by default None.
 

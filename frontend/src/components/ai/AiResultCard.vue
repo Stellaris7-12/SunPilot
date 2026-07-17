@@ -8,7 +8,7 @@ defineProps<{ result: AiProcessResult }>()
     <h4 class="card-title">AI 处理结果</h4>
     <div v-if="result.intent" class="section">
       <div class="intent-row">
-        <span class="label">识别意图</span>
+        <span class="label">分类结果</span>
         <span class="value">{{ result.intent.label }}</span>
         <span class="conf">{{ (result.intent.confidence * 100).toFixed(0) }}%</span>
       </div>
@@ -22,7 +22,7 @@ defineProps<{ result: AiProcessResult }>()
       </div>
     </div>
     <div v-if="result.fields.length" class="section">
-      <h5>抽取字段</h5>
+      <h5>接单字段</h5>
       <div class="fields-table">
         <div v-for="f in result.fields" :key="f.name" class="field-row">
           <span class="f-label">{{ f.label }}</span>
@@ -31,7 +31,7 @@ defineProps<{ result: AiProcessResult }>()
       </div>
     </div>
     <div v-if="result.toolEvidence" class="section">
-      <h5>工具调用</h5>
+      <h5>业务执行</h5>
       <p class="evidence">{{ result.toolEvidence }}</p>
     </div>
     <VerifyChecks v-if="result.verifyChecks.length" :checks="result.verifyChecks" />

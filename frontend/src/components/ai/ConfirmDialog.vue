@@ -5,7 +5,7 @@ const emit = defineEmits<{ confirm: []; reject: [] }>()
   <div class="overlay">
     <div class="dialog">
       <h3>⚠️ 操作确认</h3>
-      <p>此工单涉及中风险操作，需要您确认后继续执行工具调用。</p>
+      <p>此工单涉及中风险操作，需要您确认后继续执行业务处理。</p>
       <p class="hint">请检查字段是否正确，确认后系统将执行对应业务操作。</p>
       <div class="actions">
         <button class="btn btn-reject" @click="emit('reject')">拒绝（转人工）</button>

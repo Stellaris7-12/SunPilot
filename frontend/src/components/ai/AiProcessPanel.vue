@@ -5,11 +5,11 @@ import type { TraceStep } from '../../types'
 const props = defineProps<{ traceSteps: TraceStep[]; isProcessing: boolean }>()
 
 const MODULES = [
-  { id: 'intent_agent', label: '意图识别', icon: '🔍' },
-  { id: 'extract_agent', label: '字段抽取', icon: '📋' },
-  { id: 'verify_agent', label: '审核校验', icon: '🛡️' },
-  { id: 'tool_agent', label: '工具调用', icon: '🔧' },
-  { id: 'reply_agent', label: '回单生成', icon: '💬' },
+  { id: 'classifier_agent', label: '分类判定', icon: '🔍' },
+  { id: 'intake_agent', label: '接单提取', icon: '📋' },
+  { id: 'escalation_agent', label: '升级兜底', icon: '🛡️' },
+  { id: 'resolution_agent', label: '业务执行', icon: '🔧' },
+  { id: 'notification_agent', label: '通知回单', icon: '💬' },
 ]
 
 const moduleStatus = computed(() => {
