@@ -1,8 +1,11 @@
-"""Agent Trace models — SSE event schemas and trace step tracking."""
+"""Agent trace and SSE event models."""
 
 from enum import Enum
-from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Optional
+
+from pydantic import Field
+
+from .ai_result import ApiModel
 
 
 class TraceStatus(str, Enum):
@@ -12,17 +15,15 @@ class TraceStatus(str, Enum):
     SKIPPED = "SKIPPED"
 
 
-class TraceStep(BaseModel):
-    """A single step in the agent execution trace timeline."""
-    agent: str                                  # "意图识别Agent" — display name
-    agent_id: str                               # "intent_agent" — machine-readable id
-    summary: str                                # What this step did
-    duration: str                               # "820ms"
+class TraceStep(ApiModel):
+    agent: str
+    agent_id: str
+    summary: str
+    duration: str
     status: TraceStatus = TraceStatus.RUNNING
-    result: Optional[dict] = None               # Optional: agent output data
+    result: Optional[dict] = None
 
 
-class SSETraceEvent(BaseModel):
-    """An event emitted over the SSE stream."""
-    event: str                                  # "agent_start" | "agent_thinking" | "agent_complete" | ...
-    data: dict                                  # Event-specific payload
+class SSETraceEvent(ApiModel):
+    event: str
+    data: dict = Field(default_factory=dict)

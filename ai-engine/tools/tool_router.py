@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/tools", tags=["tools"])
 async def list_tools():
     """List all registered tools with their definitions."""
     tools = tool_registry.get_all()
-    return [t.model_dump() for t in tools]
+    return [t.model_dump(by_alias=True) for t in tools]
 
 
 @router.post("/{tool_name}/execute")
@@ -31,4 +31,4 @@ async def execute_tool(tool_name: str, params: dict):
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
     result = await mock_executor.execute(tool_name, params)
-    return result.model_dump()
+    return result.model_dump(by_alias=True)

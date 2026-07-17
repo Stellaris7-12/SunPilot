@@ -1,35 +1,67 @@
-"""API request/response schemas."""
+"""API request and response schemas."""
 
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import Field
+
 from .agent_trace import TraceStep
-from .ai_result import AiProcessResult
+from .ai_result import AiProcessResult, ApiModel
 
 
-class ProcessTicketRequest(BaseModel):
+class CreateTicketRequest(ApiModel):
+    id: str | None = None
+    no: str | None = None
+    title: str
+    customer_name: str
+    phone: str
+    card_last4: str
+    scene: str
+    risk_label: str = "低风险"
+    risk_level: str = "low"
+    content: str
+
+
+class TicketResponse(ApiModel):
+    id: str
+    no: str
+    title: str
+    customer_name: str
+    phone: str
+    card_last4: str
+    scene: str
+    created_at: str
+    risk_label: str
+    risk_level: str
+    status: str
+    content: str
+
+
+class ProcessTicketRequest(ApiModel):
     ticket_id: str
 
 
-class ProcessTicketResponse(BaseModel):
+class ProcessTicketResponse(ApiModel):
     ticket_id: str
-    status: str                                 # "completed" | "paused" | "escalated"
-    result: Optional[AiProcessResult] = None
-    trace: list[TraceStep] = []
+    status: str
+    result: AiProcessResult | None = None
+    trace: list[TraceStep] = Field(default_factory=list)
+    total_duration_ms: int = 0
+    terminal_event: str = ""
+    pause_type: str | None = None
+    failure_reason: str = ""
 
 
-class ConfirmActionRequest(BaseModel):
+class ConfirmActionRequest(ApiModel):
     ticket_id: str
-    approved: bool                              # True = confirm, False = reject → escalate
+    approved: bool
 
 
-class CloseTicketRequest(BaseModel):
+class CloseTicketRequest(ApiModel):
     ticket_id: str
-    final_reply: str                            # Human-edited final reply text
+    final_reply: str
 
 
-class EvaluationMetrics(BaseModel):
-    intent_accuracy: float                      # 0.92
-    field_completeness: float                   # 0.86
-    tool_correctness: float                     # 0.95
-    avg_time_saved_seconds: float               # 78.0
+class EvaluationMetrics(ApiModel):
+    intent_accuracy: float
+    field_completeness: float
+    tool_correctness: float
+    avg_time_saved_seconds: float
     total_samples: int = 15

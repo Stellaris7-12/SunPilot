@@ -1,7 +1,8 @@
-"""Ticket model — mirrors the core business entity."""
+"""Core ticket model."""
 
 from enum import Enum
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel
 
 
 class RiskLevel(str, Enum):
@@ -13,25 +14,27 @@ class RiskLevel(str, Enum):
 class TicketStatus(str, Enum):
     OPEN = "open"
     IN_PROGRESS = "in_progress"
+    PENDING_INFO = "pending_info"
     PENDING_HUMAN_CONFIRM = "pending_human_confirm"
     PENDING_HUMAN_REVIEW = "pending_human_review"
     ESCALATED = "escalated"
+    FAILED = "failed"
     CLOSED = "closed"
 
 
 class Ticket(BaseModel):
-    id: str                                    # "coupon" | "address" | "dispute"
-    no: str                                    # "T20260715001"
+    id: str
+    no: str
     title: str
     customer_name: str
     phone: str
     card_last4: str
-    scene: str                                 # "补发优惠券" | "资料修改" | "交易核查"
-    created_at: str                            # "2026-07-15 09:12"
-    risk_label: str                            # "低风险" display text
+    scene: str
+    created_at: str
+    risk_label: str
     risk_level: RiskLevel
     status: TicketStatus = TicketStatus.OPEN
-    content: str                               # Full ticket text
+    content: str
 
     class Config:
         use_enum_values = True

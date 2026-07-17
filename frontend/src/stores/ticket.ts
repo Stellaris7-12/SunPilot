@@ -1,10 +1,9 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { Ticket, AiProcessResult, TraceStep } from '../types';
+import { computed, ref } from 'vue';
+import type { AiProcessResult, Ticket, TraceStep } from '../types';
 import { ticketApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
-  // State
   const tickets = ref<Ticket[]>([]);
   const selectedTicketId = ref<string | null>(null);
   const isProcessing = ref(false);
@@ -13,14 +12,12 @@ export const useTicketStore = defineStore('ticket', () => {
   const replyDraft = ref('');
   const workflowPaused = ref(false);
 
-  // Getters
   const selectedTicket = computed(() =>
     tickets.value.find(t => t.id === selectedTicketId.value) || null
   );
   const openCount = computed(() => tickets.value.filter(t => t.status !== 'closed').length);
   const closedCount = computed(() => tickets.value.filter(t => t.status === 'closed').length);
 
-  // Actions
   async function fetchTickets() {
     tickets.value = await ticketApi.list();
   }
@@ -30,6 +27,18 @@ export const useTicketStore = defineStore('ticket', () => {
     resetState();
   }
 
+  function applyProcessResult(result: AiProcessResult | null | undefined) {
+    if (!result) return;
+    aiResult.value = result;
+    replyDraft.value = result.replyDraft || '';
+  }
+
+  async function refreshTicket(ticketId: string) {
+    const updated = await ticketApi.get(ticketId);
+    const index = tickets.value.findIndex(t => t.id === ticketId);
+    if (index >= 0) tickets.value[index] = updated;
+  }
+
   async function startAiProcess(ticketId: string) {
     isProcessing.value = true;
     aiResult.value = null;
@@ -37,15 +46,16 @@ export const useTicketStore = defineStore('ticket', () => {
     replyDraft.value = '';
     workflowPaused.value = false;
 
-    const url = ticketApi.getStreamUrl(ticketId);
-    const eventSource = new EventSource(url);
+    const eventSource = new EventSource(ticketApi.getStreamUrl(ticketId));
 
     eventSource.addEventListener('agent_start', (e: MessageEvent) => {
       const { agent_id, agent_name } = JSON.parse(e.data);
       traceSteps.value.push({
-        agent: agent_name, agentId: agent_id,
-        summary: '执行中...', duration: '等待返回',
-        status: 'RUNNING'
+        agent: agent_name,
+        agentId: agent_id,
+        summary: '执行中...',
+        duration: '等待返回',
+        status: 'RUNNING',
       });
     });
 
@@ -65,19 +75,20 @@ export const useTicketStore = defineStore('ticket', () => {
       }
     });
 
-    eventSource.addEventListener('workflow_paused', (_e: MessageEvent) => {
-      workflowPaused.value = true;
+    const finish = async (e: MessageEvent, paused = false) => {
+      const payload = JSON.parse(e.data);
+      const { result } = payload;
+      applyProcessResult(result);
+      workflowPaused.value = paused && payload.pauseType === 'human_confirm';
       isProcessing.value = false;
       eventSource.close();
-    });
+      await refreshTicket(ticketId);
+    };
 
-    eventSource.addEventListener('workflow_complete', (e: MessageEvent) => {
-      const { result } = JSON.parse(e.data);
-      aiResult.value = result;
-      replyDraft.value = result.reply_draft || '';
-      isProcessing.value = false;
-      eventSource.close();
-    });
+    eventSource.addEventListener('workflow_paused', e => finish(e as MessageEvent, true));
+    eventSource.addEventListener('workflow_complete', e => finish(e as MessageEvent));
+    eventSource.addEventListener('workflow_escalated', e => finish(e as MessageEvent));
+    eventSource.addEventListener('workflow_failed', e => finish(e as MessageEvent));
 
     eventSource.addEventListener('error', () => {
       isProcessing.value = false;
@@ -86,18 +97,18 @@ export const useTicketStore = defineStore('ticket', () => {
   }
 
   async function confirmAction(ticketId: string, approved: boolean) {
-    await ticketApi.confirmAction(ticketId, approved);
+    const response = await ticketApi.confirmAction(ticketId, approved);
     workflowPaused.value = false;
-    // Resume SSE after confirmation — the backend will resume the pipeline
-    await startAiProcess(ticketId);
+    if ('result' in response) {
+      applyProcessResult(response.result);
+      traceSteps.value = response.trace || traceSteps.value;
+    }
+    await refreshTicket(ticketId);
   }
 
   async function closeTicket(ticketId: string, finalReply: string) {
     await ticketApi.close(ticketId, finalReply);
-    // Refresh ticket status
-    const updated = await ticketApi.get(ticketId);
-    const index = tickets.value.findIndex(t => t.id === ticketId);
-    if (index >= 0) tickets.value[index] = updated;
+    await refreshTicket(ticketId);
   }
 
   function resetState() {
@@ -109,8 +120,21 @@ export const useTicketStore = defineStore('ticket', () => {
   }
 
   return {
-    tickets, selectedTicketId, isProcessing, aiResult, traceSteps, replyDraft, workflowPaused,
-    selectedTicket, openCount, closedCount,
-    fetchTickets, selectTicket, startAiProcess, confirmAction, closeTicket, resetState,
+    tickets,
+    selectedTicketId,
+    isProcessing,
+    aiResult,
+    traceSteps,
+    replyDraft,
+    workflowPaused,
+    selectedTicket,
+    openCount,
+    closedCount,
+    fetchTickets,
+    selectTicket,
+    startAiProcess,
+    confirmAction,
+    closeTicket,
+    resetState,
   };
 });

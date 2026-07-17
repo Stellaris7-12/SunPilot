@@ -107,3 +107,37 @@
 | 我学到了什么？ | 新 Agent 分类更适合业务表达；旧代码不必推倒，可先映射；Resolution 执行链和测评是核心亮点 |
 | 我做了什么？ | 重构 planning 三文件，保留 `任务顺序.md` 不动，将规划从旧技术 Agent 和风险分级主轴迁移到业务型 Agent 编排 |
 
+## 会话：2026-07-17（模块A完成：后端契约与状态稳定化）
+
+### 背景
+
+用户要求根据 planning 继续开发，优先完成模块A，并通过子 Agent 做代码审查和优化，确保系统能跑通。
+
+### 执行内容
+
+- 稳定 API 对外契约：`TicketResponse`、`AiProcessResult`、`ToolDefinition`、`ToolResult`、`ProcessTicketResponse` 对外统一 camelCase。
+- 新增 `POST /api/tickets`，补齐工单创建入口。
+- 扩展工单状态：新增 `pending_info`、`failed`，并统一 `workflow_complete`、`workflow_paused`、`workflow_escalated`、`workflow_failed` 四类 SSE 终态。
+- 补齐 AI 结果结构化持久化字段，记录 workflow、intent、fields、tool request/response、evidence、reply、status、duration、failure reason。
+- 工具调用通过 Orchestrator 写入 `tool_call_log`，记录成功/失败、证据编号、耗时和失败原因。
+- 人工拒绝确认会写入 trace 和 `ai_results`，不再只改工单状态。
+- 中风险人工确认接口增加状态前置校验，避免重复确认导致重复执行工具。
+- 前端 Pinia store 同步消费新 SSE 终态；只有 `pauseType=human_confirm` 时才弹人工确认框，信息不足暂停不再误弹确认。
+- 新增 `ai-engine/evaluation/smoke_module_a.py`，用临时 SQLite 和伪 Agent 覆盖自动处理、信息不足、人工确认、人工拒绝、工具失败、升级人工和旧状态 CHECK 迁移。
+- 使用两个子 Agent 做只读代码审查，修复了 trace alias、SSE 先发终态后落库、确认接口重复执行、人工拒绝未持久化等问题。
+
+### 验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_a.py`：通过。
+- `cd frontend && npm.cmd run build`：通过。
+- 临时数据库启动后端，`GET /api/tickets`、`GET /api/tools`、`GET /docs`：均返回 200。
+- 临时数据库调用 `POST /api/tickets/dispute/ai-process`：返回 `status=escalated`、`terminalEvent=workflow_escalated`、trace 使用 `agentId`。
+- `GET /api/tickets/dispute/ai-result`：可读取最新持久化 AI 结果。
+- 前端 dev server 已验证首页返回 200。
+
+### 当前阶段
+
+- **状态：** completed
+- **阶段名称：** 模块A：后端契约与工单状态稳定化
+- **下一步：** 进入模块B：Agent 编排与业务化封装。

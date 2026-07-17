@@ -1,6 +1,6 @@
 // Enums
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type TicketStatus = 'open' | 'in_progress' | 'pending_human_confirm' | 'pending_human_review' | 'escalated' | 'closed';
+export type TicketStatus = 'open' | 'in_progress' | 'pending_info' | 'pending_human_confirm' | 'pending_human_review' | 'escalated' | 'failed' | 'closed';
 export type TraceStatusEnum = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
 
 // Core models
@@ -81,6 +81,19 @@ export interface AiProcessResult {
   verifyChecks: VerifyCheck[];
   replyDraft: string;
   requiresHumanReview: boolean;
+  missingFields: string[];
+  failureReason: string;
+}
+
+export interface ProcessTicketResponse {
+  ticketId: string;
+  status: TicketStatus | string;
+  result: AiProcessResult | null;
+  trace: TraceStep[];
+  totalDurationMs: number;
+  terminalEvent: string;
+  pauseType?: 'missing_info' | 'human_confirm' | null;
+  failureReason: string;
 }
 
 export interface ToolParameter {
