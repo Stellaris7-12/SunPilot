@@ -1,187 +1,223 @@
-# 任务计划：多Agent信用卡智能协同作业系统
+﻿# 任务计划：TicketAgent 核心闭环开发路线
 
 ## 目标
-8天内从零构建信用卡回单（工单处理）多Agent智能协同系统：Python FastAPI 后端 + Vue 3/TypeScript 前端，含5个专业Agent、A2A-lite Agent Card架构、SSE流式Trace、三级风险路由（含Human-in-the-Loop）。
 
-## 当前阶段
-✅ 全部 10 个阶段完成 — 系统可运行，需配置 LLM API Key
+把当前 TicketAgent 从“可运行 Demo”推进到“可演示、可测评、可解释的信用卡工单智能处理闭环”。
 
-## 各阶段
+本阶段不追求一次性做完整企业级工单系统，也不把 A2A、PageAgent、真实语音识别做成主线。主线是先让系统稳定完成：接收工单/通话文本、识别诉求、补齐信息、分类定级、调用业务能力、生成回单、通知/回访、必要时升级人工，并能用数据集和指标证明效果。
 
-### 阶段 0：需求分析与技术选型
-- [x] 理解项目需求（5份设计文档）
-- [x] PageAgent / A2A / 发回单全流程 三个方向分析
-- [x] 技术选型决策（FastAPI + SQLite + 自研编排器 + Vue 3/TS）
-- [x] 完整实施计划输出至 `完整实施计划.md`
-- [x] 5个工程亮点设计（Agent Card / 状态机 / SSE / Tool Registry / PageAgent）
-- **状态：** complete
+## 核心原则
 
-### 阶段 1：Backend Foundation (Module A)
-- [x] 创建 `ai-engine/` 目录结构
-- [x] 实现 `models/` 全部 7 个 Pydantic 模型文件
-- [x] 实现 `config.py` 配置管理（环境变量支持）
-- [x] 实现 `database.py` SQLite 建表 + 种子数据加载
-- [x] 创建 `data/tickets.json`（3张工单）
-- [x] 创建 `data/agent_cards.json`（5张Agent Card）
-- [x] 创建 `data/tools.json`（3个工具定义）
-- [x] 创建 `requirements.txt`
-- [x] 验证：模型可导入，SQLite 表创建成功，3张工单加载
-- **状态：** complete
-- **对应任务：** #1
+1. 先跑通业务闭环，再增加进阶能力。
+2. 先稳定后端契约和 Agent 输出，再优化前端呈现。
+3. 先用 Mock Tool/API 打通执行链路，再接 MCP、PageAgent 或真实系统。
+4. 先做少量高质量标注数据和评测脚本，再扩展样本规模。
+5. 先沿用当前手写 Orchestrator，等分支和状态管理复杂后再评估 LangGraph。
+6. 风险分级不作为独立核心模块，只作为分类、执行、升级策略中的业务规则。
 
-### 阶段 2：LLM Client + Base Agent (Module B)
-- [x] 实现 `agents/base.py` BaseAgent 抽象类
-- [x] OpenAI 兼容异步客户端封装
-- [x] `call_llm()` 方法（JSON mode, temperature=0.1, 重试逻辑）
-- [x] 验证：模块导入成功
-- **状态：** complete
-- **对应任务：** #2
+## 当前代码与新 Agent 口径映射
 
-### 阶段 3：IntentAgent + ExtractAgent (Module C1)
-- [x] 实现 `agents/intent_agent.py` IntentAgent（零样本分类，3意图+UNKNOWN）
-- [x] 实现 `agents/extract_agent.py` ExtractAgent（意图感知字段提取）
-- [x] 验证：Agent 注册中心加载成功，执行顺序正确
-- **状态：** complete
-- **对应任务：** #3
+| 新业务 Agent | 职责 | 当前代码映射 | 当前策略 |
+|-------------|------|--------------|----------|
+| Intake Agent / 接单与信息提取 | 接收工单、通话文本、表单输入，抽取标题、描述、用户、关键字段；信息不足时生成追问 | 当前工单输入 + `ExtractAgent` 部分能力 | P0 先业务化封装，不急着重命名代码 |
+| Classifier Agent / 分类与优先级判定 | 判断工单类型、业务场景、处理优先级；规则先行，LLM 处理复杂表达 | `IntentAgent` + 部分规则策略 | P0 核心 |
+| Dispatcher Agent / 智能派单 | 根据类型、紧急程度、技能、负载，把工单派给人、团队或 Agent | 当前暂无完整实现 | P2 进阶，不抢主线 |
+| Resolution Agent / 解决方案与执行 | 查询知识库，调用接口/API/Mock Tool，未来接 MCP 或 PageAgent 执行业务动作 | `ToolCallingAgent` + `MockExecutor` + `ToolRegistry` | P0 核心，必须有审计证据 |
+| Notification Agent / 通知与回访 | 生成处理说明、客户回单、状态通知、满意度回访 | `ReplyAgent` + 工单状态更新 | P0/P1，先做回单和状态通知 |
+| Escalation Agent / 升级与兜底 | 处理字段缺失、工具失败、SLA 即将超时、合规或异常场景，转人工或升级 | `VerifyAgent` + 状态机 + 人工确认逻辑 | P0 先做兜底策略，不单独炫技 |
 
-### 阶段 4：ToolAgent + VerifyAgent + ReplyAgent + AgentRegistry (Module C2)
-- [x] 实现 `agents/tool_agent.py` ToolCallingAgent（交易争议自动skip）
-- [x] 实现 `agents/verify_agent.py` VerifyAgent（规则优先+LLM双路径）
-- [x] 实现 `agents/reply_agent.py` ReplyAgent（含证据编号）
-- [x] 实现 `agents/agent_registry.py` AgentRegistry（拓扑排序执行顺序）
-- [x] 验证：5个Agent全部注册，依赖关系正确
-- **状态：** complete
-- **对应任务：** #4
+## 推荐主流程
 
-### 阶段 5：Tool Registry + Mock Executor (Module D)
-- [x] 实现 `tools/definitions.py` 工具定义加载
-- [x] 实现 `tools/registry.py` ToolRegistry（注册、发现、参数校验、摘要生成）
-- [x] 实现 `tools/mock_executor.py` MockExecutor（可配置延迟+证据ID生成）
-- [x] 实现 `tools/tool_router.py` FastAPI 路由
-- [x] 验证：3个工具注册，参数校验，Mock执行返回正确证据ID
-- **状态：** complete
-- **对应任务：** #5
+```text
+多渠道输入/通话文本
+  -> Intake Agent：接单、字段抽取、缺失信息提示
+  -> Classifier Agent：工单类型、业务场景、优先级判定
+  -> Resolution Agent：选择处理方案，调用 API/Mock Tool，记录证据
+  -> Notification Agent：生成回单、状态通知、回访提示
+  -> Escalation Agent：贯穿全流程，处理异常、超时、失败、人工升级
+  -> 工单结案/人工复核/转派
+```
 
-### 阶段 6：Orchestrator + State Machine + Trace + SSE (Module E)
-- [x] 实现 `orchestrator/state_machine.py` TicketStateMachine（6状态7转移）
-- [x] 实现 `orchestrator/orchestrator.py` 核心管线（~280行，5Agent+HITL）
-- [x] 实现 `orchestrator/trace.py` TraceCollector（收集+持久化）
-- [x] 实现 `orchestrator/sse_bridge.py` SSEBridge（事件生成）
-- [x] 三级风险路由逻辑：LOW全自动 / MEDIUM暂停确认 / HIGH直接升级
-- [x] HITL 暂停/恢复机制
-- [x] 验证：3张工单管线走通，高风险正确升级，低风险完整5Agent流程
-- **状态：** complete
-- **对应任务：** #6
+Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时，先用规则或占位说明表达，等核心闭环稳定后再实现工程师/团队/Agent 的动态匹配。
 
-### 阶段 7：Backend API Layer (Module F)
-- [x] 实现 `main.py` FastAPI 入口 + CORS + lifespan
-- [x] 全部 12 个 REST 端点 + 2个工具路由 + OpenAPI文档
-- [x] SSE 流式端点 `GET /api/tickets/{id}/ai-process-stream`
-- [x] 验证：15条路由注册，curl 测试 REST 端点正常
-- **状态：** complete
-- **对应任务：** #7
+## 模块 A：后端契约与工单状态稳定化（P0）
 
-### 阶段 8：Frontend Foundation (Module G)
-- [x] 使用 Vite 创建 Vue 3 + TypeScript 项目
-- [x] 安装 Pinia / Vue Router / Axios
-- [x] 编写 `types/index.ts` TypeScript 接口（镜像全部Pydantic模型）
-- [x] 编写 `api/index.ts` API 客户端封装（12个端点）
-- [x] 编写 `stores/ticket.ts` Pinia store（含SSE EventSource消费）
-- [x] 编写 `router/index.ts` 路由配置（2条路由）
-- [x] Vite proxy 配置（/api → localhost:8000）
-- [x] 验证：`npm run build` 零错误通过
-- **状态：** complete
-- **对应任务：** #8
+目标：让 API、SSE、状态流转、数据库持久化成为稳定底座。
 
-### 阶段 9：Frontend Views + Components (Module H)
-- [x] 实现 `TicketListView.vue` 工单队列 + 侧边栏
-- [x] 实现 `TicketDetailView.vue` 双栏布局详情页
-- [x] 实现 `AgentTraceTimeline.vue` SSE 实时 Trace（RUNNING脉冲动画）
-- [x] 实现 `AiProcessPanel.vue` 5模块进度卡片
-- [x] 实现 `AiResultCard.vue` 意图/字段/工具结果展示
-- [x] 实现 `VerifyChecks.vue` 风险校验状态列表
-- [x] 实现 `ReplyDraftEditor.vue` 可编辑回单草稿 + 结单按钮
-- [x] 实现 `ConfirmDialog.vue` 中风险确认弹窗
-- [x] 实现 `ToolRegistryPanel.vue` 工具列表（从API动态加载）
-- [x] 实现 `StatusBadge.vue` 可复用状态标签
-- [x] 实现 `AppSidebar.vue` / `AppHeader.vue` / `TicketInfo.vue` / `TicketContent.vue`
-- [x] 验证：`npm run build` 134模块零错误，CSS scoped隔离
-- **状态：** complete
-- **对应任务：** #9
+- [ ] 梳理工单创建、AI 处理、人工确认、回单、结单、升级的 API 契约。
+- [ ] 统一后端对外字段命名和前端类型，避免 AI 结果字段漂移。
+- [ ] 统一 SSE 终态事件：完成、暂停待补充、升级人工、失败。
+- [ ] 补齐处理结果持久化：分类结果、抽取字段、工具调用结果、回单内容、处理状态、处理耗时。
+- [ ] 为数据库变更采用兼容迁移，不做破坏性重建。
+- [ ] 建立脚本化冒烟测试，覆盖自动处理、信息不足、工具失败、升级人工四类路径。
 
-### 阶段 10：Evaluation Module + 文档 (Module I)
-- [x] 实现 `evaluation/evaluator.py` 评测计算
-- [x] 实现评测 API 端点 `/api/evaluation/metrics`
-- [x] 管线冒烟测试通过（3张工单，LLM不可用时优雅降级）
-- [x] 撰写 `启动与使用指南.md`
-- [ ] Demo 录制 / 汇报PPT准备
-- **状态：** complete (Demo录制待用户配置API Key后进行)
-- **对应任务：** #10
+验收标准：
+- 后端服务可启动，Swagger 可访问。
+- 工单从输入到处理结果可重复跑通。
+- 前端能稳定消费同一套 AI 结果结构。
+- 失败、暂停、升级都有明确状态和可解释原因。
 
-## 关键问题
-1. ~~LLM API Key 是否已就绪？（DeepSeek / Qwen）~~ → 用户需自行配置环境变量
-2. ~~前端是否有品牌色/设计规范需要遵循？~~ → 使用项目自有设计系统（绿/蓝/琥珀/红色系）
-3. ~~PageAgent CDN 是否需要 Day 7 集成还是可裁剪？~~ → 已裁剪，作为后续加分项
+## 模块 B：Agent 编排与业务化封装（P0）
 
-## 已做决策
-| 决策 | 理由 |
-|------|------|
-| 纯 FastAPI 后端（无 Spring Boot） | 8天周期，Python AI 生态更适合 Agent 开发 |
-| SQLite + JSON 持久化 | 免运维，Schema 设计与 MySQL 一致，演示迁移路径 |
-| 自研编排器（≤500行） | 体现设计能力，不引入 LangGraph 学习曲线 |
-| 前端全新 Vite + Vue 3 + TS 工程 | 用户要求完整工程化，不沿用旧 demo |
-| A2A-lite Agent Card（非完整协议） | 借鉴核心思想，8天内完整接入风险高 |
-| 三级风险路由 + HITL | 金融合规要素，核心亮点 |
-| SSE 流式 Trace（非 WebSocket） | 单向推送，浏览器原生 EventSource，更简单 |
-| 前端 Vite proxy 代理 /api | 避免 CORS 问题，开发体验好 |
+目标：用新的业务 Agent 命名组织系统，同时避免推倒当前代码。
 
-## 遇到的错误
-| 错误 | 尝试次数 | 解决方案 |
-|------|---------|---------|
-| database.py 相对导入失败 | 1 | 改为绝对导入 `from config import ...` |
-| get_db() 返回连接而非上下文管理器 | 1 | 用 `@asynccontextmanager` 重写 |
-| tools.json 中 example 字段为 float | 1 | 改为字符串 `"398.00"` |
-| reply_agent.py 中文引号与Python字符串冲突 | 1 | 改用「」书名号替代 |
-| 子 Agent 未实际写文件 | 1 | 改为直接 Write，不做 Agent 委托 |
-| LLM API Key 未配置（401错误） | 预期 | 用户需配置环境变量，系统优雅降级 |
-| SSE 一次性发出所有事件，Agent Trace 卡住 | 1 | asyncio.Queue 实时推送替代事后遍历 |
-| Windows CMD Ctrl+C 无法终止 uvicorn | 1 | 信号处理 + SSE Task cancel + taskkill 兜底 |
+- [ ] 在文档、Trace、前端展示中采用 Intake、Classifier、Resolution、Notification、Escalation 的业务命名。
+- [ ] 代码层先保留当前 Agent 文件和类名，通过 adapter、metadata 或 trace label 做业务角色映射。
+- [ ] 在 Orchestrator 中明确每个业务 Agent 的输入、输出和失败处理。
+- [ ] 将规则策略和 LLM 判断分层：规则覆盖高频明确场景，LLM 处理口语化和复杂表达。
+- [ ] 设计轻量 `workflow_config`，描述场景、必填字段、推荐工具、是否需人工确认、默认通知模板。
+- [ ] 暂不迁移 LangGraph；等出现复杂分支、checkpoint、replay、跨会话恢复需求后再评估。
 
-## 交付物清单
+验收标准：
+- 汇报时能用业务 Agent 名称讲清流程。
+- 新增一个工单场景时，优先改配置、样本和工具，不大改 Orchestrator 主体。
+- 旧 Agent 代码仍能运行，不因命名调整造成大规模重构风险。
 
-### 后端 (19 个 Python 文件)
-| 目录 | 文件数 | 说明 |
+## 模块 C：Resolution 执行能力与工具审计（P0）
+
+目标：把“AI 给建议”升级为“AI 调用业务能力并留下证据”。
+
+- [ ] 梳理现有 Mock Tool：补券、查询交易、修改资料、查询权益、进度查询等。
+- [ ] 为每次工具调用记录审计日志：ticket_id、tool_name、request_json、response_json、evidence_id、success、duration_ms、failure_reason。
+- [ ] 统一工具返回结构：处理动作、业务结果、证据编号、下一步建议、是否需要人工。
+- [ ] 工具参数缺失时回到 Intake Agent 生成追问或补充提示。
+- [ ] 工具失败、结果冲突、权限不足时交给 Escalation Agent 升级人工。
+- [ ] MCP 作为进阶接入方式预留接口边界，不在核心闭环中强依赖。
+- [ ] Page Agent 采用三阶段引入，不直接进入高风险外部系统自动化：
+  - 第一阶段：前端页面助手。在 `frontend/src/views/TicketDetailView.vue` 增加“页面助手”入口，只操作当前工单详情页，支持把 AI 回单草稿填入回单框、检查当前工单风险和缺失字段、打开工具面板并定位补券工具、滚动到审核区域等低风险动作。
+  - 第二阶段：发单/回单表单自动填充。等动态工单表单更完整后，将 Intake Agent/ExtractAgent 的抽取结果转成页面填充动作，用于减少人工复制粘贴。
+  - 第三阶段：外部遗留系统自动化。仅当行内系统没有 API 时，才考虑 Page Agent Ext / MCP 方案操作浏览器页面；该能力属于高风险扩展，必须有白名单、脱敏、审计、人工确认。
+
+验收标准：
+- 每次自动执行都有可展示的证据编号。
+- 前端能说明系统调用了什么能力、传入了什么关键参数、得到什么结果。
+- Mock Tool 可替换为真实 API 或 MCP Server，而不改变上层业务流程。
+
+## 模块 D：Notification 与回单闭环（P0）
+
+目标：让系统不止会处理，还会把处理结果清楚反馈给客户和业务人员。
+
+- [ ] 生成标准化回单：处理结果、证据编号、客户可理解说明、后续建议。
+- [ ] 根据工单状态生成内部通知：已处理、待补充、待人工复核、已升级、已结案。
+- [ ] 对可自动闭环的标准场景，支持自动生成最终回单和结案建议。
+- [ ] 对需人工判断的场景，生成复核摘要和建议操作，不直接提交敏感动作。
+- [ ] 回访能力先做模板和状态预留，后续再做满意度收集。
+
+验收标准：
+- 回单内容可以直接用于演示，不是开发调试文本。
+- 业务人员能看到“系统做了什么、为什么这么做、下一步谁处理”。
+- 人工复核时有摘要，不需要重新阅读完整 Trace。
+
+## 模块 E：数据集构建与场景扩展（P1）
+
+目标：从少量演示样本升级为可评测、可扩展的小型业务数据集。
+
+- [ ] 构建 20-50 条标注样本。
+- [ ] 每条样本包含：通话记录/工单原文、正确意图、正确工单类型、必填字段、期望工具、期望处理结果、回单要点、是否需要人工介入。
+- [ ] Demo 种子数据和评测数据分开存放，避免演示数据污染评测。
+- [ ] 所有客户号、手机号、卡号、证件号使用模拟值。
+- [ ] 先覆盖标准高频场景，再扩展投诉、争议、跨部门协作等复杂场景。
+
+优先场景池：
+- 权益/优惠券补发。
+- 申请进度查询。
+- 地址、手机号、联系人等资料变更。
+- 账单/交易查询。
+- 活动资格或权益资格核验。
+- 分期提前结清咨询。
+- 还款协商或延期咨询。
+- 卡片挂失、补卡、停卡。
+- 额度咨询、临时额度或固定额度调整。
+- 年费减免或年费调整。
+- 积分到账、积分兑换、积分争议。
+- 交易争议、调单、拒付、盗刷疑似场景。
+- 征信异议、申请资料补充。
+- 商务卡公司资料变更。
+- 投诉、催办、跨部门协办。
+
+验收标准：
+- 至少 20 条样本能被评测脚本读取。
+- 每条样本都有明确标签和期望输出。
+- 场景数量足以说明系统不是只为 3 个固定案例硬编码。
+
+## 模块 F：Agent 测评与效果指标（P1）
+
+目标：让答辩和汇报从“看起来能跑”升级为“有指标证明”。
+
+- [ ] 评测 Intake Agent：字段抽取完整率、缺失字段识别正确率。
+- [ ] 评测 Classifier Agent：意图准确率、工单类型准确率、优先级判断一致率。
+- [ ] 评测 Resolution Agent：工具选择正确率、参数正确率、执行成功率。
+- [ ] 评测 Notification Agent：回单要点覆盖率、模板合规性、可读性人工评分。
+- [ ] 评测 Escalation Agent：异常识别正确率、人工介入判断合理性。
+- [ ] 汇总端到端指标：闭环成功率、平均处理耗时、人工节省步骤、预计节省时间。
+
+验收标准：
+- 后端或脚本能基于标注样本输出一组真实指标。
+- 指标能支撑业务表达：更快、更准、更规范、更可追溯。
+- 每次修改 Agent 后能跑回归样本，避免只凭感觉调 Prompt。
+
+## 模块 G：前端产品呈现（P1）
+
+目标：把开发者 Trace 改成产品经理、客户、领导能看懂的处理过程。
+
+- [ ] 默认展示业务化流程：接单、分类、执行、通知、升级/结案。
+- [ ] 增加处理摘要：工单类型、处理结论、证据编号、是否需人工、节省时间。
+- [ ] 保留开发者 Trace 折叠区，用于调试和答辩追问。
+- [ ] 明确产品形态：当前是独立 Web 工作台，远期可内嵌为工单系统侧边栏、插件或工作流节点。
+- [ ] 前端文案使用新 Agent 命名，弱化旧技术 Agent 名称。
+
+验收标准：
+- 非技术观众 30 秒内能看懂系统处理结果。
+- 演示时不需要解释大量底层字段。
+- 前端能展示证据链、回单、人工介入原因和评测摘要。
+
+## 模块 H：进阶能力（P2）
+
+目标：保留亮点，但不让它们拖慢核心闭环。
+
+- [ ] 语音入口：优先做“通话文本粘贴/预置转写文本”，真实 ASR 后置。
+- [ ] Dispatcher Agent：核心闭环稳定后，再做按团队、技能、负载、地理位置或 Agent 能力派单。
+- [ ] A2A-Lite：保留 Agent Card、能力自描述、依赖关系和展示，不做完整协议。
+- [ ] MCP：先定义工具接口边界，后续接 MCP Server。
+- [ ] Page Agent：按“当前工单页助手 -> 动态表单自动填充 -> 外部遗留系统自动化”三阶段推进；当前优先做第一阶段的前端页面助手，不直接操作外部系统。
+- [ ] LangGraph：当流程分支、状态恢复、回放调试成为主要痛点时再迁移。
+
+验收标准：
+- 进阶模块有清晰演进路径。
+- 任何进阶模块失败都不影响主 Demo。
+- 汇报时能讲清“当前已实现”和“未来可扩展”。
+
+## 阶段节奏
+
+| 阶段 | 主目标 | 产出 |
 |------|--------|------|
-| `models/` | 7 | Ticket, AgentCard, TraceStep, ToolDefinition, AiProcessResult, ApiSchemas, Database |
-| `agents/` | 7 | BaseAgent + 5 Agent + AgentRegistry |
-| `tools/` | 4 | Registry, Definitions, MockExecutor, ToolRouter |
-| `orchestrator/` | 4 | StateMachine, Orchestrator, TraceCollector, SSEBridge |
-| `evaluation/` | 1 | Evaluator |
-| 根目录 | 3 | main.py (15 routes), config.py, requirements.txt |
+| 阶段 1 | 稳定后端契约和现有闭环 | API/SSE/状态一致，基本流程可重复跑通 |
+| 阶段 2 | 业务化 Agent 编排 | 新 Agent 口径、Trace 标签、workflow_config 雏形 |
+| 阶段 3 | 打通 Resolution 执行链 | Mock Tool/API 调用、审计日志、证据编号 |
+| 阶段 4 | 完成回单与通知闭环 | 标准回单、内部状态通知、人工复核摘要 |
+| 阶段 5 | 构建数据集和评测 | 20+ 标注样本、Agent 指标、端到端指标 |
+| 阶段 6 | 优化前端和演示 | 业务化过程展示、评测摘要、演示脚本 |
+| 阶段 7 | 收口与 Code Review | 回归测试、接口测试、文档更新、稳定快照 |
 
-### 前端 (13 个 Vue SFC + 7 个 TS 文件)
-| 目录 | 文件数 | 说明 |
-|------|--------|------|
-| `views/` | 2 | TicketListView, TicketDetailView |
-| `components/layout/` | 2 | AppSidebar, AppHeader |
-| `components/ticket/` | 2 | TicketInfo, TicketContent |
-| `components/ai/` | 6 | TraceTimeline, ProcessPanel, ResultCard, VerifyChecks, ReplyEditor, ConfirmDialog |
-| `components/tools/` | 1 | ToolRegistryPanel |
-| `components/shared/` | 1 | StatusBadge |
-| `src/` root | 5 | types, api, router, stores, main.ts, styles.css |
+## 当前验收清单
 
-### 文档 (7 个 Markdown 文件)
-| 文件 | 说明 |
-|------|------|
-| `项目要求.md` | 原始需求 |
-| `场景沟通.md` | 场景沟通记录 |
-| `Mentor汇报实施方案.md` | Mentor 审核方案 |
-| `业务逻辑.md` | 业务流程设计 |
-| `技术选型与方向分析报告.md` | 方向调研与决策 |
-| `完整实施计划.md` | 9模块实施计划 |
-| `启动与使用指南.md` | 运维使用手册 |
+- [ ] 后端服务可启动，核心 API 可访问。
+- [ ] 前端可构建，可展示工单处理过程。
+- [ ] Intake/Classifier/Resolution/Notification/Escalation 五类核心 Agent 口径清晰。
+- [ ] Dispatcher 被明确标记为进阶模块。
+- [ ] 至少 5 类以上工单场景可演示或可评测。
+- [ ] Resolution Agent 能调用 Mock Tool/API 并生成证据编号。
+- [ ] 工具失败、字段缺失、复杂争议能升级人工。
+- [ ] 至少 20 条标注样本可跑评测。
+- [ ] Agent 测评能输出准确率、完整率、工具命中率、闭环成功率、耗时节省等指标。
+- [ ] Demo 讲解、README、AGENTS.md 与当前 Agent 口径一致。
 
-## 备注
-- 系统代码已全部就绪，需配置 `LLM_API_KEY` 环境变量后即可端到端运行
-- 前端构建验证通过（134模块，零错误），后端15条路由全部注册
-- Demo 录制建议等 API Key 配置后按 `启动与使用指南.md` 第八章脚本执行
+## 不做或后置
+
+- 暂不把风险分级包装成核心模块。
+- 暂不为了改名推倒重构现有 Agent 代码。
+- 暂不强依赖真实 ASR。
+- 暂不做完整 A2A 协议。
+- 暂不做外部遗留系统级 Page Agent 自动操作；只允许先做当前工单详情页内的低风险页面助手。
+- 暂不迁移 LangGraph，除非手写编排已明显不可维护。
+

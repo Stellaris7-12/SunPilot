@@ -1,146 +1,109 @@
-# 进度日志
+﻿# 进度日志
 
-## 会话：2026-07-16（主实施会话）
+## 会话：2026-07-17（Page Agent 进阶路线补充）
 
-### 阶段 0：需求分析与技术选型
-- **状态：** complete
-- **开始时间：** 2026-07-16 上午
-- 执行的操作：
-  - 通读 5 份设计文档（项目要求、场景沟通、业务逻辑、Mentor汇报方案、技术选型报告）
-  - Web 搜索 PageAgent / A2A 协议 / 多Agent金融工单架构（3次并行搜索）
-  - Web 搜索 CrewAI vs LangGraph vs AutoGen 框架对比 + 信用卡AI争议处理趋势（2次并行搜索）
-  - 撰写 `技术选型与方向分析报告.md`（10章，含5个工程亮点设计）
-  - 撰写 `完整实施计划.md`（含9模块分解、依赖图、数据模型、API设计、验证方案）
-  - 创建 10 个 TaskCreate 任务并设置依赖关系
-  - 初始化 planning-with-files-zh 三文件（task_plan / findings / progress）
-- 创建/修改的文件：
-  - `技术选型与方向分析报告.md` — 新建
-  - `完整实施计划.md` — 新建
-  - `task_plan.md` — 新建
-  - `findings.md` — 新建
-  - `progress.md` — 新建（本文件）
-- 已移除：
-  - `vue-demo/` — 由用户移除
+### 背景
 
-### 阶段 1-7：后端全栈（Module A-F）
-- **状态：** complete
-- **开始时间：** 2026-07-16 下午
-- 执行的操作：
-  - **Phase 1 (A)**：创建 ai-engine 目录结构，写出全部 7 个 Pydantic 模型、config.py、database.py（SQLite 5表）、3 个 JSON 种子数据文件、requirements.txt。验证：模型导入 + DB初始化 + CRUD
-  - **Phase 2 (B)**：BaseAgent + LLMClient（子 Agent 协助写出 agents/base.py）
-  - **Phase 3 (C1)**：IntentAgent（零样本分类）+ ExtractAgent（意图感知提取）— 直接写出
-  - **Phase 4 (C2)**：ToolCallingAgent（交易争议自动skip）+ VerifyAgent（规则+LLM双路径）+ ReplyAgent（含证据编号）+ AgentRegistry（拓扑排序）— 直接写出
-  - **Phase 5 (D)**：ToolRegistry + MockExecutor（可配置延迟+证据ID）+ tool_router — 直接写出
-  - **Phase 6 (E)**：StateMachine（6状态7转移）+ Orchestrator（~280行核心管线）+ TraceCollector + SSEBridge — 直接写出
-  - **Phase 7 (F)**：main.py（15条API路由 + SSE流式端点 + CORS + lifespan）— 直接写出
-- 创建/修改的文件：
-  - `ai-engine/` 下 19 个 Python 文件 + 3 个 JSON 数据文件 + requirements.txt
-- 遇到的错误与修复：
-  - `database.py` 相对导入失败 → 改为 `from config import ...`
-  - `get_db()` 返回连接而非上下文管理器 → `@asynccontextmanager` 重写
-  - `tools.json` 中 `example: 398.0` 为 float → 改为字符串
-  - `reply_agent.py` 中文引号 `""` 与 Python 字符串冲突 → 改用 `「」`
-  - 子 Agent 只做分析未实际写文件 → 后续改为直接 Write
+用户希望在计划中补充 Page Agent 的推荐引入方式：不要直接做外部系统自动化，而是分阶段从低风险页面助手开始。
 
-### 阶段 8-9：前端全栈（Module G-H）
-- **状态：** complete
-- **开始时间：** 2026-07-16 下午（与后端并行/接续）
-- 执行的操作：
-  - **Phase 8 (G)**：子 Agent 协助 Vite 脚手架 + types + api + router + Pinia store + styles.css。验证：`npm run build` 通过
-  - **Phase 9 (H)**：直接写出 13 个 Vue SFC 组件（views ×2, layout ×2, ticket ×2, ai ×6, tools ×1, shared ×1）。验证：`npm run build` 134模块零错误
-- 创建/修改的文件：
-  - `frontend/` 下 20+ 个源文件
-- 错误：`frontend-design` skill 不可用 → 改为直接写 Vue 组件
+### 执行内容
 
-### 阶段 10：评测 + 文档
-- **状态：** complete
-- 执行的操作：
-  - 实现 `evaluation/evaluator.py` 评测计算
-  - 管线冒烟测试（3张工单，LLM不可用时优雅降级验证）
-  - 撰写 `启动与使用指南.md`（8章完整指南）
-  - 更新全部规划文件至最终状态
-- 创建/修改的文件：
-  - `ai-engine/evaluation/evaluator.py` — 新建
-  - `启动与使用指南.md` — 新建
-  - `task_plan.md` — 重写至最终状态
-  - `progress.md` — 重写至最终状态（本文件）
-  - `findings.md` — 更新
+- 更新 `doc/planning/task_plan.md` 的进阶模块，加入 Page Agent 三阶段路线。
+- 更新 `doc/planning/findings.md`，补充 Page Agent 推荐引入路线和安全边界。
+- 保持 `doc/planning/任务顺序.md` 不变。
 
-## 会话：2026-07-16（后期修复）
+### 当前共识
 
-### 修复 1：SSE 实时流式推送
-- **状态：** complete
-- **问题：** Agent Trace 卡在"编排器"，前端收到初始事件后无响应
-- **根因：** SSE 端点在管线全部完成后才一次性遍历 trace.steps 发出事件，而非逐个实时推送
-- **解决：** orchestrator 新增 `event_queue: asyncio.Queue` 参数，每个 Agent 完成时实时 push 事件；SSE 端点用后台 Task + Queue 消费模式
-- **验证：** 5个 Agent 事件逐个到达，IntentAgent ~5.8s 后首个事件，后续每个 ~1s
-- 修改文件：`orchestrator/orchestrator.py`、`main.py`
+- 第一阶段：在 `frontend/src/views/TicketDetailView.vue` 增加“页面助手”入口，只操作当前工单详情页。
+- 第二阶段：动态工单表单完善后，将 Intake Agent/ExtractAgent 抽取结果转成发单/回单页面填充动作。
+- 第三阶段：只有在行内系统没有 API 时，才考虑 Page Agent Ext / MCP 操作外部浏览器页面。
+- 外部遗留系统自动化属于高风险能力，必须有白名单、脱敏、审计和人工确认。
+## 会话：2026-07-17（planning 文件按新 Agent 方案重构）
 
-### 修复 2：Ctrl+C 无法关闭后端
-- **状态：** complete
-- **问题：** Windows CMD 下 Ctrl+C 无法终止 uvicorn（SSE 长连接 + reload 看门狗导致）
-- **解决：** lifespan 中注册 SIGINT/SIGTERM 处理器，追踪活跃 SSE Task，关闭时自动 cancel
-- **兜底：** 文档中加入 `taskkill /PID /F` 强制终止方法
-- 修改文件：`main.py`、`启动与使用指南.md`
+### 背景
 
-### 其他
-- **环境管理：** 从全局 pip 迁移到 `uv venv` 项目隔离虚拟环境（Python 3.10.19）
-- **API Key：** config.py 改用 `DEEPSEEK_API_KEY` 环境变量
-- **指南更新：** 启动与使用指南.md — CMD/Bash 命令切换后又还原，新增关闭服务章节（三）
+用户对原 planning 不满意，主要原因：
 
-## 会话：2026-07-16（汇报材料准备）
+- 低/中/高风险分级不应作为核心模块强调，它只是业务策略细节。
+- 原 Agent 划分偏技术实现，不如 Intake、Classifier、Dispatcher、Resolution、Notification、Escalation 这套业务命名适合工单场景和答辩表达。
+- Resolution Agent 中的接口调用、MCP、PageAgent 体现不够明确。
+- 只考虑 3 类业务场景不足，需要更多工单场景支撑数据集和测评。
+- 本轮只重构 `doc/planning/任务顺序.md` 以外的 planning 文件。
 
-### 汇报文件输出
-- **状态：** complete
-- 执行的操作：
-  - 撰写 `汇报文档.md`（7章：背景、方案、架构、6个亮点、3个场景、评估、总结）
-  - 创建 `汇报演示.html`（10页幻灯片，键盘翻页，自包含无依赖）
-  - **A2A 定位升级**：从"静态 JSON 配置"提升为"Agent 解耦注册与动态增减架构"，强调 Card 注册即发现、编排器零改动、API 发现端点
-  - **PageAgent 定位**：新增为第6个工程亮点，标注"规划中的高级功能"，前端已预留集成点
-  - HTML 工程亮点拆分为两页（1/2：解耦+状态机+SSE+Tool，2/2：HITL+PageAgent）
-  - 决策表新增 PageAgent 行，总结页新增 Agent 热加载标签
-- 创建/修改的文件：
-  - `汇报文档.md` — 新建
-  - `汇报演示.html` — 新建
+### 执行内容
 
-## 测试结果
-| 测试 | 输入 | 预期结果 | 实际结果 | 状态 |
-|------|------|---------|---------|------|
-| 模型导入 | Python import | 全部模型可导入 | ✅ 通过 | PASS |
-| DB 初始化 | init_db() | 5表创建+3工单加载 | ✅ 通过 | PASS |
-| Tool Registry | 3 工具加载+参数校验 | 注册3工具+校验正确 | ✅ 通过 | PASS |
-| Mock Executor | coupon.reissue | 返回证据ID+~500ms延迟 | ✅ CP20260716... + 526ms | PASS |
-| Agent Registry | 5 Agent加载 | 拓扑排序正确 | ✅ intent→extract→tool/verify→reply | PASS |
-| State Machine | open→in_progress→... | 合法转移通过，非法拒绝 | ✅ 通过 | PASS |
-| Orchestrator | 3张工单处理 | LOW全流程/MEDIUM暂停/HIGH升级 | ✅ 逻辑正确，LLM 401预期失败 | PASS (降级) |
-| API Routes | 15条路由注册 | 全部可访问 | ✅ 通过 | PASS |
-| Frontend Build | npm run build | 零错误 | ✅ 134 modules, 524ms | PASS |
-| Frontend CSS | 组件渲染 | scoped隔离正确 | ✅ 通过 | PASS |
-| DeepSeek API | 简单 Prompt 调用 | 返回有效 JSON | ✅ OK 响应 | PASS |
-| SSE 实时流 | 优惠券工单 SSE 流 | 5个事件逐个到达 | ✅ 逐个推送，总计 ~9.3s | PASS |
-| Ctrl+C 关闭 | SIGINT 信号 | Task 取消 + DB 正常关闭 | ✅ 信号处理注册成功 | PASS |
+- 读取 `planning-with-files-zh` 技能说明。
+- 读取当前 `doc/planning/task_plan.md`、`doc/planning/findings.md`、`doc/planning/progress.md`、`doc/planning/任务顺序.md`。
+- 读取 `doc/design/` 下现有设计文档，确认旧技术型 Agent 口径仍有残留。
+- 保留 `doc/planning/任务顺序.md` 不变。
+- 重写 `doc/planning/task_plan.md`：改为核心闭环开发路线，采用新业务 Agent 分类。
+- 重写 `doc/planning/findings.md`：记录新旧 Agent 方案对比、是否重构、编排取舍、场景扩展和产品形态判断。
+- 重写 `doc/planning/progress.md`：记录本次 planning 重构背景、执行内容、当前共识和下一步。
 
-## 错误日志
-| 时间戳 | 错误 | 尝试次数 | 解决方案 |
-|--------|------|---------|---------|
-| 2026-07-16 | database.py `from ..config` 导入失败 | 1 | 改为 `from config import ...` 绝对导入 |
-| 2026-07-16 | get_db() 返回连接对象，调用方 `async with await get_db()` 报 RuntimeError | 1 | 用 `@asynccontextmanager` 包装 |
-| 2026-07-16 | tools.json `example: 398.0` (float) 导致 Pydantic 校验失败 | 1 | 改为字符串 `"398.00"` |
-| 2026-07-16 | reply_agent.py 中文 `""` 引号被解析为 Python 字符串定界符 | 1 | 改为 `「」` 书名号 |
-| 2026-07-16 | 子 Agent 返回分析摘要但未写文件（Phase 2/5/8 各一次） | 1 | 改为直接 Write 工具写文件 |
-| 2026-07-16 | LLM API Key 未配置 → 401 AuthenticationError | 预期 | 系统优雅降级，文档说明需配置环境变量 |
-| 2026-07-16 | terminal 编码中文显示乱码 | N/A | 不影响实际功能，仅显示问题 |
-| 2026-07-16 | SSE 端点事件一次性发出，Agent Trace 卡住 | 1 | asyncio.Queue + 后台 Task 实时推送 |
-| 2026-07-16 | Windows CMD Ctrl+C 无法终止 uvicorn | 1 | 信号处理 + SSE Task cancel + taskkill 兜底 |
+### 当前共识
+
+- 新业务 Agent 主口径：Intake、Classifier、Resolution、Notification、Escalation。
+- Dispatcher Agent 难度较高，先作为进阶模块，不进入当前核心闭环。
+- 当前代码不需要完全推倒重构，先用映射/adapter/trace label 对齐新业务命名。
+- Resolution Agent 必须明确包含 API/Mock Tool 调用和审计证据；MCP 与 PageAgent 是进阶扩展。
+- 风险分级不再作为核心模块，只作为分类、执行和升级策略中的细节。
+- 工单场景需要扩展到 10 类以上，用于数据集和测评，而不是只围绕 3 个固定 Demo。
+- 当前仍优先手写 Orchestrator + 轻量 `workflow_config`，暂不迁移 LangGraph。
+
+### 当前阶段
+
+- **状态：** in_progress
+- **阶段名称：** 新 Agent 方案规划收口
+- **当前任务：** 将规划文件对齐到业务型 Agent 编排，为后续代码开发提供稳定导航。
+- **下一步：** 开始代码开发前，先检查 AGENTS.md、design 文档和前端 Trace 文案是否也需要同步到新 Agent 口径。
+
+## 历史基线摘要
+
+### 2026-07-16 初版系统建设
+
+- 完成 FastAPI 后端、SQLite 数据库、5 个技术型 Agent、Tool Registry、MockExecutor、手写 Orchestrator、SSE Trace、Vue 前端工作台。
+- 完成启动指南、规划文件、AGENTS.md、.gitignore。
+- 已重新初始化 Git，并完成初始提交：`64535e6 Initial TicketAgent project snapshot`。
+
+### 2026-07-17 文档目录整理
+
+- `doc/` 已整理为 requirements、design、guides、demo、planning 等子目录。
+- 新增 `doc/README.md` 作为文档索引。
+- Demo 讲解稿已转向面向产品经理、客户和领导的业务表达。
+- `doc/guides/vibe-coding指南.md` 已创建，用于通用 AI coding 工作流。
+
+## 已验证能力
+
+| 能力 | 状态 |
+|------|------|
+| 后端基础服务 | 已完成初版 |
+| SQLite 数据库 | 已完成初版 |
+| Agent Registry 加载旧 5-Agent | 已完成初版 |
+| Tool Registry 和 MockExecutor | 已完成初版 |
+| 手写 Orchestrator | 已完成初版 |
+| SSE 实时 Trace | 已完成初版，仍需契约稳定 |
+| Vue 前端工作台 | 已完成初版 |
+| Git 初始提交 | 已完成 |
+| 新业务 Agent 规划 | 本轮重构中 |
+
+## 后续进度更新规则
+
+每完成一个模块后更新本文件：
+
+- 写明日期、阶段、完成内容。
+- 记录修改的文件。
+- 记录运行过的测试，或无法运行的原因。
+- 记录遇到的问题和解决方式。
+- 如果阶段状态变化，同步更新 `task_plan.md`。
+- 如果 Agent 命名、流程顺序或验收标准变化，必须同步更新 `findings.md`。
 
 ## 五问重启检查
-| 问题 | 答案 |
-|------|------|
-| 我在哪里？ | ✅ 全部 10 阶段完成 |
-| 我要去哪里？ | 系统已就绪，等待用户配置 LLM API Key 后联调 |
-| 目标是什么？ | 8天内构建完整回单多Agent系统 → 已完成 |
-| 我学到了什么？ | 见 findings.md — 新增实施发现（子Agent局限性、导入路径陷阱） |
-| 我做了什么？ | 19个Python文件 + 13个Vue组件 + 7份文档 + 2次修复 + 2份汇报材料
 
----
-*最后更新：2026-07-16 — 汇报材料准备完成*
+| 问题 | 当前答案 |
+|------|----------|
+| 我在哪里？ | 初版系统已完成，正在把 planning 对齐到新的业务型 Agent 方案 |
+| 我要去哪里？ | 先跑通接单、分类、执行、通知、升级的核心工单闭环，再做数据集、测评和前端呈现 |
+| 目标是什么？ | 做出可演示、可测评、可解释的信用卡工单智能处理系统 |
+| 我学到了什么？ | 新 Agent 分类更适合业务表达；旧代码不必推倒，可先映射；Resolution 执行链和测评是核心亮点 |
+| 我做了什么？ | 重构 planning 三文件，保留 `任务顺序.md` 不动，将规划从旧技术 Agent 和风险分级主轴迁移到业务型 Agent 编排 |
+

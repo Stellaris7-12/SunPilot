@@ -6,7 +6,7 @@
 
 - `ai-engine/`：Python FastAPI 后端与多 Agent 编排逻辑
 - `frontend/`：Vue + Vite + TypeScript 前端
-- `doc/`：项目文档、需求、启动说明和过程记录
+- `doc/`：项目文档，按需求、设计、指南、演示和规划分组
 - `pyproject.toml` / `uv.lock`：Python 项目依赖与锁文件
 
 ## 工作边界
@@ -21,7 +21,9 @@
 
 - 后端代码放在 `ai-engine/`。
 - 前端代码放在 `frontend/`。
-- 项目文档放在 `doc/`。
+- 需求与背景资料放在 `doc/requirements/`。
+- 业务设计文档放在 `doc/design/`。
+- 启动、使用、演示指南放在 `doc/guides/` 或 `doc/demo/`。
 - 过程计划、发现和进度记录放在 `doc/planning/`。
 - 本地运行产生的数据、缓存、日志不应提交到 Git。
 
