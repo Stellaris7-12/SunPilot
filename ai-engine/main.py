@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from agents.agent_registry import agent_registry
 from config import CORS_ORIGINS, HOST, PORT
+from evaluation.evaluator import evaluator
 from models.ai_result import AiProcessResult
 from models.api_schemas import (
     CloseTicketRequest,
@@ -519,12 +520,13 @@ async def list_agent_cards():
 
 @app.get("/api/evaluation/metrics")
 async def get_evaluation_metrics():
+    metrics = evaluator.compute()
     return EvaluationMetrics(
-        intent_accuracy=0.92,
-        field_completeness=0.86,
-        tool_correctness=0.95,
-        avg_time_saved_seconds=78.0,
-        total_samples=15,
+        intent_accuracy=metrics.intent_accuracy,
+        field_completeness=metrics.field_completeness,
+        tool_correctness=metrics.tool_correctness,
+        avg_time_saved_seconds=metrics.avg_time_saved_seconds,
+        total_samples=metrics.total_samples,
     ).model_dump(by_alias=True)
 
 

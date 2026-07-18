@@ -210,13 +210,32 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 - 前端新增通知闭环展示区，业务人员可直接看到标准回单、内部通知、复核摘要、结案建议和回访预留。
 - 模块 D smoke 覆盖低风险成功、待补充、中风险确认、工具失败升级、高风险升级、AI 结果恢复和结案回写。
 
+## 模块 E 数据源预检
+
+- 用户下载的数据位于 `C:\Users\heyunhui\Downloads\data`，其中 `external/` 与 `generated/` 适合作为模块 E 的外部数据源与转换结果目录。
+- CFPB Consumer Complaint Database 压缩包约 1.42 GB，压缩包内 `complaints.csv` 约 9.06 GB；字段包含 `Product`、`Issue`、`Consumer complaint narrative`、`Company response to consumer`、`Timely response?`、`Complaint ID` 等，适合扩展金融投诉、交易争议、账单费用、征信异议等工单原文与分类来源。
+- CFPB 数据不是通话转写，且为英文真实投诉文本；模块 E 不能直接把它当作最终中文标注集，应先抽样、脱敏/确认无敏感信息、翻译或改写，再补齐必填字段、期望工具、期望处理结果和回单要点。
+- BANKING77 包含 13,083 条英文短文本意图样本，其中 train 10,003 条、test 3,080 条；适合做 Classifier Agent 的意图扩展、路由回归和工具选择参考，但不是完整工单，不能单独满足模块 E 的标注样本要求。
+- `Downloads\data` 根目录下的 `agent_cards.json`、`tools.json`、`tickets.json` 是旧版小配置，少于当前项目的 5-tool 和新业务 Agent 口径，因此不应覆盖 `ai-engine/data/` 下已有项目配置。
+- 已将大数据目录移动到 `ai-engine/data/external/` 和 `ai-engine/data/generated/`，并通过 `.gitignore` 忽略，避免 Git 追踪大文件数据集。
+
+## 模块 E 完成后的实现事实
+
+- `ai-engine/data/evaluation_samples.json` 已作为独立评测样本集落地，当前包含 40 条中文模拟标注样本。
+- 评测样本不混入 `ai-engine/data/tickets.json`；后者继续作为小规模 Demo 种子数据。
+- 每条样本包含工单原文、正确意图、细分工单类型、workflow、必填字段、期望字段、期望工具、期望状态、期望处理结果、回单要点和是否需要人工介入。
+- 样本前半部分优先覆盖现有 5 类工具能力：优惠券补发、资料修改、交易查询、权益查询、进度查询；后半部分覆盖分期、还款、挂失、额度、年费、积分、征信、投诉和跨部门协作等复杂扩展场景。
+- `/api/evaluation/metrics` 已改为通过 `Evaluator.compute()` 返回指标，当前在模块 F 前仍保留演示分数，但 `totalSamples` 由真实评测样本数量驱动。
+- `ai-engine/evaluation/smoke_module_e.py` 校验样本数量、结构、脱敏、场景覆盖、Demo/评测分离和评测入口读取，作为模块 E 的验收脚本。
+- 样本量判断已从 20 条最小集调整为 40 条左右 MVP 集；100+ 样本适合后续严肃指标、混淆矩阵和稳定性回归，不作为当前模块 E 的必达范围。
+
 ## 风险与兜底
 
 | 风险 | 兜底方式 |
 |------|----------|
 | 大规模改名导致代码不稳 | 受控重构 5 个 Agent，旧文件短期保留兼容 shim，模块 A smoke 回归必须通过 |
 | 工具调用不稳定 | 先 Mock Tool/API，真实服务后接 |
-| 数据集构建耗时 | 先做 20 条高质量样本，再逐步扩展 |
+| 数据集构建耗时 | 先做 40 条左右高质量 MVP 样本，再按评测需要逐步扩展 |
 | 前端过技术化 | 默认展示业务流程，开发 Trace 折叠 |
 | 进阶功能分散精力 | Dispatcher、A2A、MCP、PageAgent、语音全部后置 |
 | Agent 效果难证明 | 建立标注样本和评测脚本，每轮开发后回归 |

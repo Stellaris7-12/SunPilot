@@ -1,5 +1,67 @@
 ﻿# 进度日志
 
+## 会话：2026-07-18（模块E完成：40条评测样本与读取校验）
+
+### 背景
+
+用户确认模块 E 的 MVP 样本量采用 40 条左右，而不是 20 条最小集；样本主要用于 Agent 效果评测、场景覆盖证明和后续回归测试，不作为模型训练数据。
+
+### 执行内容
+
+- 新增 `ai-engine/data/evaluation_samples.json`，包含 40 条中文模拟标注样本。
+- 样本与 `ai-engine/data/tickets.json` 分离：Demo 种子数据继续用于页面演示，评测样本独立用于模块 E/F。
+- 每条样本包含工单原文、正确意图、细分工单类型、workflow、必填字段、期望字段、期望工具、期望状态、期望处理结果、回单要点和是否需要人工介入。
+- 样本前 20 条优先覆盖现有工具闭环：优惠券补发、申请进度查询、资料变更、权益资格核验、账单/交易查询和交易争议。
+- 后 20 条覆盖后续扩展场景：分期提前结清、还款协商、挂失补卡、额度咨询、年费、积分、征信异议、投诉催办、跨部门协办等。
+- 更新 `ai-engine/evaluation/evaluator.py`：支持读取新的 `expected` 样本结构，并保持旧字段兼容；在模块 F 接入真实 Agent 输出前，指标分数仍使用演示值，但 `total_samples` 来自真实样本。
+- 更新 `/api/evaluation/metrics`：改为调用 `Evaluator.compute()`，保持前端返回字段不变。
+- 新增 `ai-engine/evaluation/smoke_module_e.py`：校验样本数量、结构、脱敏、核心工具覆盖、状态覆盖、Demo/评测分离，以及评测器和指标 API 读取样本数量。
+- 更新 `doc/planning/task_plan.md`，将模块 E 标记为已完成。
+
+### 当前验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_e.py`：通过，确认 40 条样本可读取，且 `/api/evaluation/metrics` 返回 `totalSamples=40`。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_a.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_b.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_c.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_d.py`：通过。
+
+### 当前阶段
+
+- **状态：** completed
+- **阶段名称：** 模块E：数据集构建与场景扩展
+- **下一步：** 进入模块 F：Agent 测评与效果指标。
+
+## 会话：2026-07-18（模块E启动：外部数据预检与迁移）
+
+### 背景
+
+用户准备开始模块 E：数据集构建与场景扩展，并提供本地下载数据目录 `C:\Users\heyunhui\Downloads\data`，要求先检查数据是否适用；如适用，先修改 `.gitignore` 停止追踪大文件数据集，再把相关数据移动到项目目录下。
+
+### 执行内容
+
+- 读取模块 E 计划、历史发现和进度，确认当前目标是构建 20-50 条可评测标注样本，并保持 Demo 种子数据与评测数据分离。
+- 检查下载数据目录结构：包含 `external/`、`generated/`、`README.md`、`agent_cards.json`、`tickets.json`、`tools.json`。
+- 预检 CFPB 数据：`cfpb_complaints.csv.zip` 约 1.42 GB，内部 `complaints.csv` 约 9.06 GB，字段适合生成金融投诉/信用卡争议类工单，但不是中文通话转写，后续需要抽样、脱敏确认、翻译/改写和补充标签。
+- 预检 BANKING77 数据：`banking77_intents.json` 共 13,083 条，train 10,003 条、test 3,080 条，适合 Classifier/工具路由评测，但不是完整工单。
+- 判断下载目录根部的 `agent_cards.json`、`tools.json`、`tickets.json` 为旧版小配置，不覆盖当前项目内已有新业务 Agent 和 5-tool 配置。
+- 更新 `.gitignore`，新增忽略 `ai-engine/data/external/` 和 `ai-engine/data/generated/`。
+- 将 `external/` 和 `generated/` 从 `Downloads\data` 移动到 `ai-engine/data/`；保留下载目录根部旧版小 JSON 和 README，避免误覆盖项目配置。
+- 更新 `doc/planning/findings.md`，记录模块 E 数据源适用性判断。
+- 同步更新 `doc/planning/task_plan.md`：模块 E 标记为进行中，补充数据源预检、`.gitignore` 忽略规则和数据迁移的已完成前置项。
+
+### 当前验证结果
+
+- `git check-ignore -v ai-engine/data/external/cfpb_complaints.csv.zip ai-engine/data/generated/banking77_intents.json`：命中新增忽略规则。
+- `git status --short --ignored`：大数据目录显示为 ignored，未作为普通未跟踪文件进入 Git。
+
+### 当前阶段
+
+- **状态：** in_progress
+- **阶段名称：** 模块E：数据集构建与场景扩展
+- **下一步：** 基于 CFPB/BANKING77 抽样并手工或脚本化整理 20-50 条中文标注样本，字段覆盖通话记录/工单原文、意图、工单类型、必填字段、期望工具、处理结果、回单要点和是否人工介入。
+
 ## 会话：2026-07-18（模块D完成：Notification 与回单闭环）
 
 ### 背景

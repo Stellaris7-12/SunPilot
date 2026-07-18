@@ -1,0 +1,1002 @@
+[
+  {
+    "id": "eval-001",
+    "source": "manual_mvp",
+    "category": "coupon_reissue",
+    "ticket": {
+      "title": "餐饮满减券达标未到账",
+      "content": "客户号C20001来电反馈参加信用卡餐饮满100减20活动，交易已达标但App优惠券中心没有收到券，券类型DINING_100_20，原因是活动达标未到账，请协助核实并补发。",
+      "riskLevel": "low",
+      "customerId": "C20001",
+      "phone": "138****2001",
+      "cardLast4": "2001"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "ticketType": "权益/优惠券补发",
+      "workflowName": "coupon_reissue_flow",
+      "requiredFields": ["customerId", "couponType", "reason"],
+      "expectedFields": {"customerId": "C20001", "couponType": "DINING_100_20", "reason": "活动达标未到账"},
+      "expectedTool": "coupon.reissue",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "补发餐饮满减券并生成证据编号",
+      "replyPoints": ["已核实活动达标", "说明补发结果", "提示客户在App优惠券中心查看"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-002",
+    "source": "manual_mvp",
+    "category": "coupon_reissue",
+    "ticket": {
+      "title": "生日权益券未收到",
+      "content": "客户号C20002反馈生日月权益券未入账，活动规则显示白金卡客户可领取生日礼遇券，券类型BIRTHDAY_GIFT_2026，原因是生日权益未到账，希望补发。",
+      "riskLevel": "low",
+      "customerId": "C20002",
+      "phone": "139****2002",
+      "cardLast4": "2002"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "ticketType": "权益/优惠券补发",
+      "workflowName": "coupon_reissue_flow",
+      "requiredFields": ["customerId", "couponType", "reason"],
+      "expectedFields": {"customerId": "C20002", "couponType": "BIRTHDAY_GIFT_2026", "reason": "生日权益未到账"},
+      "expectedTool": "coupon.reissue",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "补发生日权益券并提示查收",
+      "replyPoints": ["说明生日权益券处理结果", "保留补发证据编号", "提示到账后使用有效期"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-003",
+    "source": "manual_mvp",
+    "category": "coupon_reissue",
+    "ticket": {
+      "title": "优惠券补发缺少券类型",
+      "content": "客户号C20003说参加信用卡活动后没有收到优惠券，只说自己已经消费达标，希望银行尽快处理，但没有说明具体活动或券类型。",
+      "riskLevel": "low",
+      "customerId": "C20003",
+      "phone": "137****2003",
+      "cardLast4": "2003"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "ticketType": "权益/优惠券补发",
+      "workflowName": "coupon_reissue_flow",
+      "requiredFields": ["customerId", "couponType", "reason"],
+      "expectedFields": {"customerId": "C20003", "couponType": "未提供", "reason": "活动达标未收到券"},
+      "expectedTool": "coupon.reissue",
+      "expectedStatus": "pending_info",
+      "expectedResult": "识别缺少券类型并生成补充信息追问",
+      "replyPoints": ["请客户补充活动名称或券类型", "说明补齐后继续处理"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-004",
+    "source": "manual_mvp",
+    "category": "coupon_reissue",
+    "ticket": {
+      "title": "观影券过期争议",
+      "content": "客户号C20004反馈观影券MOVIE_60_20刚收到就显示过期，客户认为是系统延迟导致，原因是券状态异常过期，希望重新补发一张可用券。",
+      "riskLevel": "low",
+      "customerId": "C20004",
+      "phone": "136****2004",
+      "cardLast4": "2004"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "ticketType": "权益/优惠券补发",
+      "workflowName": "coupon_reissue_flow",
+      "requiredFields": ["customerId", "couponType", "reason"],
+      "expectedFields": {"customerId": "C20004", "couponType": "MOVIE_60_20", "reason": "券状态异常过期"},
+      "expectedTool": "coupon.reissue",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "补发观影券或记录补发建议",
+      "replyPoints": ["说明券状态核实结果", "给出补发处理结论", "提示客户查看有效期"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-005",
+    "source": "manual_mvp",
+    "category": "application_progress",
+    "ticket": {
+      "title": "信用卡申请进度查询",
+      "content": "客户号C20005咨询信用卡申请进度，申请单号APP20260718005，客户表示已经补充收入证明，希望了解当前处理节点和预计完成时间。",
+      "riskLevel": "low",
+      "customerId": "C20005",
+      "phone": "135****2005",
+      "cardLast4": "0005"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "ticketType": "申请进度查询",
+      "workflowName": "application_progress_query_flow",
+      "requiredFields": ["customerId", "applicationNo"],
+      "expectedFields": {"customerId": "C20005", "applicationNo": "APP20260718005"},
+      "expectedTool": "application.progress-query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询申请当前节点和预计完成时间",
+      "replyPoints": ["同步当前审核节点", "说明预计完成时间", "提示保持联系方式畅通"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-006",
+    "source": "manual_mvp",
+    "category": "application_progress",
+    "ticket": {
+      "title": "额度调整申请进度查询",
+      "content": "客户号C20006反馈上周提交临时额度申请，业务流水号APP20260718006，想查询调额申请是否已经进入审核。",
+      "riskLevel": "low",
+      "customerId": "C20006",
+      "phone": "134****2006",
+      "cardLast4": "2006"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "ticketType": "申请进度查询",
+      "workflowName": "application_progress_query_flow",
+      "requiredFields": ["customerId", "applicationNo"],
+      "expectedFields": {"customerId": "C20006", "applicationNo": "APP20260718006"},
+      "expectedTool": "application.progress-query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询调额申请进度",
+      "replyPoints": ["说明当前申请节点", "提示审核结果以系统通知为准"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-007",
+    "source": "manual_mvp",
+    "category": "application_progress",
+    "ticket": {
+      "title": "缺少申请单号的进度查询",
+      "content": "客户号C20007说前几天在线申请了信用卡，现在想查进度，但没有提供申请单号或业务流水号。",
+      "riskLevel": "low",
+      "customerId": "C20007",
+      "phone": "133****2007",
+      "cardLast4": "0007"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "ticketType": "申请进度查询",
+      "workflowName": "application_progress_query_flow",
+      "requiredFields": ["customerId", "applicationNo"],
+      "expectedFields": {"customerId": "C20007", "applicationNo": "未提供"},
+      "expectedTool": "application.progress-query",
+      "expectedStatus": "pending_info",
+      "expectedResult": "识别缺少申请单号并追问",
+      "replyPoints": ["请客户补充申请单号或业务流水号", "说明补充后继续查询"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-008",
+    "source": "manual_mvp",
+    "category": "application_progress",
+    "ticket": {
+      "title": "资料补充进度查询",
+      "content": "客户号C20008咨询资料补充后的审核进展，业务流水号APP20260718008，客户昨晚已上传身份证明和工作证明。",
+      "riskLevel": "low",
+      "customerId": "C20008",
+      "phone": "132****2008",
+      "cardLast4": "2008"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "ticketType": "申请进度查询",
+      "workflowName": "application_progress_query_flow",
+      "requiredFields": ["customerId", "applicationNo"],
+      "expectedFields": {"customerId": "C20008", "applicationNo": "APP20260718008"},
+      "expectedTool": "application.progress-query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询资料补充后的审核进度",
+      "replyPoints": ["同步资料审核状态", "说明预计下一节点", "提示客户等待系统通知"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-009",
+    "source": "manual_mvp",
+    "category": "customer_profile_update",
+    "ticket": {
+      "title": "修改账单寄送地址",
+      "content": "客户号C20009要求将账单寄送地址修改为上海市浦东新区测试路88号，已通过短信验证码核验身份，verifyStatus为PASSED。",
+      "riskLevel": "medium",
+      "customerId": "C20009",
+      "phone": "131****2009",
+      "cardLast4": "2009"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
+      "ticketType": "资料变更",
+      "workflowName": "address_update_flow",
+      "requiredFields": ["customerId", "newAddress", "verifyStatus"],
+      "expectedFields": {"customerId": "C20009", "newAddress": "上海市浦东新区测试路88号", "verifyStatus": "PASSED"},
+      "expectedTool": "customer.update-address",
+      "expectedStatus": "pending_human_confirm",
+      "expectedResult": "进入人工确认后修改账单地址",
+      "replyPoints": ["说明资料变更需要人工确认", "确认后同步生效状态"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-010",
+    "source": "manual_mvp",
+    "category": "customer_profile_update",
+    "ticket": {
+      "title": "修改预留手机号",
+      "content": "客户号C20010要求把预留手机号改为139****2010，来电中只说明本人申请，没有提供短信验证码或身份核验结果。",
+      "riskLevel": "medium",
+      "customerId": "C20010",
+      "phone": "139****2010",
+      "cardLast4": "2010"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
+      "ticketType": "资料变更",
+      "workflowName": "address_update_flow",
+      "requiredFields": ["customerId", "newAddress", "verifyStatus"],
+      "expectedFields": {"customerId": "C20010", "newAddress": "未提供", "verifyStatus": "未提供"},
+      "expectedTool": "customer.update-address",
+      "expectedStatus": "pending_info",
+      "expectedResult": "识别资料变更缺少必要变更字段和核验状态",
+      "replyPoints": ["提示需要补充具体变更字段", "提示需完成身份核验"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-011",
+    "source": "manual_mvp",
+    "category": "customer_profile_update",
+    "ticket": {
+      "title": "新增紧急联系人地址备注",
+      "content": "客户号C20011希望把账单联系地址更新为北京市朝阳区样例街66号，并备注紧急联系人王先生，身份核验verifyStatus为PASSED。",
+      "riskLevel": "medium",
+      "customerId": "C20011",
+      "phone": "138****2011",
+      "cardLast4": "2011"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
+      "ticketType": "资料变更",
+      "workflowName": "address_update_flow",
+      "requiredFields": ["customerId", "newAddress", "verifyStatus"],
+      "expectedFields": {"customerId": "C20011", "newAddress": "北京市朝阳区样例街66号", "verifyStatus": "PASSED"},
+      "expectedTool": "customer.update-address",
+      "expectedStatus": "pending_human_confirm",
+      "expectedResult": "人工确认后更新账单联系地址",
+      "replyPoints": ["说明地址变更处理结果", "提醒敏感资料变更需复核"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-012",
+    "source": "manual_mvp",
+    "category": "customer_profile_update",
+    "ticket": {
+      "title": "企业商务卡公司地址变更",
+      "content": "客户号C20012为商务卡经办人，申请把公司账单地址改为深圳市南山区样例科技园9栋，verifyStatus为PASSED，但涉及公司资料变更需要复核授权材料。",
+      "riskLevel": "high",
+      "customerId": "C20012",
+      "phone": "137****2012",
+      "cardLast4": "2012"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
+      "ticketType": "商务卡资料变更",
+      "workflowName": "address_update_flow",
+      "requiredFields": ["customerId", "newAddress", "verifyStatus"],
+      "expectedFields": {"customerId": "C20012", "newAddress": "深圳市南山区样例科技园9栋", "verifyStatus": "PASSED"},
+      "expectedTool": "customer.update-address",
+      "expectedStatus": "escalated",
+      "expectedResult": "识别高风险商务卡资料变更并升级人工",
+      "replyPoints": ["说明涉及公司资料需人工复核", "提示补充授权材料"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-013",
+    "source": "manual_mvp",
+    "category": "benefit_query",
+    "ticket": {
+      "title": "机场贵宾厅权益资格查询",
+      "content": "客户号C20013咨询白金卡是否具备机场贵宾厅权益，权益编码AIRPORT_LOUNGE_2026，查询原因是客户出行前确认权益资格。",
+      "riskLevel": "low",
+      "customerId": "C20013",
+      "phone": "136****2013",
+      "cardLast4": "2013"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "ticketType": "权益资格核验",
+      "workflowName": "benefit_query_flow",
+      "requiredFields": ["customerId", "benefitCode", "queryReason"],
+      "expectedFields": {"customerId": "C20013", "benefitCode": "AIRPORT_LOUNGE_2026", "queryReason": "出行前确认权益资格"},
+      "expectedTool": "benefit.query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询并反馈机场贵宾厅权益资格",
+      "replyPoints": ["说明权益是否可用", "说明使用规则和有效期"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-014",
+    "source": "manual_mvp",
+    "category": "benefit_query",
+    "ticket": {
+      "title": "酒店礼遇权益查询",
+      "content": "客户号C20014计划预订酒店，询问是否享受HOTEL_UPGRADE_2026酒店升房礼遇，查询原因是出行前确认权益可用状态。",
+      "riskLevel": "low",
+      "customerId": "C20014",
+      "phone": "135****2014",
+      "cardLast4": "2014"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "ticketType": "权益资格核验",
+      "workflowName": "benefit_query_flow",
+      "requiredFields": ["customerId", "benefitCode", "queryReason"],
+      "expectedFields": {"customerId": "C20014", "benefitCode": "HOTEL_UPGRADE_2026", "queryReason": "出行前确认权益可用状态"},
+      "expectedTool": "benefit.query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询酒店礼遇权益资格",
+      "replyPoints": ["说明客户是否具备资格", "提示权益预约或使用规则"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-015",
+    "source": "manual_mvp",
+    "category": "benefit_query",
+    "ticket": {
+      "title": "活动资格查询缺少权益编码",
+      "content": "客户号C20015询问自己是否有某个商圈满减活动资格，但只说是在App首页看到的活动，没有提供活动名称或权益编码。",
+      "riskLevel": "low",
+      "customerId": "C20015",
+      "phone": "134****2015",
+      "cardLast4": "2015"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "ticketType": "权益资格核验",
+      "workflowName": "benefit_query_flow",
+      "requiredFields": ["customerId", "benefitCode", "queryReason"],
+      "expectedFields": {"customerId": "C20015", "benefitCode": "未提供", "queryReason": "查询活动资格"},
+      "expectedTool": "benefit.query",
+      "expectedStatus": "pending_info",
+      "expectedResult": "识别缺少权益或活动编码并追问",
+      "replyPoints": ["请补充活动名称或权益编码", "说明补充后可继续查询"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-016",
+    "source": "manual_mvp",
+    "category": "benefit_query",
+    "ticket": {
+      "title": "积分兑换资格查询",
+      "content": "客户号C20016咨询积分兑换里程活动POINT_MILEAGE_2026是否可参加，查询原因是准备把积分兑换为航空里程。",
+      "riskLevel": "low",
+      "customerId": "C20016",
+      "phone": "133****2016",
+      "cardLast4": "2016"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "ticketType": "积分兑换资格核验",
+      "workflowName": "benefit_query_flow",
+      "requiredFields": ["customerId", "benefitCode", "queryReason"],
+      "expectedFields": {"customerId": "C20016", "benefitCode": "POINT_MILEAGE_2026", "queryReason": "准备积分兑换航空里程"},
+      "expectedTool": "benefit.query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询积分兑换资格",
+      "replyPoints": ["说明兑换资格", "提示积分兑换规则"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-017",
+    "source": "manual_mvp",
+    "category": "transaction_query",
+    "ticket": {
+      "title": "账单交易明细查询",
+      "content": "客户号C20017咨询2026-07-10一笔368.50元交易详情，商户名称为样例百货，客户想确认是否已入账。",
+      "riskLevel": "medium",
+      "customerId": "C20017",
+      "phone": "132****2017",
+      "cardLast4": "2017"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "ticketType": "账单/交易查询",
+      "workflowName": "transaction_dispute_flow",
+      "requiredFields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "expectedFields": {"customerId": "C20017", "transactionDate": "2026-07-10", "amount": "368.50", "merchantName": "样例百货"},
+      "expectedTool": "transaction.query",
+      "expectedStatus": "pending_human_confirm",
+      "expectedResult": "查询交易流水并等待人工复核说明",
+      "replyPoints": ["说明交易查询结果", "提示如有异议可继续提交材料"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-018",
+    "source": "manual_mvp",
+    "category": "transaction_dispute",
+    "ticket": {
+      "title": "非本人消费争议",
+      "content": "客户号C20018投诉2026-07-11一笔199.00元交易非本人操作，商户为样例超市，怀疑卡片被盗刷，要求核查交易并申请争议处理。",
+      "riskLevel": "high",
+      "customerId": "C20018",
+      "phone": "131****2018",
+      "cardLast4": "2018"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "ticketType": "交易争议/盗刷疑似",
+      "workflowName": "transaction_dispute_flow",
+      "requiredFields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "expectedFields": {"customerId": "C20018", "transactionDate": "2026-07-11", "amount": "199.00", "merchantName": "样例超市"},
+      "expectedTool": "transaction.query",
+      "expectedStatus": "escalated",
+      "expectedResult": "高风险盗刷疑似场景升级人工争议岗",
+      "replyPoints": ["说明已记录争议诉求", "提示人工复核和材料要求", "建议客户关注卡片安全"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-019",
+    "source": "manual_mvp",
+    "category": "transaction_dispute",
+    "ticket": {
+      "title": "重复扣款调单",
+      "content": "客户号C20019反馈2026-07-12在样例餐厅消费88.00元疑似重复扣款，账单中出现两笔相同金额，要求调单核实。",
+      "riskLevel": "medium",
+      "customerId": "C20019",
+      "phone": "139****2019",
+      "cardLast4": "2019"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "ticketType": "交易争议/调单",
+      "workflowName": "transaction_dispute_flow",
+      "requiredFields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "expectedFields": {"customerId": "C20019", "transactionDate": "2026-07-12", "amount": "88.00", "merchantName": "样例餐厅"},
+      "expectedTool": "transaction.query",
+      "expectedStatus": "pending_human_confirm",
+      "expectedResult": "查询交易流水后转人工复核重复扣款",
+      "replyPoints": ["说明已查询交易流水", "提示争议处理需人工复核"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-020",
+    "source": "manual_mvp",
+    "category": "transaction_dispute",
+    "ticket": {
+      "title": "交易争议缺少商户名",
+      "content": "客户号C20020反馈2026-07-13有一笔256.00元交易不认可，但没有说明商户名称，希望银行帮忙查。",
+      "riskLevel": "medium",
+      "customerId": "C20020",
+      "phone": "138****2020",
+      "cardLast4": "2020"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "ticketType": "交易争议",
+      "workflowName": "transaction_dispute_flow",
+      "requiredFields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "expectedFields": {"customerId": "C20020", "transactionDate": "2026-07-13", "amount": "256.00", "merchantName": "未提供"},
+      "expectedTool": "transaction.query",
+      "expectedStatus": "pending_info",
+      "expectedResult": "识别缺少商户名称并追问",
+      "replyPoints": ["请客户补充商户名称或账单截图", "说明补充后继续核查"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-021",
+    "source": "manual_mvp",
+    "category": "installment_consult",
+    "ticket": {
+      "title": "分期提前结清咨询",
+      "content": "客户号C20021咨询信用卡账单分期是否可以提前结清，想了解剩余手续费和办理入口。",
+      "riskLevel": "low",
+      "customerId": "C20021",
+      "phone": "137****2021",
+      "cardLast4": "2021"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "分期提前结清咨询",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20021", "summary": "咨询分期提前结清和手续费"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "当前核心工具未覆盖，转人工或知识库答复",
+      "replyPoints": ["说明需人工核实分期协议", "提示手续费以账户实际为准"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-022",
+    "source": "manual_mvp",
+    "category": "repayment_negotiation",
+    "ticket": {
+      "title": "还款延期协商",
+      "content": "客户号C20022因收入延迟，希望申请本月账单延期还款或协商分期，担心影响征信。",
+      "riskLevel": "high",
+      "customerId": "C20022",
+      "phone": "136****2022",
+      "cardLast4": "2022"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "还款协商/延期咨询",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20022", "summary": "申请延期还款或协商分期"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "高风险还款协商转人工处理",
+      "replyPoints": ["说明已转人工协商", "提示保持电话畅通", "避免承诺征信结果"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-023",
+    "source": "manual_mvp",
+    "category": "card_loss",
+    "ticket": {
+      "title": "卡片挂失补卡",
+      "content": "客户号C20023反馈信用卡丢失，要求立即挂失并补卡，当前担心卡片被他人使用。",
+      "riskLevel": "high",
+      "customerId": "C20023",
+      "phone": "135****2023",
+      "cardLast4": "2023"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "卡片挂失/补卡",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20023", "summary": "卡片丢失需要挂失补卡"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "高风险卡片安全场景升级人工",
+      "replyPoints": ["提示人工立即接管", "建议客户关注异常交易"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-024",
+    "source": "manual_mvp",
+    "category": "limit_adjustment",
+    "ticket": {
+      "title": "临时额度咨询",
+      "content": "客户号C20024计划出国旅行，想申请临时额度提升，询问需要哪些材料以及多久能审批。",
+      "riskLevel": "medium",
+      "customerId": "C20024",
+      "phone": "134****2024",
+      "cardLast4": "2024"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "额度咨询/调整",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20024", "summary": "咨询临时额度提升材料和审批时效"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "当前核心工具未覆盖，转人工或后续接额度工具",
+      "replyPoints": ["说明额度调整需资质审核", "提示后续人工联系"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-025",
+    "source": "manual_mvp",
+    "category": "annual_fee",
+    "ticket": {
+      "title": "年费减免咨询",
+      "content": "客户号C20025反馈账单收取年费，认为自己刷卡次数已达标，要求核实是否可以减免。",
+      "riskLevel": "medium",
+      "customerId": "C20025",
+      "phone": "133****2025",
+      "cardLast4": "2025"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "年费减免/年费调整",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20025", "summary": "核实年费减免资格"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "当前核心工具未覆盖年费核验，转人工复核",
+      "replyPoints": ["说明需核实年费规则和刷卡次数", "避免直接承诺减免"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-026",
+    "source": "manual_mvp",
+    "category": "points_dispute",
+    "ticket": {
+      "title": "积分未到账",
+      "content": "客户号C20026反馈上月消费后积分没有到账，涉及多笔线上消费，希望核查积分入账规则。",
+      "riskLevel": "medium",
+      "customerId": "C20026",
+      "phone": "132****2026",
+      "cardLast4": "2026"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "积分到账/积分争议",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20026", "summary": "核查消费积分未到账"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "当前核心工具未覆盖积分流水，转人工核查",
+      "replyPoints": ["说明已记录积分争议", "提示人工核查积分规则和流水"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-027",
+    "source": "manual_mvp",
+    "category": "credit_report_dispute",
+    "ticket": {
+      "title": "征信异议处理",
+      "content": "客户号C20027称自己已按时还款，但征信报告显示信用卡逾期，要求银行核查并更正征信记录。",
+      "riskLevel": "high",
+      "customerId": "C20027",
+      "phone": "131****2027",
+      "cardLast4": "2027"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "征信异议",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20027", "summary": "核查并更正征信逾期记录"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "征信异议高风险场景升级人工",
+      "replyPoints": ["说明已转人工复核", "提示需提供征信报告和还款凭证"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-028",
+    "source": "manual_mvp",
+    "category": "complaint",
+    "ticket": {
+      "title": "多次催办未回复投诉",
+      "content": "客户号C20028投诉上周提交的交易争议一直没人回复，已经催办三次，要求给出明确处理时限。",
+      "riskLevel": "high",
+      "customerId": "C20028",
+      "phone": "139****2028",
+      "cardLast4": "2028"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "投诉/催办",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20028", "summary": "投诉交易争议催办未回复"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "投诉催办升级人工",
+      "replyPoints": ["表达已记录投诉", "说明将由人工跟进", "避免承诺未核实处理时限"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-029",
+    "source": "manual_mvp",
+    "category": "cross_department",
+    "ticket": {
+      "title": "跨部门协办开票问题",
+      "content": "客户号C20029反馈商务卡消费需要开具单位发票，客服、商户和财务部门之间来回转接，要求协调处理。",
+      "riskLevel": "medium",
+      "customerId": "C20029",
+      "phone": "138****2029",
+      "cardLast4": "2029"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "跨部门协办",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20029", "summary": "商务卡消费发票跨部门协办"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "转人工协调跨部门处理",
+      "replyPoints": ["说明已转人工协办", "提示需核实消费和发票信息"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-030",
+    "source": "manual_mvp",
+    "category": "card_stop",
+    "ticket": {
+      "title": "主动停卡咨询",
+      "content": "客户号C20030因近期不再使用信用卡，想咨询是否可以停卡以及停卡后账单和积分如何处理。",
+      "riskLevel": "medium",
+      "customerId": "C20030",
+      "phone": "137****2030",
+      "cardLast4": "2030"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "停卡咨询",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20030", "summary": "咨询主动停卡及账单积分影响"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "转人工说明停卡规则",
+      "replyPoints": ["说明需核实账户状态", "提示未出账单和积分规则"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-031",
+    "source": "manual_mvp",
+    "category": "coupon_reissue",
+    "ticket": {
+      "title": "加油券未到账",
+      "content": "客户号C20031反馈加油满减活动达标后未收到FUEL_200_30加油券，原因是活动达标未到账，希望补发。",
+      "riskLevel": "low",
+      "customerId": "C20031",
+      "phone": "136****2031",
+      "cardLast4": "2031"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "ticketType": "权益/优惠券补发",
+      "workflowName": "coupon_reissue_flow",
+      "requiredFields": ["customerId", "couponType", "reason"],
+      "expectedFields": {"customerId": "C20031", "couponType": "FUEL_200_30", "reason": "活动达标未到账"},
+      "expectedTool": "coupon.reissue",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "补发加油满减券",
+      "replyPoints": ["说明补发结果", "提示客户查看优惠券中心"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-032",
+    "source": "manual_mvp",
+    "category": "application_progress",
+    "ticket": {
+      "title": "补卡申请进度查询",
+      "content": "客户号C20032查询补卡业务进度，业务流水号APP20260718032，客户想知道卡片是否已寄出。",
+      "riskLevel": "low",
+      "customerId": "C20032",
+      "phone": "135****2032",
+      "cardLast4": "2032"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "ticketType": "申请进度查询",
+      "workflowName": "application_progress_query_flow",
+      "requiredFields": ["customerId", "applicationNo"],
+      "expectedFields": {"customerId": "C20032", "applicationNo": "APP20260718032"},
+      "expectedTool": "application.progress-query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询补卡业务进度",
+      "replyPoints": ["同步当前业务节点", "说明预计寄送或完成时间"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-033",
+    "source": "manual_mvp",
+    "category": "customer_profile_update",
+    "ticket": {
+      "title": "地址变更身份核验失败",
+      "content": "客户号C20033要求将账单地址改为广州市天河区样例路18号，但身份核验verifyStatus为FAILED。",
+      "riskLevel": "medium",
+      "customerId": "C20033",
+      "phone": "134****2033",
+      "cardLast4": "2033"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
+      "ticketType": "资料变更",
+      "workflowName": "address_update_flow",
+      "requiredFields": ["customerId", "newAddress", "verifyStatus"],
+      "expectedFields": {"customerId": "C20033", "newAddress": "广州市天河区样例路18号", "verifyStatus": "FAILED"},
+      "expectedTool": "customer.update-address",
+      "expectedStatus": "escalated",
+      "expectedResult": "身份核验失败时升级人工，不直接修改资料",
+      "replyPoints": ["说明身份核验未通过", "提示需重新核验或人工处理"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-034",
+    "source": "manual_mvp",
+    "category": "benefit_query",
+    "ticket": {
+      "title": "道路救援权益查询",
+      "content": "客户号C20034咨询白金卡道路救援权益ROAD_ASSIST_2026是否仍然有效，查询原因是车辆出行前确认服务。",
+      "riskLevel": "low",
+      "customerId": "C20034",
+      "phone": "133****2034",
+      "cardLast4": "2034"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "ticketType": "权益资格核验",
+      "workflowName": "benefit_query_flow",
+      "requiredFields": ["customerId", "benefitCode", "queryReason"],
+      "expectedFields": {"customerId": "C20034", "benefitCode": "ROAD_ASSIST_2026", "queryReason": "车辆出行前确认服务"},
+      "expectedTool": "benefit.query",
+      "expectedStatus": "pending_human_review",
+      "expectedResult": "查询道路救援权益资格",
+      "replyPoints": ["说明权益状态", "提示使用入口或服务热线"],
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "eval-035",
+    "source": "manual_mvp",
+    "category": "transaction_query",
+    "ticket": {
+      "title": "境外交易查询",
+      "content": "客户号C20035查询2026-07-14一笔52.30美元境外交易，商户名称为SAMPLE HOTEL，想确认折算金额和入账状态。",
+      "riskLevel": "medium",
+      "customerId": "C20035",
+      "phone": "132****2035",
+      "cardLast4": "2035"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "ticketType": "账单/交易查询",
+      "workflowName": "transaction_dispute_flow",
+      "requiredFields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "expectedFields": {"customerId": "C20035", "transactionDate": "2026-07-14", "amount": "52.30", "merchantName": "SAMPLE HOTEL"},
+      "expectedTool": "transaction.query",
+      "expectedStatus": "pending_human_confirm",
+      "expectedResult": "查询境外交易流水并人工复核说明",
+      "replyPoints": ["说明交易入账状态", "提示汇率和手续费以账单为准"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-036",
+    "source": "manual_mvp",
+    "category": "fraud_risk",
+    "ticket": {
+      "title": "连续小额盗刷疑似",
+      "content": "客户号C20036反馈卡片在2026-07-15连续出现多笔9.90元交易，商户为UNKNOWN ONLINE，怀疑被盗刷，要求立即处理。",
+      "riskLevel": "high",
+      "customerId": "C20036",
+      "phone": "131****2036",
+      "cardLast4": "2036"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "ticketType": "交易争议/盗刷疑似",
+      "workflowName": "transaction_dispute_flow",
+      "requiredFields": ["customerId", "transactionDate", "amount", "merchantName"],
+      "expectedFields": {"customerId": "C20036", "transactionDate": "2026-07-15", "amount": "9.90", "merchantName": "UNKNOWN ONLINE"},
+      "expectedTool": "transaction.query",
+      "expectedStatus": "escalated",
+      "expectedResult": "连续盗刷疑似升级人工安全处理",
+      "replyPoints": ["提示已升级人工", "建议客户关注卡片安全和后续材料"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-037",
+    "source": "manual_mvp",
+    "category": "repayment_negotiation",
+    "ticket": {
+      "title": "最低还款影响咨询",
+      "content": "客户号C20037咨询本期只还最低还款额是否影响征信，以及利息如何计算。",
+      "riskLevel": "medium",
+      "customerId": "C20037",
+      "phone": "139****2037",
+      "cardLast4": "2037"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "还款咨询",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20037", "summary": "咨询最低还款影响和利息"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "当前核心工具未覆盖，转人工或知识库答复",
+      "replyPoints": ["说明需按账户实际情况解释", "避免承诺征信结论"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-038",
+    "source": "manual_mvp",
+    "category": "annual_fee",
+    "ticket": {
+      "title": "高端卡年费调整投诉",
+      "content": "客户号C20038投诉高端卡年费突然上调，认为开卡时没有说明，要求减免并给出解释。",
+      "riskLevel": "high",
+      "customerId": "C20038",
+      "phone": "138****2038",
+      "cardLast4": "2038"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "年费投诉",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20038", "summary": "投诉高端卡年费上调并要求减免"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "投诉和费用争议升级人工",
+      "replyPoints": ["说明已升级人工复核", "提示将核查收费规则和开卡记录"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-039",
+    "source": "manual_mvp",
+    "category": "points_dispute",
+    "ticket": {
+      "title": "积分兑换失败",
+      "content": "客户号C20039反馈积分兑换航空里程时系统提示失败，但积分已扣减，希望核查并恢复积分或完成兑换。",
+      "riskLevel": "medium",
+      "customerId": "C20039",
+      "phone": "137****2039",
+      "cardLast4": "2039"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "积分兑换争议",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20039", "summary": "积分兑换失败但积分已扣减"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "积分兑换争议转人工核查",
+      "replyPoints": ["说明已记录积分兑换异常", "提示人工核查扣减和兑换记录"],
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "eval-040",
+    "source": "manual_mvp",
+    "category": "complaint",
+    "ticket": {
+      "title": "服务态度投诉",
+      "content": "客户号C20040投诉电话客服处理信用卡争议时态度不好，且没有说明后续流程，要求主管回电。",
+      "riskLevel": "high",
+      "customerId": "C20040",
+      "phone": "136****2040",
+      "cardLast4": "2040"
+    },
+    "expected": {
+      "intentType": "UNKNOWN",
+      "ticketType": "服务投诉",
+      "workflowName": "unknown_flow",
+      "requiredFields": ["customerId", "summary"],
+      "expectedFields": {"customerId": "C20040", "summary": "投诉客服服务态度并要求主管回电"},
+      "expectedTool": "",
+      "expectedStatus": "escalated",
+      "expectedResult": "服务投诉升级人工主管或投诉岗",
+      "replyPoints": ["表达已记录投诉", "说明将安排人工跟进", "避免评价责任归属"],
+      "requiresHuman": true
+    }
+  }
+]

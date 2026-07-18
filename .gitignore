@@ -41,6 +41,10 @@ logs/
 *.sqlite3
 ai-engine/data/traces/
 
+# Large local datasets
+ai-engine/data/external/
+ai-engine/data/generated/
+
 # Node / frontend
 node_modules/
 frontend/node_modules/
