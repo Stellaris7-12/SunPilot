@@ -235,7 +235,7 @@ async def main():
 
         result, events, trace = await run("dispute")
         assert result["_status"] == "escalated", result
-        assert [step.agent_id for step in trace.steps] == ["escalation_agent"], trace.steps
+        assert [step.agent_id for step in trace.steps] == ["escalation_agent", "notification_agent"], trace.steps
 
         orchestrator.classifier_agent = FakeClassifierAgent()
         orchestrator.intake_agent = FailingIntakeAgent()

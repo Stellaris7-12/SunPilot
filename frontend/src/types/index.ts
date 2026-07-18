@@ -69,6 +69,46 @@ export interface VerifyCheck {
   status: string; // "通过" | "待确认" | "需复核" | "已拦截"
 }
 
+export type NotificationStatus = 'ready' | 'needs_info' | 'needs_review' | 'escalated' | 'closed' | 'failed';
+export type NotificationOwner = 'customer' | 'agent' | 'human' | 'system';
+
+export interface NotificationArtifact {
+  title: string;
+  body: string;
+  status: NotificationStatus;
+  evidenceIds: string[];
+  nextOwner: NotificationOwner;
+}
+
+export interface ReviewSummary {
+  reason: string;
+  riskDecision: string;
+  missingFields: string[];
+  toolEvidenceIds: string[];
+  suggestedAction: string;
+}
+
+export interface ClosureSuggestion {
+  canClose: boolean;
+  reason: string;
+  finalReply: string;
+  requiresHumanReview: boolean;
+}
+
+export interface FollowUpPlan {
+  enabled: boolean;
+  template: string;
+  triggerStatus: string;
+}
+
+export interface NotificationBundle {
+  standardReply: NotificationArtifact;
+  internalNotice: NotificationArtifact;
+  reviewSummary: ReviewSummary;
+  closureSuggestion: ClosureSuggestion;
+  followUp: FollowUpPlan;
+}
+
 export interface AiProcessResult {
   workflowName: string;
   riskDecision: string;
@@ -80,6 +120,7 @@ export interface AiProcessResult {
   toolResponse: Record<string, unknown>;
   verifyChecks: VerifyCheck[];
   replyDraft: string;
+  notification?: NotificationBundle | null;
   requiresHumanReview: boolean;
   missingFields: string[];
   failureReason: string;

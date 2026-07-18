@@ -102,6 +102,9 @@ class FakeNotificationAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         tool_result = input_data.get("tool_result") or {}
         evidence_id = tool_result.get("evidence_id", "")
+        if input_data.get("status") == "pending_info":
+            missing = "、".join(input_data.get("missing_fields", []))
+            return {"reply_draft": f"请补充{missing}后继续处理"}
         return {"reply_draft": f"已完成处理，证据编号：{evidence_id}"}
 
 
@@ -246,7 +249,7 @@ async def main():
             assert result["_status"] == "escalated", result
             assert result["tool_response"]["failureReason"], result
             assert "workflow_escalated" in [event["event"] for event in events], events
-            assert trace.steps[-1].agent_id == "escalation_agent", trace.steps
+            assert [step.agent_id for step in trace.steps[-2:]] == ["escalation_agent", "notification_agent"], trace.steps
         finally:
             orchestrator_module.mock_executor = original_executor
 

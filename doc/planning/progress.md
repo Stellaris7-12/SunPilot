@@ -1,5 +1,37 @@
 ﻿# 进度日志
 
+## 会话：2026-07-18（模块D完成：Notification 与回单闭环）
+
+### 背景
+
+用户要求按 planning 继续完成模块 D，并执行计划直到测试通过、系统跑通、功能正常，同时使用其他 Agent 进行测试和审查。
+
+### 执行内容
+
+- 扩展 `AiProcessResult`：新增结构化 `notification`，包含标准回单、内部通知、复核摘要、结案建议和回访预留；保留 `replyDraft`/`reply_draft` 兼容旧前端和旧测试。
+- 升级 `NotificationAgent`：支持结构化输出，LLM 失败或字段缺失时使用确定性 fallback，避免通知环节拖垮主流程。
+- 改造 Orchestrator：低风险成功、待补充、待人工确认、工具失败/冲突/权限不足、高风险直升人工等终态均生成通知与复核摘要。
+- 兼容迁移 `ai_results`：新增 `notification_json`、`final_reply`、`closed_at`，并让 `/close` 回写最终回单和结案时间。
+- 前端新增通知闭环展示区：标准回单、内部通知、复核摘要、结案建议和回访预留；回单编辑器优先使用结构化标准回单。
+- 新增 `ai-engine/evaluation/smoke_module_d.py`，覆盖模块 D 的核心回单、通知和结案追溯场景。
+- 更新模块 C smoke 中升级路径的 Trace 预期，使其包含新增的 Notification Agent 终态通知。
+- 子 Agent 审查发现两个 P1：LLM 可能伪造成功/可结案通知、人工拒绝分支缺少通知结构；已通过确定性归一规则和人工拒绝升级通知修复，并在模块 D smoke 中加入回归断言。
+
+### 当前验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_a.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_b.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_c.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_d.py`：通过。
+- `cd frontend && npm.cmd run build`：通过。
+
+### 当前阶段
+
+- **状态：** completed
+- **阶段名称：** 模块D：Notification 与回单闭环
+- **下一步：** 使用子 Agent 做最终测试和代码审查；如无 P0/P1 问题，进入模块 E：数据集构建与场景扩展。
+
 ## 会话：2026-07-18（模块C完成：Resolution 执行能力与工具审计）
 
 ### 背景

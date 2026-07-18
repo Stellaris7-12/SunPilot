@@ -104,9 +104,12 @@ async def init_db():
             "tool_response_json": "TEXT",
             "evidence_id": "TEXT",
             "reply_draft": "TEXT",
+            "notification_json": "TEXT",
             "requires_human_review": "INTEGER NOT NULL DEFAULT 1",
             "duration_ms": "INTEGER NOT NULL DEFAULT 0",
             "failure_reason": "TEXT",
+            "final_reply": "TEXT",
+            "closed_at": "TEXT",
         })
         await _add_missing_columns(db, "tool_call_log", {
             "failure_reason": "TEXT",

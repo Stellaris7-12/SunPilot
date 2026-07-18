@@ -41,7 +41,7 @@ export const useTicketStore = defineStore('ticket', () => {
   function applyProcessResult(result: AiProcessResult | null | undefined) {
     if (!result) return;
     aiResult.value = result;
-    replyDraft.value = result.replyDraft || '';
+    replyDraft.value = result.notification?.standardReply?.body || result.replyDraft || '';
   }
 
   async function refreshTicket(ticketId: string) {

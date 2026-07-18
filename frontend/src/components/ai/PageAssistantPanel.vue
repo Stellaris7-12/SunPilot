@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { AiProcessResult, Ticket } from '../../types'
 
 const props = defineProps<{
@@ -16,6 +17,10 @@ const emit = defineEmits<{
 function hasMissingFields() {
   return Boolean(props.result?.missingFields?.length)
 }
+
+const hasReplyDraft = computed(() =>
+  Boolean(props.result?.notification?.standardReply?.body || props.result?.replyDraft)
+)
 </script>
 
 <template>
@@ -30,7 +35,7 @@ function hasMissingFields() {
       <span v-else class="state">字段检查</span>
     </div>
     <div class="actions">
-      <button type="button" :disabled="!result?.replyDraft" @click="emit('fillReply')">填入回单</button>
+      <button type="button" :disabled="!hasReplyDraft" @click="emit('fillReply')">填入回单</button>
       <button type="button" :disabled="!result" @click="emit('checkTicket')">检查风险</button>
       <button type="button" @click="emit('locateTools')">定位工具</button>
       <button type="button" :disabled="!result" @click="emit('scrollReview')">审核区域</button>

@@ -9,6 +9,7 @@ import TicketContent from '../components/ticket/TicketContent.vue'
 import AiProcessPanel from '../components/ai/AiProcessPanel.vue'
 import AgentTraceTimeline from '../components/ai/AgentTraceTimeline.vue'
 import AiResultCard from '../components/ai/AiResultCard.vue'
+import NotificationBundlePanel from '../components/ai/NotificationBundlePanel.vue'
 import ReplyDraftEditor from '../components/ai/ReplyDraftEditor.vue'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import PageAssistantPanel from '../components/ai/PageAssistantPanel.vue'
@@ -41,8 +42,9 @@ function scrollToId(id: string) {
 }
 
 function fillReplyDraft() {
-  if (store.aiResult?.replyDraft) {
-    store.replyDraft = store.aiResult.replyDraft
+  const draft = store.aiResult?.notification?.standardReply?.body || store.aiResult?.replyDraft
+  if (draft) {
+    store.replyDraft = draft
     scrollToId('reply-review')
   }
 }
@@ -80,11 +82,13 @@ function checkCurrentTicket() {
           <div id="ai-result-card">
             <AiResultCard v-if="store.aiResult" :result="store.aiResult" />
           </div>
+          <NotificationBundlePanel v-if="store.aiResult" :result="store.aiResult" />
           <div id="reply-review">
             <ReplyDraftEditor
               v-if="store.aiResult"
               v-model:draft="store.replyDraft"
               :disabled="store.isProcessing"
+              :closure-suggestion="store.aiResult.notification?.closureSuggestion"
               @close="(reply: string) => store.closeTicket(ticketId, reply)"
             />
           </div>

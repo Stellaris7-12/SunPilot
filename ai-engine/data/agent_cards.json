@@ -203,7 +203,17 @@
     "output_schema": {
       "type": "object",
       "properties": {
-        "reply_draft": {"type": "string"}
+        "reply_draft": {"type": "string"},
+        "notification": {
+          "type": "object",
+          "properties": {
+            "standard_reply": {"type": "object"},
+            "internal_notice": {"type": "object"},
+            "review_summary": {"type": "object"},
+            "closure_suggestion": {"type": "object"},
+            "follow_up": {"type": "object"}
+          }
+        }
       }
     },
     "requires_human_review": true,

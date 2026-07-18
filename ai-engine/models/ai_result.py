@@ -40,6 +40,43 @@ class VerifyCheck(ApiModel):
     status: str
 
 
+class NotificationArtifact(ApiModel):
+    title: str = ""
+    body: str = ""
+    status: str = "needs_review"
+    evidence_ids: list[str] = Field(default_factory=list)
+    next_owner: str = "human"
+
+
+class ReviewSummary(ApiModel):
+    reason: str = ""
+    risk_decision: str = ""
+    missing_fields: list[str] = Field(default_factory=list)
+    tool_evidence_ids: list[str] = Field(default_factory=list)
+    suggested_action: str = ""
+
+
+class ClosureSuggestion(ApiModel):
+    can_close: bool = False
+    reason: str = ""
+    final_reply: str = ""
+    requires_human_review: bool = True
+
+
+class FollowUpPlan(ApiModel):
+    enabled: bool = False
+    template: str = ""
+    trigger_status: str = ""
+
+
+class NotificationBundle(ApiModel):
+    standard_reply: NotificationArtifact = Field(default_factory=NotificationArtifact)
+    internal_notice: NotificationArtifact = Field(default_factory=NotificationArtifact)
+    review_summary: ReviewSummary = Field(default_factory=ReviewSummary)
+    closure_suggestion: ClosureSuggestion = Field(default_factory=ClosureSuggestion)
+    follow_up: FollowUpPlan = Field(default_factory=FollowUpPlan)
+
+
 class AiProcessResult(ApiModel):
     workflow_name: str = ""
     risk_decision: str = ""
@@ -51,6 +88,7 @@ class AiProcessResult(ApiModel):
     tool_response: dict = Field(default_factory=dict)
     verify_checks: list[VerifyCheck] = Field(default_factory=list)
     reply_draft: str = ""
+    notification: Optional[NotificationBundle] = None
     requires_human_review: bool = True
     missing_fields: list[str] = Field(default_factory=list)
     failure_reason: str = ""

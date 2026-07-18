@@ -118,8 +118,9 @@ async def _persist_ai_result(ticket_id: str, trace: TraceCollector, result: dict
                (ticket_id, run_id, status, result_json, workflow_name,
                 intent_type, intent_label, intent_confidence, extracted_fields_json,
                 tool_name, tool_request_json, tool_response_json, evidence_id,
-                reply_draft, requires_human_review, duration_ms, failure_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                reply_draft, notification_json, requires_human_review, duration_ms,
+                failure_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ticket_id,
                 trace.run_id,
@@ -135,6 +136,7 @@ async def _persist_ai_result(ticket_id: str, trace: TraceCollector, result: dict
                 json.dumps(result_copy.get("tool_response", {}), ensure_ascii=False),
                 (result_copy.get("tool_response", {}) or {}).get("evidenceId", ""),
                 result_copy.get("reply_draft", ""),
+                json.dumps(public_result.get("notification"), ensure_ascii=False),
                 1 if result_copy.get("requires_human_review", True) else 0,
                 result.get("_total_duration_ms", 0),
                 result.get("_failure_reason", "") or result_copy.get("failure_reason", ""),
@@ -325,6 +327,41 @@ async def confirm_action(ticket_id: str, body: ConfirmActionRequest):
             **AiProcessResult(
                 workflow_name="manual_escalation_flow",
                 risk_decision=reason,
+                reply_draft="已记录人工复核意见。该工单已转人工处理，后续将由业务人员继续跟进。",
+                notification={
+                    "standardReply": {
+                        "title": "升级回单",
+                        "body": "已记录人工复核意见。该工单已转人工处理，后续将由业务人员继续跟进。",
+                        "status": "escalated",
+                        "evidenceIds": [],
+                        "nextOwner": "human",
+                    },
+                    "internalNotice": {
+                        "title": "内部通知",
+                        "body": reason,
+                        "status": "escalated",
+                        "evidenceIds": [],
+                        "nextOwner": "human",
+                    },
+                    "reviewSummary": {
+                        "reason": reason,
+                        "riskDecision": reason,
+                        "missingFields": [],
+                        "toolEvidenceIds": [],
+                        "suggestedAction": "人工接管该工单，复核客户诉求和拒绝原因后处理。",
+                    },
+                    "closureSuggestion": {
+                        "canClose": False,
+                        "reason": "人工已拒绝自动执行，当前工单需人工处理，不建议直接结案。",
+                        "finalReply": "已记录人工复核意见。该工单已转人工处理，后续将由业务人员继续跟进。",
+                        "requiresHumanReview": True,
+                    },
+                    "followUp": {
+                        "enabled": False,
+                        "template": "",
+                        "triggerStatus": "",
+                    },
+                },
                 verify_checks=[{"label": "人工确认", "status": "已拒绝"}],
                 requires_human_review=True,
                 failure_reason=reason,
@@ -393,9 +430,21 @@ async def close_ticket(ticket_id: str, body: CloseTicketRequest):
                 detail=f"Cannot close ticket in status '{current_status}'",
             )
 
+        closed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         await db.execute(
             "UPDATE tickets SET status = ? WHERE id = ?",
             (TicketState.CLOSED.value, ticket_id),
+        )
+        await db.execute(
+            """UPDATE ai_results
+               SET final_reply = ?, closed_at = ?
+               WHERE id = (
+                   SELECT id FROM ai_results
+                   WHERE ticket_id = ?
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1
+               )""",
+            (body.final_reply, closed_at, ticket_id),
         )
         await db.commit()
 

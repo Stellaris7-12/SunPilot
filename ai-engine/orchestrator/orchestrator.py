@@ -82,7 +82,13 @@ class Orchestrator:
             await self._set_ticket_status(ticket, TicketState.IN_PROGRESS.value)
 
             if ticket.risk_level == RiskLevel.HIGH or ticket.risk_level == RiskLevel.HIGH.value:
-                result = await self._handle_high_risk(ticket, trace, overall_start)
+                result = await self._handle_high_risk(
+                    ticket,
+                    trace,
+                    overall_start,
+                    workflow_config,
+                    push,
+                )
                 await self._emit_terminal(push, ticket_id, result)
                 return result
 
@@ -126,6 +132,8 @@ class Orchestrator:
                 intent_result,
                 extract_result,
                 verify_result,
+                workflow_config,
+                trace,
                 overall_start,
                 confirmed,
                 push,
@@ -159,6 +167,8 @@ class Orchestrator:
                     verify_result,
                     tool_name,
                     tool_params,
+                    workflow_config,
+                    trace,
                     overall_start,
                     push,
                 )
@@ -180,40 +190,53 @@ class Orchestrator:
                 )
 
                 if not tool_result.success or not verify_result.get("can_auto_proceed", True):
+                    failure_reason = (
+                        verify_result.get("risk_decision")
+                        or tool_result.failure_reason
+                        or tool_result.message
+                        or "工具调用需要人工处理"
+                    )
+                    reply_result = await self._run_notification_step(
+                        ticket,
+                        intent_result,
+                        extract_result,
+                        tool_result.model_dump(),
+                        verify_result,
+                        workflow_config,
+                        trace,
+                        push,
+                        status=TicketState.ESCALATED.value,
+                        tool_request=tool_params,
+                        failure_reason=failure_reason,
+                    )
                     result = self._build_result(
                         ticket,
                         intent_result,
                         extract_result,
                         tool_result,
                         verify_result,
-                        "",
+                        reply_result.get("reply_draft", ""),
                         status=TicketState.ESCALATED.value,
                         total_start=overall_start,
                         tool_request=tool_params,
-                        failure_reason=(
-                            verify_result.get("risk_decision")
-                            or tool_result.failure_reason
-                            or tool_result.message
-                            or "工具调用需要人工处理"
-                        ),
+                        failure_reason=failure_reason,
+                        notification=reply_result.get("notification"),
                     )
                     await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
                     await self._emit_terminal(push, ticket_id, result)
                     return result
 
-            reply_result = await self._run_agent_step(
-                "notification_agent",
-                "Notification Agent / 通知与回访",
-                self.notification_agent,
-                {
-                    "intent": intent_result,
-                    "fields": extract_result.get("fields", []),
-                    "tool_result": tool_result.model_dump() if tool_result else None,
-                    "verify_result": verify_result,
-                    "workflow_config": workflow_config,
-                },
+            reply_result = await self._run_notification_step(
+                ticket,
+                intent_result,
+                extract_result,
+                tool_result.model_dump() if tool_result else None,
+                verify_result,
+                workflow_config,
                 trace,
                 push,
+                status=TicketState.PENDING_HUMAN_REVIEW.value,
+                tool_request=tool_params,
             )
 
             result = self._build_result(
@@ -226,6 +249,7 @@ class Orchestrator:
                 status=TicketState.PENDING_HUMAN_REVIEW.value,
                 total_start=overall_start,
                 tool_request=tool_params,
+                notification=reply_result.get("notification"),
             )
             await self._set_ticket_status(ticket, TicketState.PENDING_HUMAN_REVIEW.value)
             await self._emit_terminal(push, ticket_id, result)
@@ -278,23 +302,40 @@ class Orchestrator:
         intent_result: dict,
         extract_result: dict,
         verify_result: dict,
+        workflow_config: dict,
+        trace: TraceCollector,
         overall_start: float,
         confirmed: bool,
         push,
     ) -> dict | None:
         if verify_result.get("needs_more_info"):
+            reply_result = await self._run_notification_step(
+                ticket,
+                intent_result,
+                extract_result,
+                None,
+                verify_result,
+                workflow_config,
+                trace,
+                push,
+                status=TicketState.PENDING_INFO.value,
+                missing_fields=verify_result.get("missing_fields", []),
+                failure_reason=verify_result.get("risk_decision", ""),
+                pause_type="missing_info",
+            )
             result = self._build_result(
                 ticket,
                 intent_result,
                 extract_result,
                 None,
                 verify_result,
-                "",
+                reply_result.get("reply_draft", ""),
                 status=TicketState.PENDING_INFO.value,
                 total_start=overall_start,
                 missing_fields=verify_result.get("missing_fields", []),
                 failure_reason=verify_result.get("risk_decision", ""),
                 pause_type="missing_info",
+                notification=reply_result.get("notification"),
             )
             await self._set_ticket_status(ticket, TicketState.PENDING_INFO.value)
             await self._emit_terminal(push, ticket.id, result)
@@ -304,32 +345,59 @@ class Orchestrator:
         can_auto = verify_result.get("can_auto_proceed", True)
 
         if not can_auto:
+            failure_reason = verify_result.get("risk_decision", "需要人工处理")
+            reply_result = await self._run_notification_step(
+                ticket,
+                intent_result,
+                extract_result,
+                None,
+                verify_result,
+                workflow_config,
+                trace,
+                push,
+                status=TicketState.ESCALATED.value,
+                failure_reason=failure_reason,
+            )
             result = self._build_result(
                 ticket,
                 intent_result,
                 extract_result,
                 None,
                 verify_result,
-                "",
+                reply_result.get("reply_draft", ""),
                 status=TicketState.ESCALATED.value,
                 total_start=overall_start,
-                failure_reason=verify_result.get("risk_decision", "需要人工处理"),
+                failure_reason=failure_reason,
+                notification=reply_result.get("notification"),
             )
             await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
             await self._emit_terminal(push, ticket.id, result)
             return result
 
         if risk_level == "medium" and not confirmed:
+            reply_result = await self._run_notification_step(
+                ticket,
+                intent_result,
+                extract_result,
+                None,
+                verify_result,
+                workflow_config,
+                trace,
+                push,
+                status=TicketState.PENDING_HUMAN_CONFIRM.value,
+                pause_type="human_confirm",
+            )
             result = self._build_result(
                 ticket,
                 intent_result,
                 extract_result,
                 None,
                 verify_result,
-                "",
+                reply_result.get("reply_draft", ""),
                 status=TicketState.PENDING_HUMAN_CONFIRM.value,
                 total_start=overall_start,
                 pause_type="human_confirm",
+                notification=reply_result.get("notification"),
             )
             await self._set_ticket_status(ticket, TicketState.PENDING_HUMAN_CONFIRM.value)
             await self._emit_terminal(push, ticket.id, result)
@@ -345,6 +413,8 @@ class Orchestrator:
         verify_result: dict,
         tool_name: str,
         tool_params: dict,
+        workflow_config: dict,
+        trace: TraceCollector,
         overall_start: float,
         push,
     ) -> dict | None:
@@ -376,19 +446,35 @@ class Orchestrator:
             "needs_more_info": True,
             "can_auto_proceed": False,
         }
+        reply_result = await self._run_notification_step(
+            ticket,
+            intent_result,
+            extract_result,
+            None,
+            next_verify,
+            workflow_config,
+            trace,
+            push,
+            status=TicketState.PENDING_INFO.value,
+            tool_request=tool_params,
+            missing_fields=missing_fields,
+            failure_reason=next_verify["risk_decision"],
+            pause_type="missing_info",
+        )
         result = self._build_result(
             ticket,
             intent_result,
             extract_result,
             None,
             next_verify,
-            follow_up,
+            reply_result.get("reply_draft", follow_up),
             status=TicketState.PENDING_INFO.value,
             total_start=overall_start,
             tool_request=tool_params,
             missing_fields=missing_fields,
             failure_reason=next_verify["risk_decision"],
             pause_type="missing_info",
+            notification=reply_result.get("notification"),
         )
         await self._set_ticket_status(ticket, TicketState.PENDING_INFO.value)
         await self._emit_terminal(push, ticket.id, result)
@@ -399,6 +485,8 @@ class Orchestrator:
         ticket: Ticket,
         trace: TraceCollector,
         total_start: float,
+        workflow_config: dict,
+        push,
     ) -> dict:
         trace.add_step(
             agent="Escalation Agent / 升级与兜底",
@@ -409,21 +497,50 @@ class Orchestrator:
         )
         verify_result = {
             "risk_decision": "高风险工单，已转人工审核",
+            "risk_level": "high",
+            "can_auto_proceed": False,
+            "missing_fields": [],
+            "needs_more_info": False,
             "checks": [
                 {"label": "自动处理", "status": "已拦截"},
                 {"label": "风险等级", "status": "需复核"},
             ],
         }
+        reply_result = await self._run_notification_step(
+            ticket,
+            {
+                "type": "HIGH_RISK",
+                "label": ticket.scene or "高风险工单",
+                "confidence": 1.0,
+                "workflow_name": "manual_escalation_flow",
+                "reason": ticket.risk_label,
+            },
+            {"fields": []},
+            None,
+            verify_result,
+            workflow_config,
+            trace,
+            push,
+            status=TicketState.ESCALATED.value,
+            failure_reason="高风险工单，已转人工审核",
+        )
         result = self._build_result(
             ticket,
-            {},
+            {
+                "type": "HIGH_RISK",
+                "label": ticket.scene or "高风险工单",
+                "confidence": 1.0,
+                "workflow_name": "manual_escalation_flow",
+                "reason": ticket.risk_label,
+            },
             {},
             None,
             verify_result,
-            "",
+            reply_result.get("reply_draft", ""),
             status=TicketState.ESCALATED.value,
             total_start=total_start,
             failure_reason="高风险工单，已转人工审核",
+            notification=reply_result.get("notification"),
         )
         await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
         return result
@@ -466,6 +583,52 @@ class Orchestrator:
             )
             await db.commit()
         ticket.status = TicketStatus(next_status)
+
+    async def _run_notification_step(
+        self,
+        ticket: Ticket,
+        intent_result: dict,
+        extract_result: dict,
+        tool_result: dict | None,
+        verify_result: dict,
+        workflow_config: dict,
+        trace: TraceCollector,
+        push,
+        *,
+        status: str,
+        tool_request: dict | None = None,
+        missing_fields: list[str] | None = None,
+        failure_reason: str = "",
+        pause_type: str | None = None,
+    ) -> dict:
+        return await self._run_agent_step(
+            "notification_agent",
+            "Notification Agent / 通知与回访",
+            self.notification_agent,
+            {
+                "ticket": {
+                    "id": ticket.id,
+                    "no": ticket.no,
+                    "title": ticket.title,
+                    "customer_name": ticket.customer_name,
+                    "scene": ticket.scene,
+                    "risk_level": ticket.risk_level,
+                    "risk_label": ticket.risk_label,
+                },
+                "intent": intent_result,
+                "fields": extract_result.get("fields", []),
+                "tool_result": tool_result,
+                "tool_request": tool_request or {},
+                "verify_result": verify_result,
+                "workflow_config": workflow_config,
+                "status": status,
+                "missing_fields": missing_fields or [],
+                "failure_reason": failure_reason,
+                "pause_type": pause_type,
+            },
+            trace,
+            push,
+        )
 
     async def _run_agent_step(
         self,
@@ -561,6 +724,7 @@ class Orchestrator:
         missing_fields: list[str] | None = None,
         failure_reason: str = "",
         pause_type: str | None = None,
+        notification: dict | None = None,
     ) -> dict:
         intent = IntentResult(
             type=intent_result.get("type", "UNKNOWN"),
@@ -587,6 +751,14 @@ class Orchestrator:
             else:
                 tool_evidence = f"{tool_result.tool_name}调用失败：{tool_result.message}"
 
+        requires_human_review = status in {
+            TicketState.PENDING_INFO.value,
+            TicketState.PENDING_HUMAN_CONFIRM.value,
+            TicketState.PENDING_HUMAN_REVIEW.value,
+            TicketState.ESCALATED.value,
+            TicketState.FAILED.value,
+        }
+
         result = AiProcessResult(
             workflow_name=intent.workflow_name,
             risk_decision=verify_result.get("risk_decision", ""),
@@ -598,7 +770,8 @@ class Orchestrator:
             tool_response=tool_response,
             verify_checks=checks,
             reply_draft=reply_draft,
-            requires_human_review=True,
+            notification=notification,
+            requires_human_review=requires_human_review,
             missing_fields=missing_fields or [],
             failure_reason=failure_reason,
         )
