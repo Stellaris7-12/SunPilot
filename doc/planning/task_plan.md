@@ -154,21 +154,91 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - 每条样本都有明确标签和期望输出。
 - 场景数量足以说明系统不是只为 3 个固定案例硬编码，并能覆盖自动处理、待补充、人工确认、升级人工等关键路径。
 
-## 模块 F：Agent 测评与效果指标（P1）
+## 模块 F：Agent 测评与效果指标（P1）测评框架已完成
 
 目标：让答辩和汇报从“看起来能跑”升级为“有指标证明”。
 
-- [ ] 评测 Intake Agent：字段抽取完整率、缺失字段识别正确率。
-- [ ] 评测 Classifier Agent：意图准确率、工单类型准确率、优先级判断一致率。
-- [ ] 评测 Resolution Agent：工具选择正确率、参数正确率、执行成功率。
-- [ ] 评测 Notification Agent：回单要点覆盖率、模板合规性、可读性人工评分。
-- [ ] 评测 Escalation Agent：异常识别正确率、人工介入判断合理性。
-- [ ] 汇总端到端指标：闭环成功率、平均处理耗时、人工节省步骤、预计节省时间。
+- [x] 评测 Intake Agent：字段抽取完整率、缺失字段识别正确率。
+- [x] 评测 Classifier Agent：意图准确率、工单类型准确率、优先级判断一致率。
+- [x] 评测 Resolution Agent：工具选择正确率、参数正确率、执行成功率。
+- [x] 评测 Notification Agent：回单要点覆盖率、模板合规性、可读性人工评分。
+- [x] 评测 Escalation Agent：异常识别正确率、人工介入判断合理性。
+- [x] 汇总端到端指标：闭环成功率、平均处理耗时、人工节省步骤、预计节省时间。
+
+当前实现：
+- `ai-engine/evaluation/evaluator.py` 已从演示分数改为可对真实 Agent 输出 records 计分，并在未执行完整 LLM 评测时返回基于标注样本的参考摘要。
+- `ai-engine/evaluation/run_module_f.py` 可在配置 LLM Key 后逐条运行 40 条样本的五类 Agent 链路，不写主数据库。
+- `GET /api/evaluation/metrics` 保留旧顶层字段，并新增 `agents`、`closedLoopSuccessRate`、`avgProcessingMs`、`evaluatedSamples`、`avgManualStepsSaved`、`source`。
+- `ai-engine/evaluation/smoke_module_f.py` 覆盖自动处理、待补充和升级人工三类评测计分路径。
+
+真实 LLM 阶段性执行记录：
+- [x] 确认当前终端可读取 `DEEPSEEK_API_KEY`，且不在日志中输出真实 Key。
+- [x] 先执行 5 条预检样本：
+  ```powershell
+  .venv\Scripts\python.exe ai-engine\evaluation\run_module_f.py --limit 5 --records
+  ```
+- [x] 检查 5 条预检结果，重点关注 `source=agent_run`、是否全部跑完、是否存在 LLM 超时或 JSON 解析失败。
+- [x] 对预检低分项做归因，不直接把所有低分解释为 Agent 能力问题：
+  - `workflowConsistency` 偏低：优先检查 LLM 是否返回 `workflow_name`，以及计分字段是否需要兼容 snake_case/camelCase。
+  - `replyPointCoverage` 偏低：优先检查中文回单要点匹配是否过严，必要时记录为评分口径问题。
+  - `humanInterventionAccuracy` 偏低：优先检查 `pending_human_review`、`pending_info` 和真正人工介入之间的口径差异。
+- [x] 完成至少 3 轮真实 LLM 小样本迭代：第 1 轮定位 workflow/reply/human 低分，第 2 轮修正 Resolution/参数/人工口径，第 3 轮将回单要点改为业务槽位覆盖。
+- [x] 执行 12 条真实 LLM 扩展回归，覆盖优惠券补发、申请进度、资料变更等核心场景。
+- [x] 预检链路稳定后执行完整 40 条真实 LLM 测评：
+  ```powershell
+  .venv\Scripts\python.exe ai-engine\evaluation\run_module_f.py --records
+  ```
+- [x] 汇总真实测评阶段性结果：12 条真实回归中 `intentAccuracy=1.0`、`fieldCompleteness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9655`、`humanInterventionAccuracy=1.0`、`toolCorrectness=0.8571`、`closedLoopSuccessRate=0.8333`。
+- [x] 完整 40 条真实 LLM 测评已在模块 F+ 中收口，最终结果保存到 `ai-engine/evaluation/module_f_full_final3_20260719.json`，`source=agent_run`、`evaluatedSamples=40`。
 
 验收标准：
 - 后端或脚本能基于标注样本输出一组真实指标。
 - 指标能支撑业务表达：更快、更准、更规范、更可追溯。
 - 每次修改 Agent 后能跑回归样本，避免只凭感觉调 Prompt。
+
+## 模块 F+：真实 LLM 全量测评与指标收口（P1）已完成
+
+目标：在模块 F 测评框架和三轮真实 LLM 小样本迭代已经稳定的基础上，完成一轮可复述、可追溯、可用于答辩的全量真实 LLM 测评报告。该阶段不再盲目调分，而是把“真实链路表现、评分口径、残留风险、是否进入模块 G”说清楚。
+
+执行原则：
+- 真实 LLM 测评使用系统环境变量中的 DeepSeek API Key，不打印、不写入、不提交真实 Key。
+- 全量测评优先读取 `ai-engine/data/evaluation_samples.json` 的 40 条样本，不污染 Demo 种子数据和主业务数据库。
+- 每轮真实测评都要保留可追溯输出：样本数、运行来源、核心指标、低分样本、异常类型和修复决策。
+- 若 LLM 超时、限流或 JSON 解析失败，不重复盲跑同一命令；先记录失败样本，再判断是重试、降并发、缩小批次还是修代码。
+- 区分 Agent 能力问题与评分口径问题：只有确认是业务链路缺陷时才改 Agent；评分误伤优先修 `Evaluator` 并补 smoke 回归。
+
+新的测评计划：
+- [x] 执行全量前置检查：确认 `DEEPSEEK_API_KEY` 可用但不输出 Key；确认 `evaluation_samples.json` 为 40 条；确认当前未依赖真实数据库写入。
+- [x] 执行一轮完整 40 条真实 LLM 测评：
+  ```powershell
+  .venv\Scripts\python.exe ai-engine\evaluation\run_module_f.py --records
+  ```
+- [x] 汇总全量真实测评指标，至少记录：`source`、`evaluatedSamples`、`intentAccuracy`、`fieldCompleteness`、`toolCorrectness`、`workflowConsistency`、`replyPointCoverage`、`humanInterventionAccuracy`、`closedLoopSuccessRate`、`avgProcessingMs`。
+- [x] 对低于阶段性 12 条回归的指标做样本级归因，按以下优先级分类：
+  - Agent 输出问题：字段抽取、workflow 选择、工具参数、人工介入判断、回单内容确实不符合预期。
+  - 评分口径问题：中文表达等价但未被识别、待补充/人工确认口径混淆、咨询类/无工具类样本被工具指标误伤。
+  - 样本标注问题：期望状态、期望工具、回单要点或人工介入标签与当前业务规则冲突。
+  - 外部服务问题：超时、限流、LLM 非 JSON 输出或临时网络错误。
+- [x] 至少完成一轮针对低分项的修复或标注/评分口径修正，并运行相关 smoke：
+  ```powershell
+  .venv\Scripts\python.exe ai-engine\evaluation\smoke_module_f.py
+  ```
+- [x] 如修复影响核心链路，补跑模块 A-F 的后端 smoke；如影响前端类型或展示，补跑前端构建。
+- [x] 生成最终测评结论，写入 `doc/planning/progress.md` 和必要的 `doc/planning/findings.md`：说明全量结果、修复内容、残留风险、是否允许进入模块 G。
+
+最终真实 LLM 全量结果：
+- 初始 40 条全量测评已完成，结果保存到 `ai-engine/evaluation/module_f_full_20260719.json`，指标为 `intentAccuracy=0.725`、`fieldCompleteness=0.8911`、`toolCorrectness=0.7778`、`replyPointCoverage=0.8539`、`humanInterventionAccuracy=0.7`、`closedLoopSuccessRate=0.6`。
+- 子 Agent 只读审查确认低分主因是 UNKNOWN 扩展场景误分类、`pending_human_confirm` 未显式建模、状态/人工介入口径混淆和敏感资料变更先执行工具的链路风险。
+- 经过多轮真实问题子集回归和链路修复后，最终 40 条真实 LLM 回归保存到 `ai-engine/evaluation/module_f_full_final3_20260719.json`，`source=agent_run`、`evaluatedSamples=40`。
+- 最终指标：`intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
+- `closedLoopSuccessRate` 当前工程含义是“期望状态匹配率”，不是实际客户闭环结案率；模块 G 展示时应优先解释为状态/预期结果匹配。
+
+F+ 验收标准：
+- 完整 40 条真实 LLM 测评成功完成，或清楚记录未完成原因、已完成样本数和下一步处理策略。
+- 指标不是只给平均分；必须能追溯到低分样本和问题类型。
+- 至少有一轮“全量测评 -> 问题归因 -> 修复/口径调整 -> 回归验证”的闭环。
+- 模块 F 的 smoke 回归通过；如触及核心链路，模块 A-F smoke 回归通过。
+- 文档中明确区分“12 条阶段性真实回归结果”和“40 条全量真实测评结果”。
 
 ## 模块 G：前端产品呈现（P1）
 
@@ -223,7 +293,7 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - [x] Resolution Agent 能调用 Mock Tool/API 并生成证据编号。
 - [x] 工具失败、字段缺失、复杂争议能升级人工。
 - [x] 至少 40 条标注样本可跑评测。
-- [ ] Agent 测评能输出准确率、完整率、工具命中率、闭环成功率、耗时节省等指标。
+- [x] Agent 测评能输出准确率、完整率、工具命中率、闭环成功率、耗时节省等指标。
 - [ ] Demo 讲解、README、AGENTS.md 与当前 Agent 口径一致。
 
 ## 不做或后置

@@ -527,6 +527,12 @@ async def get_evaluation_metrics():
         tool_correctness=metrics.tool_correctness,
         avg_time_saved_seconds=metrics.avg_time_saved_seconds,
         total_samples=metrics.total_samples,
+        agents=metrics.agents,
+        closed_loop_success_rate=metrics.closed_loop_success_rate,
+        avg_processing_ms=metrics.avg_processing_ms,
+        evaluated_samples=metrics.evaluated_samples,
+        avg_manual_steps_saved=metrics.avg_manual_steps_saved,
+        source=metrics.source,
     ).model_dump(by_alias=True)
 
 

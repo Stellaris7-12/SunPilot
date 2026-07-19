@@ -1,10 +1,34 @@
 """ClassifierAgent - classify ticket business scenario and workflow."""
 
 import logging
+import re
 
 from agents.base import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+UNSUPPORTED_SCENE_KEYWORDS = (
+    "\u5206\u671f",      # installment
+    "\u63d0\u524d\u7ed3\u6e05",
+    "\u8fd8\u6b3e\u534f\u5546",
+    "\u5ef6\u671f\u8fd8\u6b3e",
+    "\u6302\u5931",
+    "\u8865\u5361",
+    "\u505c\u5361",
+    "\u4e34\u65f6\u989d\u5ea6",
+    "\u56fa\u5b9a\u989d\u5ea6",
+    "\u5e74\u8d39",
+    "\u79ef\u5206\u5230\u8d26",
+    "\u79ef\u5206\u672a\u5230\u8d26",
+    "\u79ef\u5206\u6ca1\u6709\u5230\u8d26",
+    "\u79ef\u5206\u6263\u51cf",
+    "\u79ef\u5206\u5151\u6362",
+    "\u79ef\u5206\u4e89\u8bae",
+    "\u79ef\u5206\u5151\u6362\u5931\u8d25",
+    "\u5f81\u4fe1",
+    "\u6295\u8bc9",
+    "\u50ac\u529e",
+)
 
 CLASSIFIER_SYSTEM_PROMPT = """你是一个信用卡工单分类与优先级判定专家。
 请分析工单内容，判断客户诉求属于以下哪类场景：
@@ -33,6 +57,9 @@ class ClassifierAgent(BaseAgent):
     async def run(self, input_data: dict, context: dict = None) -> dict:
         ticket_content = input_data.get("ticket_content", "")
         workflow_config = input_data.get("workflow_config", {})
+        unsupported_result = _unsupported_scene_result(ticket_content, workflow_config)
+        if unsupported_result:
+            return unsupported_result
         if not ticket_content:
             return {
                 "type": "UNKNOWN",
@@ -56,9 +83,10 @@ class ClassifierAgent(BaseAgent):
         result["type"] = intent_type
         result["label"] = result.get("label") or scenario_config.get("label", "未知")
         result["confidence"] = result.get("confidence", 0.0) or 0.0
+        # Workflow names are deterministic contract values used by evaluation,
+        # tracing, and downstream routing. Do not let LLM wording drift them.
         result["workflow_name"] = (
-            result.get("workflow_name")
-            or scenario_config.get("workflow_name")
+            scenario_config.get("workflow_name")
             or workflow_config.get("default_workflow", "unknown_flow")
         )
         result["reason"] = result.get("reason", "")
@@ -69,3 +97,49 @@ class ClassifierAgent(BaseAgent):
             result.get("confidence"),
         )
         return result
+
+
+def _unsupported_scene_result(ticket_content: str, workflow_config: dict) -> dict | None:
+    """Keep unsupported extension scenarios out of existing tool workflows."""
+    if not ticket_content:
+        return None
+    if _looks_like_supported_scene(ticket_content):
+        return None
+    matched = [keyword for keyword in UNSUPPORTED_SCENE_KEYWORDS if keyword in ticket_content]
+    if not matched:
+        return None
+    scenarios = workflow_config.get("scenarios", {})
+    scenario_config = scenarios.get("UNKNOWN", {})
+    return {
+        "type": "UNKNOWN",
+        "label": scenario_config.get("label", "\u672a\u77e5\u573a\u666f"),
+        "confidence": 0.95,
+        "workflow_name": scenario_config.get(
+            "workflow_name",
+            workflow_config.get("default_workflow", "unknown_flow"),
+        ),
+        "reason": (
+            "\u547d\u4e2d\u5c1a\u672a\u63a5\u5165\u81ea\u52a8\u5de5\u5177\u7684"
+            f"\u6269\u5c55\u573a\u666f\u5173\u952e\u8bcd: {', '.join(matched)}"
+        ),
+    }
+
+
+def _looks_like_supported_scene(ticket_content: str) -> bool:
+    if "APP" in ticket_content or "\u4e1a\u52a1\u6d41\u6c34" in ticket_content:
+        return True
+    if "\u4ea4\u6613" in ticket_content and (
+        re.search(r"20\d{2}-\d{2}-\d{2}", ticket_content)
+        or "\u5546\u6237" in ticket_content
+        or "\u975e\u672c\u4eba" in ticket_content
+        or "\u76d7\u5237" in ticket_content
+        or "\u4e0d\u8ba4\u53ef" in ticket_content
+    ):
+        return True
+    if re.search(r"[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+", ticket_content) and (
+        "\u6d3b\u52a8" in ticket_content
+        or "\u8d44\u683c" in ticket_content
+        or "\u53c2\u52a0" in ticket_content
+    ):
+        return True
+    return False

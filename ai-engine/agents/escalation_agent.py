@@ -66,6 +66,29 @@ class EscalationAgent(BaseAgent):
 
         checks = []
         required = _required_fields(intent_type, workflow_config)
+
+        if intent_type == "UNKNOWN":
+            checks.append({"label": "\u672a\u77e5\u573a\u666f\u9700\u4eba\u5de5\u5206\u6d41", "status": "\u9700\u590d\u6838"})
+            return {
+                "checks": checks,
+                "risk_level": "high" if ticket_risk == "high" else "medium",
+                "risk_decision": "\u5f53\u524d\u573a\u666f\u672a\u63a5\u5165\u81ea\u52a8\u5316\u5de5\u5177\uff0c\u5efa\u8bae\u8f6c\u4eba\u5de5\u5904\u7406",
+                "can_auto_proceed": False,
+                "missing_fields": [],
+                "needs_more_info": False,
+            }
+
+        if ticket_risk == "high":
+            checks.append({"label": "\u5de5\u5355\u6807\u8bb0\u4e3a\u9ad8\u98ce\u9669\uff0c\u5efa\u8bae\u8f6c\u4eba\u5de5", "status": "\u5df2\u62e6\u622a"})
+            return {
+                "checks": checks,
+                "risk_level": "high",
+                "risk_decision": "\u9ad8\u98ce\u9669\u5de5\u5355\uff0c\u5df2\u8f6c\u4eba\u5de5\u5ba1\u6838",
+                "can_auto_proceed": False,
+                "missing_fields": [],
+                "needs_more_info": False,
+            }
+
         missing = [
             name for name in required
             if fields_dict.get(name) in MISSING_VALUES
@@ -85,6 +108,37 @@ class EscalationAgent(BaseAgent):
             }
 
         checks.append({"label": "必填字段完整", "status": "通过"})
+
+        scenarios = workflow_config.get("scenarios", {})
+        scenario_config = scenarios.get(intent_type, {})
+        requires_confirmation = scenario_config.get("requires_human_confirmation")
+        verify_status = str(fields_dict.get("verifyStatus", "")).upper()
+        if intent_type == "CUSTOMER_ADDRESS_UPDATE" and (
+            "FAILED" in verify_status or "\u672a\u901a\u8fc7" in verify_status
+        ):
+            checks.append({"label": "\u8eab\u4efd\u6838\u9a8c\u672a\u901a\u8fc7", "status": "\u5df2\u62e6\u622a"})
+            return {
+                "checks": checks,
+                "risk_level": "high",
+                "risk_decision": "\u8d44\u6599\u53d8\u66f4\u7684\u8eab\u4efd\u6838\u9a8c\u672a\u901a\u8fc7\uff0c\u5df2\u8f6c\u4eba\u5de5\u5904\u7406",
+                "can_auto_proceed": False,
+                "missing_fields": [],
+                "needs_more_info": False,
+            }
+        if not tool_result and (
+            ticket_risk == "medium"
+            or intent_type == "CUSTOMER_ADDRESS_UPDATE"
+            or requires_confirmation
+        ):
+            checks.append({"label": "\u654f\u611f\u6216\u4e2d\u98ce\u9669\u64cd\u4f5c\u9700\u4eba\u5de5\u786e\u8ba4", "status": "\u5f85\u786e\u8ba4"})
+            return {
+                "checks": checks,
+                "risk_level": "medium",
+                "risk_decision": "\u4fe1\u606f\u5df2\u57fa\u672c\u9f50\u5168\uff0c\u4f46\u6d89\u53ca\u654f\u611f\u6216\u4e2d\u98ce\u9669\u64cd\u4f5c\uff0c\u9700\u4eba\u5de5\u786e\u8ba4\u540e\u518d\u7ee7\u7eed",
+                "can_auto_proceed": False,
+                "missing_fields": [],
+                "needs_more_info": False,
+            }
 
         if tool_result:
             failure_reason = tool_result.get("failure_reason") or tool_result.get("message", "")

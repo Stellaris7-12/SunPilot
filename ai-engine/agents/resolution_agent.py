@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 
 from agents.base import BaseAgent
 
@@ -89,6 +90,7 @@ class ResolutionAgent(BaseAgent):
                 result["skip_reason"] = ""
 
         result["tool_params"] = result.get("tool_params") or {}
+        result["tool_params"] = _normalize_tool_params(result["tool_params"])
         result["skip"] = bool(result.get("skip", False))
         result["skip_reason"] = result.get("skip_reason", "")
 
@@ -98,3 +100,21 @@ class ResolutionAgent(BaseAgent):
             result.get("skip"),
         )
         return result
+
+
+def _normalize_tool_params(tool_params: dict) -> dict:
+    normalized = dict(tool_params or {})
+    for key in ("couponType", "benefitCode", "applicationNo"):
+        value = normalized.get(key)
+        if isinstance(value, str):
+            match = re.search(r"[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+", value)
+            if match:
+                normalized[key] = match.group(0)
+    verify_status = normalized.get("verifyStatus")
+    if isinstance(verify_status, str):
+        upper_value = verify_status.upper()
+        if "PASSED" in upper_value:
+            normalized["verifyStatus"] = "PASSED"
+        elif "FAILED" in upper_value:
+            normalized["verifyStatus"] = "FAILED"
+    return normalized

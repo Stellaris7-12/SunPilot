@@ -191,4 +191,10 @@ export interface EvaluationMetrics {
   toolCorrectness: number;
   avgTimeSavedSeconds: number;
   totalSamples: number;
+  agents?: Record<string, Record<string, { score: number; correct: number; total: number }>>;
+  closedLoopSuccessRate?: number;
+  avgProcessingMs?: number;
+  evaluatedSamples?: number;
+  avgManualStepsSaved?: number;
+  source?: string;
 }

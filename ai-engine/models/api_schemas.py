@@ -78,3 +78,9 @@ class EvaluationMetrics(ApiModel):
     tool_correctness: float
     avg_time_saved_seconds: float
     total_samples: int = 15
+    agents: dict = Field(default_factory=dict)
+    closed_loop_success_rate: float = 0.0
+    avg_processing_ms: float = 0.0
+    evaluated_samples: int = 0
+    avg_manual_steps_saved: float = 0.0
+    source: str = "unknown"

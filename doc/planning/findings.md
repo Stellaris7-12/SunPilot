@@ -225,9 +225,29 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 - 评测样本不混入 `ai-engine/data/tickets.json`；后者继续作为小规模 Demo 种子数据。
 - 每条样本包含工单原文、正确意图、细分工单类型、workflow、必填字段、期望字段、期望工具、期望状态、期望处理结果、回单要点和是否需要人工介入。
 - 样本前半部分优先覆盖现有 5 类工具能力：优惠券补发、资料修改、交易查询、权益查询、进度查询；后半部分覆盖分期、还款、挂失、额度、年费、积分、征信、投诉和跨部门协作等复杂扩展场景。
-- `/api/evaluation/metrics` 已改为通过 `Evaluator.compute()` 返回指标，当前在模块 F 前仍保留演示分数，但 `totalSamples` 由真实评测样本数量驱动。
+- `/api/evaluation/metrics` 已改为通过 `Evaluator.compute()` 返回指标；模块 F 完成后不再使用固定演示分数，未执行完整 LLM 评测时返回基于标注样本的参考摘要。
 - `ai-engine/evaluation/smoke_module_e.py` 校验样本数量、结构、脱敏、场景覆盖、Demo/评测分离和评测入口读取，作为模块 E 的验收脚本。
 - 样本量判断已从 20 条最小集调整为 40 条左右 MVP 集；100+ 样本适合后续严肃指标、混淆矩阵和稳定性回归，不作为当前模块 E 的必达范围。
+
+## 模块 F 完成后的实现事实
+
+- `ai-engine/evaluation/evaluator.py` 已支持对真实 Agent 输出 records 计分，覆盖 Intake、Classifier、Resolution、Notification、Escalation 五类 Agent 分项指标。
+- `ai-engine/evaluation/run_module_f.py` 可在配置 LLM Key 后逐条运行 40 条评测样本的五类 Agent 链路，默认不写主数据库，适合作为回归评测入口。
+- `GET /api/evaluation/metrics` 保留 `intentAccuracy`、`fieldCompleteness`、`toolCorrectness`、`avgTimeSavedSeconds`、`totalSamples` 旧字段，同时新增 `agents`、`closedLoopSuccessRate`、`avgProcessingMs`、`evaluatedSamples`、`avgManualStepsSaved`、`source`。
+- `ai-engine/evaluation/smoke_module_f.py` 使用伪输出覆盖自动成功、待补充和升级人工三类评测路径，保证模块 F 的计分逻辑不依赖外部 LLM 服务也能回归。
+- 前端类型已扩展 `EvaluationMetrics`，模块 G 可直接基于新增字段做业务化评测摘要展示。
+
+## 模块 F+ 全量真实 LLM 测评后的发现
+
+- 完整 40 条真实 DeepSeek LLM 测评已经跑通，最终 artifact 为 `ai-engine/evaluation/module_f_full_final3_20260719.json`。
+- 初始 40 条全量测评暴露出真实链路问题：UNKNOWN 扩展场景会被 LLM 误吸入已有 workflow，`pending_human_confirm` 没有显式建模，敏感资料变更存在先执行工具再进入人工/升级的风险。
+- 子 Agent 只读审查确认上述问题属于 P0/P1，不能只把低分解释为评分误差；修复方向应同时覆盖 Agent 链路、runner 状态建模和 Evaluator 评分口径。
+- 当前已采用确定性业务规则兜底：未接入自动工具的年费、积分争议、征信、投诉、挂失停卡、还款协商、额度咨询等扩展场景稳定走 `UNKNOWN -> escalated`；带 APP 业务流水、交易争议特征或活动资格码的已支持场景不会被 UNKNOWN 误伤。
+- `pending_human_confirm` 与 `escalated` 已区分：中风险/敏感/需人工确认场景进入待人工确认；高风险、UNKNOWN、身份核验失败、工具异常进入升级人工。
+- Resolution 会规范化机器参数：`couponType`、`benefitCode`、`applicationNo` 从中文描述中抽取标准业务码，`verifyStatus` 归一到 `PASSED`/`FAILED`，避免真实工具参数被自然语言污染。
+- Evaluator 对安全升级和待确认场景不再误扣工具执行分；`pending_info` 的人工介入口径结合 intent/status 判断；Notification 回单要点覆盖从逐字匹配转向业务槽位覆盖。
+- 最终 40 条真实回归指标为 `intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
+- `closedLoopSuccessRate` 当前工程含义更接近“期望状态匹配率/expected outcome match”，不是客户真实结案率；模块 G 或答辩展示时应明确解释，不应把它包装成真实生产闭环率。
 
 ## 风险与兜底
 
