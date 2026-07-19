@@ -1,10 +1,14 @@
 # 模块 F/F+ 交付物索引
 
-本目录用于归档模块 F「Agent 测评与效果指标」和模块 F+「真实 LLM 全量测评与指标收口」的交付材料，不放入 `doc/planning/`，便于后续汇报、答辩和演示引用。
+本目录用于归档模块 F「Agent 测评与效果指标」和模块 F+「真实 LLM 全量测评与指标收口」的详细交付材料。
 
-## 交付物
+如果需要和其他模块保持同一总结规范，优先阅读：
 
-- [模块 F/F+ Agent 测评报告](module_f_fplus_evaluation_report.md)
+- [模块 F/F+：Agent 测评与真实 LLM 回归总结](../delivery/module_summaries/module-f-agent-evaluation.md)
+
+如果需要查看完整测评细节、指标对比和样例说明，阅读：
+
+- [模块 F/F+ Agent 详细测评报告](module_f_fplus_evaluation_report.md)
 
 ## 关联实现与原始产物
 
