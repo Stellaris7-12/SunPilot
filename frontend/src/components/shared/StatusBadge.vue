@@ -1,16 +1,36 @@
 <script setup lang="ts">
-defineProps<{ value: string; size?: 'sm' | 'md' }>()
+import { computed } from 'vue'
+import { riskMeta, statusMeta, type Tone } from '../../utils/business'
+
+const props = defineProps<{ value: string; size?: 'sm' | 'md'; tone?: Tone }>()
+
+const tone = computed(() => props.tone || statusMeta(props.value).tone || riskMeta(props.value, props.value).tone)
 </script>
+
 <template>
-  <span class="badge" :class="[`badge--${size || 'sm'}`]" :data-status="value">
+  <span class="badge" :class="[`badge--${size || 'sm'}`, `badge--${tone}`]">
     {{ value }}
   </span>
 </template>
+
 <style scoped>
-.badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.badge--md { padding: 4px 14px; font-size: 13px; }
-.badge[data-status="低风险"], .badge[data-status="low"], .badge[data-status="通过"], .badge[data-status="已结单"], .badge[data-status="closed"] { background: var(--green-soft); color: var(--green); }
-.badge[data-status="中风险"], .badge[data-status="medium"], .badge[data-status="中低风险"], .badge[data-status="待确认"], .badge[data-status="待复核"], .badge[data-status="需复核"] { background: var(--amber-soft); color: var(--amber); }
-.badge[data-status="高风险"], .badge[data-status="high"], .badge[data-status="已拦截"] { background: var(--red-soft); color: var(--red); }
-.badge[data-status="待处理"], .badge[data-status="open"], .badge[data-status="in_progress"] { background: var(--blue-soft); color: var(--blue); }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.badge--md { min-height: 30px; padding: 5px 13px; font-size: 13px; }
+.badge--green { background: var(--green-soft); border-color: rgba(47, 143, 103, 0.22); color: var(--green); }
+.badge--blue { background: var(--blue-soft); border-color: rgba(40, 111, 154, 0.22); color: var(--blue); }
+.badge--amber { background: var(--amber-soft); border-color: rgba(196, 134, 34, 0.24); color: var(--amber); }
+.badge--red { background: var(--red-soft); border-color: rgba(196, 78, 78, 0.22); color: var(--red); }
+.badge--neutral { background: var(--neutral-soft); border-color: var(--line); color: var(--muted); }
 </style>

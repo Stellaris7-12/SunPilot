@@ -30,11 +30,15 @@ export const useTicketStore = defineStore('ticket', () => {
   async function loadTicketContext(id: string) {
     selectedTicketId.value = id;
     resetState();
-    try {
-      const result = await ticketApi.getAiResult(id);
-      applyProcessResult(result);
-    } catch {
-      // A newly opened ticket may not have any AI result yet.
+    const [resultResponse, traceResponse] = await Promise.allSettled([
+      ticketApi.getAiResult(id),
+      ticketApi.getTrace(id),
+    ]);
+    if (resultResponse.status === 'fulfilled') {
+      applyProcessResult(resultResponse.value);
+    }
+    if (traceResponse.status === 'fulfilled') {
+      traceSteps.value = traceResponse.value;
     }
   }
 

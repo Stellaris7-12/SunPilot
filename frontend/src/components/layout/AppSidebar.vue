@@ -1,57 +1,251 @@
 <script setup lang="ts">
-import { useTicketStore } from '../../stores/ticket'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useTicketStore } from '../../stores/ticket'
+import { bucketMatches, scenarioFamily, statusMeta, suggestedAction, workBuckets } from '../../utils/business'
 import StatusBadge from '../shared/StatusBadge.vue'
 
 const store = useTicketStore()
 const router = useRouter()
+const activeBucket = ref('all')
+const familyFilter = ref('all')
+
+const buckets = computed(() => workBuckets(store.tickets))
+const families = computed(() => {
+  const seen = new Map<string, string>()
+  store.tickets.forEach(ticket => {
+    const family = scenarioFamily(ticket)
+    seen.set(family.id, family.label)
+  })
+  return [{ id: 'all', label: '全部场景' }, ...Array.from(seen, ([id, label]) => ({ id, label }))]
+})
+const filteredTickets = computed(() => store.tickets.filter(ticket => {
+  const bucketOk = bucketMatches(activeBucket.value, ticket)
+  const familyOk = familyFilter.value === 'all' || scenarioFamily(ticket).id === familyFilter.value
+  return bucketOk && familyOk
+}))
+const handoffCount = computed(() => store.tickets.filter(ticket =>
+  ['pending_info', 'pending_human_confirm', 'pending_human_review', 'escalated', 'failed'].includes(ticket.status)
+).length)
 
 function onSelect(id: string) {
   store.selectTicket(id)
   router.push(`/tickets/${id}`)
 }
 </script>
+
 <template>
   <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-badge">AI</span>
-      <div><strong>Credit Card Ops</strong><br><small>智能回单助手</small></div>
-    </div>
-    <div class="queue">
-      <div class="queue-item"><span class="q-num g">{{ store.openCount }}</span>待处理</div>
-      <div class="queue-item"><span class="q-num">{{ store.closedCount }}</span>已结单</div>
-    </div>
-    <div class="ticket-list">
-      <div
-        v-for="t in store.tickets" :key="t.id"
-        class="ticket-item"
-        :class="{ active: store.selectedTicketId === t.id }"
-        @click="onSelect(t.id)"
-      >
-        <div class="t-item-top">
-          <span class="t-no">{{ t.no }}</span>
-          <StatusBadge :value="t.status === 'closed' ? '已结单' : '待处理'" />
-        </div>
-        <div class="t-title">{{ t.title }}</div>
-        <div class="t-meta">{{ t.customerName }} · {{ t.scene }}</div>
+    <RouterLink class="brand" to="/tickets">
+      <span class="brand-mark">TA</span>
+      <span>
+        <strong>TicketAgent</strong>
+        <small>信用卡坐席工作台</small>
+      </span>
+    </RouterLink>
+
+    <div class="shift-panel">
+      <div>
+        <span class="shift-label">当前待接管</span>
+        <strong>{{ handoffCount }}</strong>
       </div>
+      <div>
+        <span class="shift-label">已结案</span>
+        <strong>{{ store.closedCount }}</strong>
+      </div>
+    </div>
+
+    <div class="bucket-list" aria-label="工单状态筛选">
+      <button
+        v-for="bucket in buckets"
+        :key="bucket.id"
+        type="button"
+        class="bucket"
+        :class="{ active: activeBucket === bucket.id }"
+        :title="bucket.hint"
+        @click="activeBucket = bucket.id"
+      >
+        <span>{{ bucket.label }}</span>
+        <strong>{{ bucket.count }}</strong>
+      </button>
+    </div>
+
+    <label class="filter-label">
+      场景族
+      <select v-model="familyFilter">
+        <option v-for="family in families" :key="family.id" :value="family.id">
+          {{ family.label }}
+        </option>
+      </select>
+    </label>
+
+    <div class="ticket-list">
+      <button
+        v-for="ticket in filteredTickets"
+        :key="ticket.id"
+        type="button"
+        class="ticket-item"
+        :class="{ active: store.selectedTicketId === ticket.id }"
+        @click="onSelect(ticket.id)"
+      >
+        <span class="ticket-top">
+          <span class="ticket-no mono">{{ ticket.no }}</span>
+          <StatusBadge :value="statusMeta(ticket.status).label" :tone="statusMeta(ticket.status).tone" />
+        </span>
+        <strong class="ticket-title">{{ ticket.title }}</strong>
+        <span class="ticket-meta">
+          <span>{{ ticket.customerName }}</span>
+          <span>{{ scenarioFamily(ticket).label }}</span>
+        </span>
+        <span class="next-action">{{ suggestedAction(ticket) }}</span>
+      </button>
+      <div v-if="filteredTickets.length === 0" class="empty">当前筛选下没有待办工单</div>
     </div>
   </aside>
 </template>
+
 <style scoped>
-.sidebar { width: 280px; min-height: 100vh; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
-.brand { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 1px solid var(--line); }
-.brand-badge { background: var(--green); color: #fff; padding: 6px 12px; border-radius: 8px; font-weight: 800; font-size: 16px; }
-.queue { display: flex; gap: 0; padding: 12px 20px; border-bottom: 1px solid var(--line); }
-.queue-item { flex: 1; text-align: center; font-size: 12px; color: var(--muted); }
-.q-num { display: block; font-size: 22px; font-weight: 700; color: var(--ink); }
-.q-num.g { color: var(--green); }
-.ticket-list { flex: 1; overflow-y: auto; padding: 8px; }
-.ticket-item { padding: 12px; border-radius: var(--radius); cursor: pointer; margin-bottom: 4px; border: 1px solid transparent; }
-.ticket-item:hover { background: var(--paper); }
-.ticket-item.active { border-color: var(--green); background: var(--green-soft); }
-.t-item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.t-no { font-size: 12px; color: var(--muted); font-family: monospace; }
-.t-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.t-meta { font-size: 11px; color: var(--muted); }
+.sidebar {
+  width: 320px;
+  min-height: 100vh;
+  background: rgba(255, 255, 255, 0.92);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 14px 0 40px rgba(23, 33, 43, 0.05);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+.brand strong { display: block; font-size: 15px; letter-spacing: 0; }
+.brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.shift-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.shift-panel > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.shift-label { display: block; color: var(--muted); font-size: 12px; }
+.shift-panel strong { display: block; margin-top: 3px; font-size: 24px; line-height: 1; }
+.bucket-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 14px 16px 8px;
+}
+.bucket {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+.bucket span { font-size: 12px; font-weight: 700; }
+.bucket strong { font-size: 13px; font-family: var(--mono); }
+.bucket.active { border-color: var(--ink); background: var(--ink); color: #fff; }
+.filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 16px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0 10px;
+}
+.ticket-list { flex: 1; overflow-y: auto; padding: 0 10px 14px; }
+.ticket-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.ticket-item:hover { background: var(--panel-2); border-color: var(--line); }
+.ticket-item.active { background: var(--paper-warm); border-color: var(--green); box-shadow: inset 4px 0 0 var(--green); }
+.ticket-top, .ticket-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ticket-no { color: var(--muted); font-size: 12px; }
+.ticket-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ticket-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+.next-action {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 800;
+}
+.empty {
+  margin: 16px 8px;
+  padding: 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+@media (max-width: 980px) {
+  .sidebar { width: 100%; min-height: auto; max-height: 48vh; border-right: none; border-bottom: 1px solid var(--line); }
+  .ticket-list { max-height: 220px; }
+}
 </style>

@@ -9,7 +9,7 @@ const standardReply = computed<NotificationArtifact | null>(() => {
   if (notification.value?.standardReply) return notification.value.standardReply
   if (!props.result.replyDraft) return null
   return {
-    title: '标准回单',
+    title: '客户标准回单',
     body: props.result.replyDraft,
     status: 'needs_review',
     evidenceIds: [],
@@ -36,30 +36,30 @@ function statusText(status?: string) {
 function ownerText(owner?: string) {
   const map: Record<string, string> = {
     customer: '客户',
-    agent: 'AI Agent',
-    human: '业务人员',
+    agent: '系统',
+    human: '坐席/复核岗',
     system: '系统',
   }
-  return owner ? map[owner] || owner : '业务人员'
+  return owner ? map[owner] || owner : '坐席/复核岗'
 }
 
 function joinValues(values?: string[]) {
-  return values?.length ? values.join('、') : '无'
+  return values?.length ? values.join('、') : '暂无'
 }
 </script>
 
 <template>
-  <div class="card notification-card">
+  <section class="notification-card">
     <div class="card-head">
-      <h4 class="card-title">通知与回单闭环</h4>
+      <span class="section-title">回单与复核闭环</span>
       <span v-if="standardReply" class="status-pill" :data-status="standardReply.status">
         {{ statusText(standardReply.status) }}
       </span>
     </div>
 
-    <section v-if="standardReply" class="notice-section primary">
-      <div class="section-head">
-        <h5>{{ standardReply.title || '标准回单' }}</h5>
+    <section v-if="standardReply" class="reply-block primary">
+      <div class="block-head">
+        <h3>{{ standardReply.title || '客户标准回单' }}</h3>
         <span>下一步：{{ ownerText(standardReply.nextOwner) }}</span>
       </div>
       <p>{{ standardReply.body }}</p>
@@ -68,27 +68,27 @@ function joinValues(values?: string[]) {
       </div>
     </section>
 
-    <section v-if="internalNotice" class="notice-section">
-      <div class="section-head">
-        <h5>{{ internalNotice.title || '内部通知' }}</h5>
-        <span>{{ statusText(internalNotice.status) }} · {{ ownerText(internalNotice.nextOwner) }}</span>
+    <section v-if="internalNotice" class="reply-block">
+      <div class="block-head">
+        <h3>{{ internalNotice.title || '内部通知' }}</h3>
+        <span>{{ statusText(internalNotice.status) }} / {{ ownerText(internalNotice.nextOwner) }}</span>
       </div>
       <p>{{ internalNotice.body }}</p>
     </section>
 
-    <section v-if="reviewSummary" class="notice-section">
-      <div class="section-head">
-        <h5>复核摘要</h5>
+    <section v-if="reviewSummary" class="reply-block">
+      <div class="block-head">
+        <h3>人工复核摘要</h3>
         <span>证据：{{ joinValues(reviewSummary.toolEvidenceIds) }}</span>
       </div>
       <div class="summary-grid">
         <div>
           <label>复核原因</label>
-          <p>{{ reviewSummary.reason || '无' }}</p>
+          <p>{{ reviewSummary.reason || '暂无' }}</p>
         </div>
         <div>
           <label>风险判断</label>
-          <p>{{ reviewSummary.riskDecision || result.riskDecision || '无' }}</p>
+          <p>{{ reviewSummary.riskDecision || result.riskDecision || '暂无' }}</p>
         </div>
         <div>
           <label>缺失字段</label>
@@ -96,14 +96,14 @@ function joinValues(values?: string[]) {
         </div>
         <div>
           <label>建议操作</label>
-          <p>{{ reviewSummary.suggestedAction || '人工复核回单内容后处理' }}</p>
+          <p>{{ reviewSummary.suggestedAction || '复核回单内容后继续处理' }}</p>
         </div>
       </div>
     </section>
 
-    <section v-if="closureSuggestion" class="notice-section">
-      <div class="section-head">
-        <h5>结案建议</h5>
+    <section v-if="closureSuggestion" class="reply-block closure">
+      <div class="block-head">
+        <h3>结案建议</h3>
         <span :class="closureSuggestion.canClose ? 'ok' : 'warn'">
           {{ closureSuggestion.canClose ? '建议复核后结案' : '暂不建议直接结案' }}
         </span>
@@ -111,41 +111,101 @@ function joinValues(values?: string[]) {
       <p>{{ closureSuggestion.reason }}</p>
     </section>
 
-    <section v-if="followUp?.enabled" class="notice-section">
-      <div class="section-head">
-        <h5>回访预留</h5>
+    <section v-if="followUp?.enabled" class="reply-block">
+      <div class="block-head">
+        <h3>回访预留</h3>
         <span>{{ followUp.triggerStatus || 'closed' }}</span>
       </div>
       <p>{{ followUp.template }}</p>
     </section>
-  </div>
+  </section>
 </template>
 
 <style scoped>
-.card { background: var(--panel); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
-.card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
-.card-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.status-pill { flex-shrink: 0; border-radius: 999px; padding: 4px 8px; font-size: 12px; font-weight: 700; background: var(--paper); color: var(--muted); }
-.status-pill[data-status="ready"] { background: var(--green-soft); color: var(--green); }
-.status-pill[data-status="needs_info"], .status-pill[data-status="needs_review"] { background: #fef3c7; color: #a16207; }
+.notification-card {
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+.card-head, .block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.status-pill {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--neutral-soft);
+  color: var(--muted);
+}
+.status-pill[data-status="ready"], .status-pill[data-status="closed"] { background: var(--green-soft); color: var(--green); }
+.status-pill[data-status="needs_info"], .status-pill[data-status="needs_review"] { background: var(--amber-soft); color: var(--amber); }
 .status-pill[data-status="escalated"], .status-pill[data-status="failed"] { background: var(--red-soft); color: var(--red); }
-.notice-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
-.notice-section:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
-.notice-section.primary p { font-size: 14px; }
-.section-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 7px; }
-.section-head h5 { font-size: 12px; color: var(--muted); text-transform: uppercase; }
-.section-head span { font-size: 12px; color: var(--muted); text-align: right; }
-.notice-section p { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
-.evidence-line { margin-top: 8px; font-size: 12px; color: var(--blue); overflow-wrap: anywhere; }
-.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.summary-grid > div { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--paper); min-width: 0; }
-.summary-grid label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
-.summary-grid p { font-size: 12px; }
-.ok { color: var(--green) !important; font-weight: 700; }
-.warn { color: #a16207 !important; font-weight: 700; }
-@media (max-width: 720px) {
+.reply-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.reply-block.primary {
+  padding: 14px;
+  border: 1px solid rgba(47, 143, 103, 0.22);
+  border-radius: var(--radius);
+  background: var(--green-soft);
+}
+.block-head { margin-bottom: 8px; }
+h3 { font-size: 15px; }
+.block-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+p {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.evidence-line {
+  margin-top: 10px;
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.summary-grid > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.closure {
+  border-top-color: rgba(196, 134, 34, 0.26);
+}
+.ok { color: var(--green) !important; }
+.warn { color: var(--amber) !important; }
+@media (max-width: 780px) {
+  .card-head, .block-head { align-items: flex-start; flex-direction: column; }
+  .block-head span { text-align: left; }
   .summary-grid { grid-template-columns: 1fr; }
-  .section-head { align-items: flex-start; flex-direction: column; }
-  .section-head span { text-align: left; }
 }
 </style>
