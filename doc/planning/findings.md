@@ -1,4 +1,4 @@
-﻿# 发现与决策：新 Agent 方案与开发取舍
+# 发现与决策：新 Agent 方案与开发取舍
 
 ## 当前系统事实
 
@@ -248,6 +248,42 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 - Evaluator 对安全升级和待确认场景不再误扣工具执行分；`pending_info` 的人工介入口径结合 intent/status 判断；Notification 回单要点覆盖从逐字匹配转向业务槽位覆盖。
 - 最终 40 条真实回归指标为 `intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
 - `closedLoopSuccessRate` 当前工程含义更接近“期望状态匹配率/expected outcome match”，不是客户真实结案率；模块 G 或答辩展示时应明确解释，不应把它包装成真实生产闭环率。
+
+## 模块 H 三路进阶调研发现
+
+### 语音入口
+
+- 语音入口最适合先做成“通话文本/预置转写文本导入层”，而不是新增业务 Agent 或直接接真实 ASR。
+- 当前系统已经天然支持通话文本：后端 `POST /api/tickets` 创建工单，文本进入 `tickets.content`；后续 AI 处理仍走现有 `Classifier -> Intake -> Escalation -> Resolution -> Notification` 主链路。
+- MVP 应补齐前端建单 API 和通话文本导入面板；创建成功后跳转详情页，并沿用现有 SSE 处理链路。
+- Mock-first 不需要新增依赖和 API Key；真实音频上传通常会涉及 `python-multipart`、浏览器录音权限、外部 ASR Key、隐私合规和原始音频保存策略，因此后置。
+- 低置信度、空文本、关键信息缺失不需要新增工单状态，应进入现有 `pending_info` 或人工复核路径。
+
+### Dispatcher Agent
+
+- 当前没有 Dispatcher Agent 仍然运行良好，是因为系统目前是由 `Orchestrator` 控制的确定性业务流水线，不是开放式多 Agent 协商网络。
+- `workflow_config` 已承担场景到流程、必填字段、推荐工具和人工确认策略的轻量路由；`EscalationAgent` 已承担缺字段、高风险、工具失败、UNKNOWN 场景和人工确认的安全兜底。
+- Dispatcher 的真实价值不是重新分类、抽字段、选工具或生成回单，而是解决“派给谁/哪个队列/哪个团队、SLA 如何提示、下一负责人是谁”。
+- 在没有真实人员池、团队负载、排班和 SLA 历史数据前，不应引入复杂调度优化；MVP 应规则优先，并放在终态通知前作为责任分配层。
+- Dispatcher 输出可先进入 AI 结果结构和 Notification 的 `nextOwner`，不急于新增独立数据库 schema；如果未来需要查询派单历史，再做兼容迁移。
+
+### Page Agent
+
+- Page Agent 第一阶段已经以 `frontend/src/components/ai/PageAssistantPanel.vue` 的形式落地，当前能力是当前工单页内的低风险页面助手：填入回单、检查风险/缺失字段、定位工具、进入复核区。
+- 下一步不建议新增后端 `page_agent.py`，更适合把 Page Agent 定义为“页面级工作流编排层 + 前端页面助手”。
+- Page Agent 的价值是把已有 AI 结果转成坐席页面动作，不负责重新判断业务、不替代后端状态机、不污染后端 Agent Trace。
+- 第一阶段动作可记录为前端页面助手动作日志；涉及业务状态变化时仍必须调用后端 `/confirm-action`、`/close` 等权威接口。
+- 第二阶段再做动态表单自动填充，并采用“预览 -> 人工确认 -> 写入页面”；第三阶段才考虑外部遗留系统页面自动化，必须有白名单、脱敏、审计、人工确认和失败接管。
+
+### 阿里 page-agent 源码调研
+
+- `C:\Users\heyunhui\OtherProjects\page-agent-main` 是 MIT 许可的 TypeScript monorepo，定位是运行在网页内的 GUI Agent，强调 in-page JavaScript、文本化 DOM 操作、无需截图/多模态，完整生态包含 `page-agent`、`core`、`page-controller`、`llms`、`ui`、Chrome Extension、MCP 和 website。
+- 核心结构是 `PageAgent = PageAgentCore + PageController + Panel`：`PageAgentCore` 做 observe-think-act 循环并维护 history/activity/status；`PageController` 做 DOM 抽取、可交互元素编号、点击、输入、选择、滚动和可选 JS 执行；LLM 层适配 OpenAI-compatible tool calling。
+- 许可证允许二开，但完整引入仍有工程风险：根项目要求较新的 Node/npm，完整 extension 依赖 WXT/React/Radix/idb/motion，并涉及 tabs、sidePanel、storage、`<all_urls>` 等浏览器权限；MCP 还会启动本地 hub 和 WebSocket 桥接。
+- 直接二开/嵌入不适合 TicketAgent 当前阶段：项目主线是 FastAPI + Vue 坐席工作台，当前 Page Agent 只需要本页低风险动作；完整 page-agent 会引入较大依赖体量、LLM Key 配置、DOM 内容脱敏、浏览器权限、供应链和金融审计成本。
+- 值得借鉴的不是整套代码，而是架构思想：页面状态理解、动作 DSL、工具/动作白名单、观察-计划-执行-验证循环、人工确认工具、history/activity 日志、DOM 内容发送 LLM 前的脱敏 hook。
+- TicketAgent 推荐 A+B 路线：A 阶段手搓轻量 Page Assistant；B 阶段借鉴 page-agent 的 `PageContext`、`PageAction`、`PageActionRunner` 和验证日志做局部重构；C 阶段只有当外部遗留系统无 API 时，再评估直接二开 PageAgent Ext/MCP。
+- 安全边界必须比通用 page-agent 更保守：不开放任意 DOM index 点击，不默认发送完整 DOM 给 LLM，不启用任意 JavaScript 执行，不绕过 `/confirm-action` 与 `/close`，页面助手动作不能混入后端 Agent Trace 或业务证据编号。
 
 ## 风险与兜底
 

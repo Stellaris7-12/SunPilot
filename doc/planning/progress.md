@@ -1,5 +1,112 @@
 ﻿# 进度日志
 
+## 会话：2026-07-20（模块 H 优先级调整：Page Agent 业务化优先）
+
+### 背景
+
+用户决定将 Page Agent 业务化改造作为模块 H 的第一优先级，语音入口和 Dispatcher Agent 暂时降低优先级，需要重写 `doc/planning/task_plan.md` 中模块 H 的任务计划。
+
+### 执行内容
+
+- 重写 `doc/planning/task_plan.md` 的模块 H：从“三路进阶方案收口”调整为“Page Agent 业务化改造（P1 优先）”。
+- 将 H1 改为 Page Agent 业务化 MVP，重点包括 `PageContext`、`PageAction` DSL、`PageActionRunner`、`PageActionLog`、动作白名单、状态机权限门禁和前端页面助手集成。
+- 将 H2 改为 Page Agent 动态表单与半自动填充，采用“预览 -> 人工确认 -> 写入页面”的受控方式。
+- 将 H3 改为外部遗留系统页面自动化预研，仅在无 API 场景后置评估阿里 `page-agent` Ext/MCP 或二开方案。
+- 新增 H4 后置能力队列，把语音入口 Mock-first、Dispatcher Agent、A2A-Lite、MCP、LangGraph 明确降为后续能力。
+
+### 当前结论
+
+- 模块 H 的当前主线是 Page Agent 业务化，不再由语音入口或 Dispatcher Agent 牵头。
+- Page Agent 仍不纳入后端 Orchestrator 主编排，而是融入当前坐席工作台，作为金融工单场景下的受控页面执行层。
+- TicketAgent 相对阿里 `page-agent` 的差异化应落在业务闭环、状态机、审计、人工确认和评测指标上。
+
+### 当前阶段
+
+- **状态：** planned
+- **阶段名称：** H1：Page Agent 业务化 MVP
+- **下一步：** 若进入实现，优先改造 `PageAssistantPanel.vue`、`TicketDetailView.vue`，并补充前端动作类型、执行器和页面动作日志。
+
+## 会话：2026-07-20（Page Agent 产品定位文档）
+
+### 背景
+
+用户追问：阿里 page-agent 已经很强，TicketAgent 相对它的产品优势是什么；如果当前没有优势，应如何改造才能体现优势。用户要求把回答整理成 Markdown 文档并放入 `doc/planning/`。
+
+### 执行内容
+
+- 新增 `doc/planning/page_agent_positioning.md`。
+- 文档明确当前 TicketAgent 的 Page Agent 已实现第一阶段页面助手，但不是完整通用 GUI Agent。
+- 文档对比阿里 page-agent 与 TicketAgent 的定位差异：通用页面操作引擎 vs 信用卡工单智能处理系统。
+- 文档整理 TicketAgent 的优势：业务闭环、金融合规与审计、垂直领域 Agent、可评测指标。
+- 文档给出改造方向：受控页面执行层、业务上下文输入、状态机权限约束、Page Action 审计、远期再接阿里 page-agent 作为底层能力。
+
+### 当前结论
+
+- TicketAgent 不应在通用网页自动化能力上与阿里 page-agent 硬拼。
+- 产品优势应建立在“金融工单闭环 + 业务 Agent + 状态机 + 审计 + 评测”上。
+- Page Agent 的正确方向是行业受控执行层，而不是通用网页机器人。
+
+## 会话：2026-07-20（阿里 page-agent 源码调研与 Page Agent 路线修正）
+
+### 背景
+
+用户要求再开一个子 Agent 调研 `C:\Users\heyunhui\OtherProjects\page-agent-main`，判断 TicketAgent 的 Page Agent 是自己手搓，还是直接二次开发阿里的 page-agent，或者沿用其主要思路。
+
+### 执行内容
+
+- 新开只读子 Agent 调研外部 page-agent 源码，未修改外部项目、未安装依赖、未执行外部脚本。
+- 本地同步只读检查外部项目的 README、LICENSE、package 配置、核心包和 extension/MCP 相关代码：
+  - `packages/page-agent/src/PageAgent.ts`
+  - `packages/core/src/PageAgentCore.ts`
+  - `packages/page-controller/src/PageController.ts`
+  - `packages/core/src/tools/index.ts`
+  - `packages/extension/src/agent/MultiPageAgent.ts`
+  - `packages/mcp/README.md`
+- 更新 `doc/planning/task_plan.md` 的 H3：补充阿里 PageAgent 调研结论、A/B/C 三档实现路线、动作 DSL、动作日志和不直接二开的验收说明。
+- 更新 `doc/planning/findings.md`：记录阿里 page-agent 的 MIT 许可、TypeScript monorepo 架构、核心 observe-think-act/page-controller 思路、依赖/权限/审计风险和 TicketAgent 推荐路线。
+
+### 当前结论
+
+- 不建议当前直接二开/嵌入阿里 page-agent 完整工程。
+- 推荐 A+B 路线：先手搓当前工单页内轻量 Page Assistant；A 稳定后，借鉴阿里 page-agent 的页面状态理解、动作 DSL、白名单工具、观察-计划-执行-验证循环和动作日志机制，重做适合 TicketAgent 的受控页面助手。
+- 直接二开/嵌入 page-agent 只适合第三阶段外部遗留系统无 API 的自动化探索，并且必须先解决页面白名单、脱敏、审计、人工确认、失败接管、Chrome 权限和 LLM Key 管理。
+- TicketAgent 的安全边界应比通用 page-agent 更保守：不开放任意 DOM index 点击，不默认发送完整 DOM 给 LLM，不启用任意 JavaScript 执行，不绕过 `/confirm-action` 与 `/close`。
+
+### 当前阶段
+
+- **状态：** planned
+- **阶段名称：** H3：Page Agent 页面助手增强
+- **下一步：** 如进入实现，先做 A 档轻量 Page Assistant 增强；暂不安装或引入阿里 page-agent 依赖。
+
+## 会话：2026-07-20（模块H三路进阶方案调研与规划）
+
+### 背景
+
+用户要求使用 3 个子 Agent 分别调研并制定“语音入口”“Dispatcher Agent”“Page Agent”的开发方案，重点回答它们如何融入当前系统或工作流；其中 Dispatcher 还需解释当前没有 Dispatcher Agent 时，多 Agent 系统为什么仍然运行良好。
+
+### 执行内容
+
+- 使用 3 个只读子 Agent 并行调研：
+  - 语音入口：检查工单创建入口、AI 处理入口、SSE/Trace/状态流和前端 API。
+  - Dispatcher Agent：检查 Orchestrator、workflow_config、Classifier/Resolution/Escalation 分工和状态契约。
+  - Page Agent：检查前端详情页、PageAssistantPanel、回单编辑、通知展示、Pinia store 和 API/SSE 契约。
+- 本地同步读取 `doc/planning/task_plan.md`、`doc/planning/findings.md`、`doc/planning/progress.md`、`ai-engine/orchestrator/orchestrator.py`、`ai-engine/main.py`、`frontend/src/components/ai/PageAssistantPanel.vue`、`frontend/src/views/TicketDetailView.vue`、`frontend/src/stores/ticket.ts` 等关键文件。
+- 更新 `doc/planning/task_plan.md`：将模块 H 从进阶事项列表扩展为三条可执行路线：H1 语音入口 Mock-first、H2 Dispatcher Agent 智能派单 MVP、H3 Page Agent 页面助手增强。
+- 更新 `doc/planning/findings.md`：记录三路调研结论和关键取舍。
+
+### 当前结论
+
+- 语音入口不应改动核心 Agent 闭环；MVP 做通话文本/预置转写文本导入，文本进入 `tickets.content`，后续沿用现有 AI 处理与 SSE Trace。
+- 当前没有 Dispatcher Agent 仍运行良好，是因为系统是确定性业务流水线：`workflow_config` 做轻量路由，`EscalationAgent` 做安全兜底，Orchestrator 固定推进状态。Dispatcher 的价值应后移到下一负责人、队列和 SLA 提示。
+- Page Agent 第一阶段已经以 `PageAssistantPanel.vue` 落地；下一步应增强为页面级动作编排层，而不是新增第六个后端业务 Agent。
+- 三个进阶方向都必须失败可降级，不能覆盖确定性状态、证据编号、失败原因、人工确认或结案规则。
+
+### 当前阶段
+
+- **状态：** planned
+- **阶段名称：** 模块H：进阶能力方案收口
+- **下一步：** 若开始实现，优先选择 H1 语音入口 Mock-first 或 H3 Page Agent 增强；Dispatcher 建议等需要团队/队列/SLA 展示时再做 MVP。
+
 ## 会话：2026-07-19（模块F+全量真实LLM测评与收口）
 
 ### 背景
