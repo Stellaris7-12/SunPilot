@@ -42,285 +42,95 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 
 ## 模块 A：后端契约与工单状态稳定化（P0）已完成
 
-目标：让 API、SSE、状态流转、数据库持久化成为稳定底座。
+完成摘要：已稳定 API、SSE 终态、工单状态机、AI 结果持久化和工具审计底座；数据库变更采用兼容迁移，不做破坏性重建。
 
-- [x] 梳理工单创建、AI 处理、人工确认、回单、结单、升级的 API 契约。
-- [x] 统一后端对外字段命名和前端类型，避免 AI 结果字段漂移。
-- [x] 统一 SSE 终态事件：完成、暂停待补充、升级人工、失败。
-- [x] 补齐处理结果持久化：分类结果、抽取字段、工具调用结果、回单内容、处理状态、处理耗时。
-- [x] 为数据库变更采用兼容迁移，不做破坏性重建。
-- [x] 建立脚本化冒烟测试，覆盖自动处理、信息不足、工具失败、升级人工四类路径。
+关键产物：`AiProcessResult` 契约、`pending_info`/`failed` 等状态、`workflow_complete`/`workflow_paused`/`workflow_escalated`/`workflow_failed` 四类 SSE 终态、`ai-engine/evaluation/smoke_module_a.py`。
 
-验收标准：
-- 后端服务可启动，Swagger 可访问。
-- 工单从输入到处理结果可重复跑通。
-- 前端能稳定消费同一套 AI 结果结构。
-- 失败、暂停、升级都有明确状态和可解释原因。
+验收状态：后端启动、Swagger、核心工单流程、前端消费 AI 结果、失败/暂停/升级解释均已通过 smoke 与联调验证。
 
 ## 模块 B：Agent 编排与业务化封装（P0）已完成
 
-目标：用新的业务 Agent 命名组织系统，采用受控重构统一代码、Trace、前端和文档口径。
+完成摘要：系统已统一为 `IntakeAgent`、`ClassifierAgent`、`ResolutionAgent`、`NotificationAgent`、`EscalationAgent` 五类业务 Agent；Trace、SSE、前端展示和文档口径保持一致。
 
-- [x] 在文档、Trace、前端展示中采用 Intake、Classifier、Resolution、Notification、Escalation 的业务命名。
-- [x] 代码层直接重构为 `IntakeAgent`、`ClassifierAgent`、`ResolutionAgent`、`NotificationAgent`、`EscalationAgent`，避免长期维护冗余映射层。
-- [x] 旧 Agent 文件短期保留为兼容 shim，只转发到新业务 Agent 类；模块 B/C 稳定后再评估删除。
+关键产物：业务 Agent 文件、兼容 shim、Orchestrator 业务链路、`workflow_config` 轻量场景配置。规则覆盖高频明确场景，LLM 处理口语化和复杂表达；暂不迁移 LangGraph。
+
+遗留事项：
 - [ ] 清理旧模块相关内容：移除旧 Agent shim 文件，更新兼容测试、Orchestrator 旧别名和文档口径，确认不再依赖 `IntentAgent`、`ExtractAgent`、`VerifyAgent`、`ToolCallingAgent`、`ReplyAgent`。
-- [x] 在 Orchestrator 中明确每个业务 Agent 的输入、输出和失败处理。
-- [x] 将规则策略和 LLM 判断分层：规则覆盖高频明确场景，LLM 处理口语化和复杂表达。
-- [x] 设计轻量 `workflow_config`，描述场景、必填字段、推荐工具、是否需人工确认、默认通知模板。
-- [x] 保持模块 A 的 API、SSE 终态、状态机、持久化和工具审计契约不变；模块 B 完成后只做回归验证，不重做模块 A。
-- [x] 暂不迁移 LangGraph；等出现复杂分支、checkpoint、replay、跨会话恢复需求后再评估。
-
-验收标准：
-- 汇报时能用业务 Agent 名称讲清流程。
-- 新增一个工单场景时，优先改配置、样本和工具，不大改 Orchestrator 主体。
-- 模块 A 冒烟测试继续通过，证明命名重构没有破坏既有契约。
-- 旧导入在兼容期内仍能运行，不因命名调整造成外部调用或测试断裂。
 
 ## 模块 C：Resolution 执行能力与工具审计（P0）已完成
 
-目标：把“AI 给建议”升级为“AI 调用业务能力并留下证据”。
+完成摘要：Resolution 已从“生成建议”升级为“选择工具、执行 Mock Tool/API、记录证据、失败兜底”的业务执行层。
 
-- [x] 梳理现有 Mock Tool：补券、查询交易、修改资料、查询权益、进度查询等。
-- [x] 为每次工具调用记录审计日志：ticket_id、tool_name、request_json、response_json、evidence_id、success、duration_ms、failure_reason。
-- [x] 统一工具返回结构：处理动作、业务结果、证据编号、下一步建议、是否需要人工。
-- [x] 工具参数缺失时回到 Intake Agent 生成追问或补充提示。
-- [x] 工具失败、结果冲突、权限不足时交给 Escalation Agent 升级人工。
-- [x] MCP 作为进阶接入方式预留接口边界，不在核心闭环中强依赖。
-- [x] Page Agent 采用三阶段引入，不直接进入高风险外部系统自动化：
-  - 第一阶段：前端页面助手。在 `frontend/src/views/TicketDetailView.vue` 增加“页面助手”入口，只操作当前工单详情页，支持把 AI 回单草稿填入回单框、检查当前工单风险和缺失字段、打开工具面板并定位补券工具、滚动到审核区域等低风险动作。
-  - 第二阶段：发单/回单表单自动填充。等动态工单表单更完整后，将 Intake Agent/ExtractAgent 的抽取结果转成页面填充动作，用于减少人工复制粘贴。
-  - 第三阶段：外部遗留系统自动化。仅当行内系统没有 API 时，才考虑 Page Agent Ext / MCP 方案操作浏览器页面；该能力属于高风险扩展，必须有白名单、脱敏、审计、人工确认。
+关键产物：5 类 Mock Tool（补券、资料变更、交易查询、权益查询、申请进度）、统一 `ToolResult`、`tool_call_log`、只读工具审计接口、前端证据链展示。
 
-验收标准：
-- 每次自动执行都有可展示的证据编号。
-- 前端能说明系统调用了什么能力、传入了什么关键参数、得到什么结果。
-- Mock Tool 可替换为真实 API 或 MCP Server，而不改变上层业务流程。
+边界：参数缺失回到 Intake 追问；工具失败、结果冲突或权限不足交给 Escalation；MCP 和外部 Page Agent 自动化只预留接口，不进入当前核心闭环。
 
-## 模块 D：Notification 与回单闭环（P0）
+## 模块 D：Notification 与回单闭环（P0）已完成
 
-目标：让系统不止会处理，还会把处理结果清楚反馈给客户和业务人员。
+完成摘要：系统已生成结构化通知包和客户可读回单，覆盖标准回单、内部通知、复核摘要、结案建议和回访预留。
 
-- [x] 生成标准化回单：处理结果、证据编号、客户可理解说明、后续建议。
-- [x] 根据工单状态生成内部通知：已处理、待补充、待人工复核、已升级、已结案。
-- [x] 对可自动闭环的标准场景，支持自动生成最终回单和结案建议。
-- [x] 对需人工判断的场景，生成复核摘要和建议操作，不直接提交敏感动作。
-- [x] 回访能力先做模板和状态预留，后续再做满意度收集。
+关键契约：`AiProcessResult` 保留 `replyDraft` 兼容字段并新增 `notification`；LLM 生成内容不能覆盖确定性的状态、证据编号、失败原因或结案规则。
 
-验收标准：
-- 回单内容可以直接用于演示，不是开发调试文本。
-- 业务人员能看到“系统做了什么、为什么这么做、下一步谁处理”。
-- 人工复核时有摘要，不需要重新阅读完整 Trace。
+结案边界：自动流程只输出 `closureSuggestion.canClose` 和最终回单建议；实际结案必须由 `/api/tickets/{ticket_id}/close` 完成，并回写 `final_reply` 和 `closed_at`。
 
 ## 模块 E：数据集构建与场景扩展（P1）已完成
 
-目标：从少量演示样本升级为可评测、可扩展的小型业务数据集。模块 E 的样本主要用于 Agent 效果评测、场景覆盖证明和后续回归测试，不作为模型训练数据；当前 MVP 优先构建 40 条左右的高质量标注样本，而不是追求大而粗的数据量。
+完成摘要：已从少量 Demo 样本扩展为可评测的小型业务数据集；样本用于效果评测、场景覆盖证明和回归测试，不作为训练数据。
 
-- [x] 完成外部数据源预检：CFPB 投诉库适合扩展金融投诉/信用卡争议工单来源，BANKING77 适合扩展短文本意图分类和工具路由评测。
-- [x] 修改 `.gitignore`，忽略 `ai-engine/data/external/` 和 `ai-engine/data/generated/`，避免大文件数据集进入 Git。
-- [x] 将可用数据目录迁移到项目内：`ai-engine/data/external/` 存放外部原始数据，`ai-engine/data/generated/` 存放转换/生成数据；下载目录根部旧版小配置不覆盖当前项目配置。
-- [x] 构建 40 条左右的 MVP 标注样本；数量下限按 40 条验收，后续再按评测需要扩展到 50+ 或 100+。
-- [x] 每条样本包含：通话记录/工单原文、正确意图、正确工单类型、必填字段、期望工具、期望处理结果、回单要点、是否需要人工介入。
-- [x] Demo 种子数据和评测数据分开存放，避免演示数据污染评测。
-- [x] 所有客户号、手机号、卡号、证件号使用模拟值。
-- [x] 先覆盖标准高频场景，再扩展投诉、争议、跨部门协作等复杂场景。
+关键产物：`ai-engine/data/evaluation_samples.json` 含 40 条中文模拟标注样本；`ai-engine/data/tickets.json` 继续作为 Demo 种子数据；`ai-engine/evaluation/smoke_module_e.py` 校验样本结构、脱敏、场景覆盖和 Demo/评测分离。
 
-当前数据源使用判断：
-- CFPB Consumer Complaint Database 体量较大，语言为英文，适合抽样生成金融投诉、交易争议、账单费用、征信异议等工单原文；不能直接作为中文通话记录或最终标注样本使用，后续需要抽样、脱敏确认、翻译/改写和补齐期望输出。
-- BANKING77 共 13,083 条英文银行客服短文本意图样本，适合 Classifier Agent 的意图扩展、混淆测试和工具路由回归；它不是完整工单，不能单独满足模块 E 的样本结构要求。
-- `ai-engine/data/tickets.json` 继续作为小规模 Demo 种子数据；模块 E 评测样本应另建独立文件，避免污染演示初始化数据。
-- 样本量不是越大越好；当前更看重场景覆盖、字段标注一致性、期望工具和期望处理结果是否清楚。100+ 样本适合作为模块 F 后续严肃指标、混淆矩阵和稳定性回归扩展，不作为当前模块 E 的 MVP 必达范围。
-- `ai-engine/data/evaluation_samples.json` 已作为独立评测样本集落地，当前包含 40 条中文模拟标注样本；`ai-engine/evaluation/smoke_module_e.py` 负责校验样本结构、脱敏、场景覆盖、Demo/评测分离和评测入口读取。
+数据边界：CFPB 和 BANKING77 仅作为后续扩展参考；外部/生成数据目录已纳入 `.gitignore`，避免大文件和原始数据进入 Git。当前优先看场景覆盖和标注一致性，不追求粗放扩量。
 
-优先场景池：
-- 权益/优惠券补发。
-- 申请进度查询。
-- 地址、手机号、联系人等资料变更。
-- 账单/交易查询。
-- 活动资格或权益资格核验。
-- 分期提前结清咨询。
-- 还款协商或延期咨询。
-- 卡片挂失、补卡、停卡。
-- 额度咨询、临时额度或固定额度调整。
-- 年费减免或年费调整。
-- 积分到账、积分兑换、积分争议。
-- 交易争议、调单、拒付、盗刷疑似场景。
-- 征信异议、申请资料补充。
-- 商务卡公司资料变更。
-- 投诉、催办、跨部门协办。
-
-验收标准：
-- 至少 40 条样本能被评测脚本读取。
-- 每条样本都有明确标签和期望输出。
-- 场景数量足以说明系统不是只为 3 个固定案例硬编码，并能覆盖自动处理、待补充、人工确认、升级人工等关键路径。
+场景覆盖：优惠券/权益、申请进度、资料变更、交易/账单、活动资格、分期/还款、挂失补卡、额度/年费/积分、交易争议、征信异议、投诉和跨部门协作等。
 
 ## 模块 F：Agent 测评与效果指标（P1）测评框架已完成
 
-目标：让答辩和汇报从“看起来能跑”升级为“有指标证明”。
+完成摘要：已建立 Agent 分项指标和端到端指标，让系统能用标注样本和真实 Agent 输出证明效果，而不是只靠演示观感。
 
-- [x] 评测 Intake Agent：字段抽取完整率、缺失字段识别正确率。
-- [x] 评测 Classifier Agent：意图准确率、工单类型准确率、优先级判断一致率。
-- [x] 评测 Resolution Agent：工具选择正确率、参数正确率、执行成功率。
-- [x] 评测 Notification Agent：回单要点覆盖率、模板合规性、可读性人工评分。
-- [x] 评测 Escalation Agent：异常识别正确率、人工介入判断合理性。
-- [x] 汇总端到端指标：闭环成功率、平均处理耗时、人工节省步骤、预计节省时间。
+关键产物：`ai-engine/evaluation/evaluator.py`、`ai-engine/evaluation/run_module_f.py`、`ai-engine/evaluation/smoke_module_f.py`、`GET /api/evaluation/metrics`。
 
-当前实现：
-- `ai-engine/evaluation/evaluator.py` 已从演示分数改为可对真实 Agent 输出 records 计分，并在未执行完整 LLM 评测时返回基于标注样本的参考摘要。
-- `ai-engine/evaluation/run_module_f.py` 可在配置 LLM Key 后逐条运行 40 条样本的五类 Agent 链路，不写主数据库。
-- `GET /api/evaluation/metrics` 保留旧顶层字段，并新增 `agents`、`closedLoopSuccessRate`、`avgProcessingMs`、`evaluatedSamples`、`avgManualStepsSaved`、`source`。
-- `ai-engine/evaluation/smoke_module_f.py` 覆盖自动处理、待补充和升级人工三类评测计分路径。
+指标覆盖：Intake 字段抽取/缺失识别，Classifier 意图/类型/优先级，Resolution 工具/参数/执行，Notification 回单要点/合规/可读性，Escalation 异常识别/人工介入，端到端状态匹配、耗时和人工节省。
 
-真实 LLM 阶段性执行记录：
-- [x] 确认当前终端可读取 `DEEPSEEK_API_KEY`，且不在日志中输出真实 Key。
-- [x] 先执行 5 条预检样本：
-  ```powershell
-  .venv\Scripts\python.exe ai-engine\evaluation\run_module_f.py --limit 5 --records
-  ```
-- [x] 检查 5 条预检结果，重点关注 `source=agent_run`、是否全部跑完、是否存在 LLM 超时或 JSON 解析失败。
-- [x] 对预检低分项做归因，不直接把所有低分解释为 Agent 能力问题：
-  - `workflowConsistency` 偏低：优先检查 LLM 是否返回 `workflow_name`，以及计分字段是否需要兼容 snake_case/camelCase。
-  - `replyPointCoverage` 偏低：优先检查中文回单要点匹配是否过严，必要时记录为评分口径问题。
-  - `humanInterventionAccuracy` 偏低：优先检查 `pending_human_review`、`pending_info` 和真正人工介入之间的口径差异。
-- [x] 完成至少 3 轮真实 LLM 小样本迭代：第 1 轮定位 workflow/reply/human 低分，第 2 轮修正 Resolution/参数/人工口径，第 3 轮将回单要点改为业务槽位覆盖。
-- [x] 执行 12 条真实 LLM 扩展回归，覆盖优惠券补发、申请进度、资料变更等核心场景。
-- [x] 预检链路稳定后执行完整 40 条真实 LLM 测评：
-  ```powershell
-  .venv\Scripts\python.exe ai-engine\evaluation\run_module_f.py --records
-  ```
-- [x] 汇总真实测评阶段性结果：12 条真实回归中 `intentAccuracy=1.0`、`fieldCompleteness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9655`、`humanInterventionAccuracy=1.0`、`toolCorrectness=0.8571`、`closedLoopSuccessRate=0.8333`。
-- [x] 完整 40 条真实 LLM 测评已在模块 F+ 中收口，最终结果保存到 `ai-engine/evaluation/module_f_full_final3_20260719.json`，`source=agent_run`、`evaluatedSamples=40`。
-
-验收标准：
-- 后端或脚本能基于标注样本输出一组真实指标。
-- 指标能支撑业务表达：更快、更准、更规范、更可追溯。
-- 每次修改 Agent 后能跑回归样本，避免只凭感觉调 Prompt。
+真实 LLM 过程：已完成 5 条预检、3 轮小样本迭代、12 条扩展回归和 40 条全量评测；最终收口见模块 F+。
 
 ## 模块 F+：真实 LLM 全量测评与指标收口（P1）已完成
 
-目标：在模块 F 测评框架和三轮真实 LLM 小样本迭代已经稳定的基础上，完成一轮可复述、可追溯、可用于答辩的全量真实 LLM 测评报告。该阶段不再盲目调分，而是把“真实链路表现、评分口径、残留风险、是否进入模块 G”说清楚。
+完成摘要：已完成一轮可追溯的 40 条真实 DeepSeek LLM 全量测评，并通过“全量测评 -> 问题归因 -> 链路修复/评分口径调整 -> 回归验证”闭环收口。
 
-执行原则：
-- 真实 LLM 测评使用系统环境变量中的 DeepSeek API Key，不打印、不写入、不提交真实 Key。
-- 全量测评优先读取 `ai-engine/data/evaluation_samples.json` 的 40 条样本，不污染 Demo 种子数据和主业务数据库。
-- 每轮真实测评都要保留可追溯输出：样本数、运行来源、核心指标、低分样本、异常类型和修复决策。
-- 若 LLM 超时、限流或 JSON 解析失败，不重复盲跑同一命令；先记录失败样本，再判断是重试、降并发、缩小批次还是修代码。
-- 区分 Agent 能力问题与评分口径问题：只有确认是业务链路缺陷时才改 Agent；评分误伤优先修 `Evaluator` 并补 smoke 回归。
+关键产物：初始结果 `ai-engine/evaluation/module_f_full_20260719.json`；最终结果 `ai-engine/evaluation/module_f_full_final3_20260719.json`。
 
-新的测评计划：
-- [x] 执行全量前置检查：确认 `DEEPSEEK_API_KEY` 可用但不输出 Key；确认 `evaluation_samples.json` 为 40 条；确认当前未依赖真实数据库写入。
-- [x] 执行一轮完整 40 条真实 LLM 测评：
-  ```powershell
-  .venv\Scripts\python.exe ai-engine\evaluation\run_module_f.py --records
-  ```
-- [x] 汇总全量真实测评指标，至少记录：`source`、`evaluatedSamples`、`intentAccuracy`、`fieldCompleteness`、`toolCorrectness`、`workflowConsistency`、`replyPointCoverage`、`humanInterventionAccuracy`、`closedLoopSuccessRate`、`avgProcessingMs`。
-- [x] 对低于阶段性 12 条回归的指标做样本级归因，按以下优先级分类：
-  - Agent 输出问题：字段抽取、workflow 选择、工具参数、人工介入判断、回单内容确实不符合预期。
-  - 评分口径问题：中文表达等价但未被识别、待补充/人工确认口径混淆、咨询类/无工具类样本被工具指标误伤。
-  - 样本标注问题：期望状态、期望工具、回单要点或人工介入标签与当前业务规则冲突。
-  - 外部服务问题：超时、限流、LLM 非 JSON 输出或临时网络错误。
-- [x] 至少完成一轮针对低分项的修复或标注/评分口径修正，并运行相关 smoke：
-  ```powershell
-  .venv\Scripts\python.exe ai-engine\evaluation\smoke_module_f.py
-  ```
-- [x] 如修复影响核心链路，补跑模块 A-F 的后端 smoke；如影响前端类型或展示，补跑前端构建。
-- [x] 生成最终测评结论，写入 `doc/planning/progress.md` 和必要的 `doc/planning/findings.md`：说明全量结果、修复内容、残留风险、是否允许进入模块 G。
+重要修复：UNKNOWN 扩展场景兜底、`pending_human_confirm` 显式建模、状态/人工介入口径区分、敏感资料变更先确认后执行、Resolution 参数规范化、Notification 回单要点改为业务槽位覆盖。
 
-最终真实 LLM 全量结果：
-- 初始 40 条全量测评已完成，结果保存到 `ai-engine/evaluation/module_f_full_20260719.json`，指标为 `intentAccuracy=0.725`、`fieldCompleteness=0.8911`、`toolCorrectness=0.7778`、`replyPointCoverage=0.8539`、`humanInterventionAccuracy=0.7`、`closedLoopSuccessRate=0.6`。
-- 子 Agent 只读审查确认低分主因是 UNKNOWN 扩展场景误分类、`pending_human_confirm` 未显式建模、状态/人工介入口径混淆和敏感资料变更先执行工具的链路风险。
-- 经过多轮真实问题子集回归和链路修复后，最终 40 条真实 LLM 回归保存到 `ai-engine/evaluation/module_f_full_final3_20260719.json`，`source=agent_run`、`evaluatedSamples=40`。
-- 最终指标：`intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
-- `closedLoopSuccessRate` 当前工程含义是“期望状态匹配率”，不是实际客户闭环结案率；模块 G 展示时应优先解释为状态/预期结果匹配。
+最终指标：`source=agent_run`、`evaluatedSamples=40`、`intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
 
-F+ 验收标准：
-- 完整 40 条真实 LLM 测评成功完成，或清楚记录未完成原因、已完成样本数和下一步处理策略。
-- 指标不是只给平均分；必须能追溯到低分样本和问题类型。
-- 至少有一轮“全量测评 -> 问题归因 -> 修复/口径调整 -> 回归验证”的闭环。
-- 模块 F 的 smoke 回归通过；如触及核心链路，模块 A-F smoke 回归通过。
-- 文档中明确区分“12 条阶段性真实回归结果”和“40 条全量真实测评结果”。
+口径提醒：`closedLoopSuccessRate` 当前工程含义是“期望状态匹配率/expected outcome match”，不是实际客户真实结案率；前端和答辩中不得误称为生产闭环率。
 
-## 模块 G：坐席业务工作台重构（P1）
+## 模块 G：坐席业务工作台重构（P1）已完成
 
-目标：把前端从“AI Demo 展示页”重构为面向一线坐席/业务员的信用卡工单处理工作台。前端第一优先级不是展示 Agent，而是帮助坐席更快完成接单、分诊、核验、处理、复核、回单和升级。Agent 信息默认以业务动作摘要呈现，技术链路只放在审计抽屉中服务调试和答辩追问。
+完成摘要：前端已从“AI Demo 展示页”重构为面向一线坐席的信用卡工单处理工作台，首要目标是扫单、分诊、核验、处理、复核、回单和升级，而不是暴露底层 Agent。
 
-设计口径：
-- 当前产品形态是独立 Web 坐席工作台，远期可内嵌为工单系统侧边栏、插件或工作流节点。
-- 主角色是一线坐席/业务员，不是纯技术演示者；主管视角和评测视角作为辅助页面或辅助区。
-- 页面语言使用坐席能直接操作的业务词：待补充、待确认、待复核、已升级、证据编号、下一负责人、建议动作、客户回单。
-- AI/Agent 露出方式采用业务化摘要：接单提取、业务分诊、资料核验、执行处理、回单生成、人工复核；`IntakeAgent`、`ClassifierAgent` 等技术名仅保留在“技术审计/执行明细”折叠区。
+关键产物：坐席工作池、案件处理台、场景族/状态筛选、右侧操作栏、业务证据链、缺失字段/人工介入原因、回单草稿、评测摘要、技术审计折叠区。
 
-重构任务：
-- [x] 重构首页为坐席工作池，而不是空白选择页或普通 Demo 列表；按“待处理、待补充、待人工确认、待复核、已升级、可结案建议”组织队列。
-- [x] 工单列表卡片展示坐席扫单必需信息：工单号、客户、场景族、风险、当前状态、等待原因、下一步动作和是否已有 AI 结果。
-- [x] 增加场景族与状态筛选：权益/优惠券、申请进度、资料变更、交易/争议、投诉升级、人工协办类，以及 `pending_info`、`pending_human_confirm`、`pending_human_review`、`escalated` 等关键状态。
-- [x] 重构工单详情为案件处理台：首屏展示工单场景、当前状态、处理结论、下一负责人、证据编号、建议动作，不再把 Agent Trace 放在主视觉位置。
-- [x] 中间主区域展示客户诉求、关键字段、缺失字段、核验结果、工具执行结果、业务证据和处理结论，按坐席阅读顺序组织。
-- [x] 右侧固定操作栏提供坐席动作：启动 AI 处理、填入回单、请求补充、人工确认、查看证据、定位工具、复核结案；按钮可用状态必须跟当前工单状态一致。
-- [x] 对自动工具型场景（补券、权益查询、申请进度）突出“字段完整性 -> 工具调用 -> 业务结果 -> 证据编号 -> 回单建议”。
-- [x] 对敏感确认型场景（资料变更、交易核查、境外交易）突出身份核验、风险原因、人工确认入口和不可直接自动执行的原因。
-- [x] 对高风险升级型场景（盗刷、征信异议、投诉、跨部门协办）突出升级原因、接管建议、禁止自动结论和后续人工归属。
-- [x] 对信息缺失型场景突出缺失字段、客户追问话术和补齐后继续处理的路径。
-- [x] 保留开发者 Trace、原始 Agent 步骤、工具入参/出参 JSON 等信息，但统一收纳到“技术审计/执行明细”折叠区，默认不干扰坐席主流程。
-- [x] 增加评测摘要辅助区或独立视图，消费 `/api/evaluation/metrics`，展示 40 条真实 LLM 测评结果、状态/预期结果匹配率、工具命中率、回单覆盖率、平均耗时和人工节省步骤。
-- [x] 修复当前前端中文文案乱码问题，所有用户可见文案统一 UTF-8，并用业务文案替换开发调试式描述。
-- [x] 建立前端设计系统：专业、克制、可扫描的银行运营台风格；风险色只用于状态和告警；证据编号、工具名、流水号使用等宽字体；避免大面积渐变和泛 AI 风格装饰。
-- [x] 响应式重构：桌面优先三栏工作台，窄屏降级为队列/详情/操作区可切换布局，保证文本、按钮和证据编号不重叠。
+展示口径：Agent 信息默认以业务动作摘要呈现；`IntakeAgent`、`ClassifierAgent` 等技术名只保留在“技术审计/执行明细”。`closedLoopSuccessRate` 在前端解释为“状态/预期结果匹配率”。
 
-验收标准：
-- 一线坐席 30 秒内能判断：当前是什么案子、处于什么状态、AI 做了什么、下一步谁处理、自己该点哪个操作。
-- 主界面不依赖解释底层 Agent 字段即可完成演示；技术 Trace 只在需要追问时展开。
-- 前端能稳定展示证据链、客户回单、人工介入原因、缺失字段、工具结果、升级理由和评测摘要。
-- 自动处理、待补充、待人工确认、待人工复核、升级人工、失败和结案建议都有一等 UI 状态。
-- 补券、申请进度、资料变更、权益查询、交易争议、投诉升级等核心场景在页面上有不同处理重点，而不是套同一张通用结果卡。
-- `closedLoopSuccessRate` 在前端明确解释为“状态/预期结果匹配率”，不误称为真实客户结案率。
-- 修改后运行 `cd frontend && npm run build` 通过；如无法运行，需要记录原因。
+验收状态：自动处理、待补充、待人工确认、待人工复核、升级人工、失败和结案建议均有一等 UI 状态；前端构建已通过。
 
 ## 模块 G+：企业工单系统壳与 Agent Copilot 解耦接入（P1）已完成
 
-目标：在已完成的坐席业务工作台基础上，快速开发一个更接近真实企业工单系统的前端壳。这个壳不是一次性演示页面，而是后续补齐真实工单系统时可以继续扩展的前端框架雏形；Agent 助手以低耦合侧边栏、悬浮窗或插件组件方式接入，不直接吞掉原系统主流程。
+完成摘要：默认 `/tickets` 和 `/tickets/:id` 已切换为更接近真实银行/客服企业工单系统的前端壳；旧坐席工作台保留在 `/legacy/tickets` 和 `/legacy/tickets/:id`。
 
-设计口径：
-- 当前阶段优先让观众第一眼看到“企业/银行客服工单详情系统中接入了 Agent 助手”，而不是“一个独立 AI Demo 页”。
-- 企业工单系统壳负责承载主业务流程：菜单、标签页、工单详情、客户/卡片信息、发单内容、处理日志、回单内容、状态流转和坐席操作。
-- Agent Copilot 负责辅助坐席：读取当前工单上下文，给出分诊、字段提取、风险提示、证据链、回单草稿和技术审计入口。
-- Agent 默认不直接保存、结案、转派或覆盖主系统状态；涉及写入的动作必须通过主系统按钮或坐席确认完成。
-- 5 天收口内不做完整 Java 工单系统、不强行迁移真实数据库、不接真实生产系统；重点是把前端框架、边界和演示口径打稳。
+关键产物：`frontend/src/views/EnterpriseTicketShellView.vue`、企业壳 wrapper、细颗粒信用卡二级菜单、多标签、详情表单、处理日志、证据链、回单区、底部技术审计折叠区、右侧推入式 Agent Copilot。
 
-页面风格：
-- 整体视觉贴近银行/客服后台系统，参考原型图的传统企业系统气质：左侧树形菜单、顶部多标签页、浅蓝灰分区标题、高密度表格、细边框、紧凑表单、明确滚动区域。
-- 主题色以 `#CD2C42` 和白色为主：`#CD2C42` 用于品牌标识、当前标签、主按钮、关键状态强调和少量焦点线；白色用于主内容背景；浅蓝灰用于分区栏和表头。
-- 推荐基础色板：品牌红 `#CD2C42`、页面白 `#FFFFFF`、分区浅蓝 `#EAF6FB`、边框灰 `#D8E0E7`、表头灰 `#F3F5F8`、正文深灰 `#1F2933`。
-- 避免大面积渐变、毛玻璃、营销式 hero、圆角大卡片、泛 AI 紫蓝光效和过强动效；页面应该更像坐席每天使用的业务系统，而不是展示型官网。
-- 信息密度优先于视觉留白：字号、行高、间距、表格列宽和按钮尺寸都应服务于快速扫单、核验、处理和回单。
+视觉口径：银行后台高密度表单风格；主色为品牌红 `#CD2C42`、白色、浅蓝灰分区栏和细边框；避免大面积渐变、泛 AI 紫蓝光效和营销式布局。
 
-页面参考与最终选型：
-- G+ 静态页面 demo 放在项目外的 Codex visualization 目录，不属于项目源码：`C:\Users\heyunhui\.codex\visualizations\2026\07\20\019f7da3-b38f-7c30-bdc0-8c1c59ba862a\ticketagent-gplus-demos\`。
-- 正式实现优先参考 `demo-1-core-system.html` 的最新版本：传统银行/企业核心系统详情页、左侧细颗粒业务菜单、顶部多标签、主工单详情表单、处理日志、回单区域和技术审计折叠区。
-- 左侧菜单不能只做粗粒度“工单处理/信用卡业务/运营管理”，应按真实信用卡二线处理视角细分：受理队列、权益与活动、客户资料、交易与风险、申请与账务、人工协办，并在每组下展示二级队列和数量，例如优惠券补发、餐饮券/满减券、机场贵宾厅权益、地址变更、非本人交易、调单/拒付、申请进度、额度咨询、投诉升级、征信异议、跨部门协办等。
-- Agent Copilot 采用最新 demo 的“推入式插件栏”，而不是遮挡表单的悬浮层：展开时主表单整体让出右侧空间，隐藏时主表单恢复全宽，并保留清晰的“Agent Copilot 展开/隐藏”入口。
-- Copilot 的交互口径是低耦合插件：读取当前工单上下文，辅助填入回单、定位证据、定位缺失字段、打开技术审计；不得直接保存、结案、转派或覆盖主系统状态。
-- 若实现时需要在“推入式右侧插件栏”和“底部中间插件面板”之间取舍，默认采用推入式右侧插件栏；底部中间面板只作为窄屏或空间不足时的降级方案。
+接入边界：Copilot 是低耦合插件，只读取当前工单上下文并辅助启动处理、填回单草稿、定位证据/缺失字段、打开技术审计、进入复核或人工确认区域；不得直接保存、结案、转派或覆盖主系统状态。人工确认仍走 `/api/tickets/{ticket_id}/confirm-action`，结案仍走 `/api/tickets/{ticket_id}/close`。
 
-开发任务：
-- [x] 快速搭建企业工单系统壳：左侧细颗粒菜单树、顶部多标签页、主内容区、推入式 Copilot 插件栏和底部/抽屉式审计区，布局风格参考传统银行客服后台的高密度表单与处理页面。
-- [x] 建立 G+ 页面视觉令牌：以 `#CD2C42`、白色、浅蓝灰分区栏、细边框和紧凑表格为基础，统一菜单、标签页、表格、表单、按钮、状态标签和 Copilot 面板的颜色与间距。
-- [x] 将工单详情页拆成可演进业务分区：基本信息、客户信息、卡片列表、发单内容、处理日志、回单内容、附件/备注占位、状态与操作区；后续接真实工单系统时优先替换数据源而不是重写页面。
-- [x] 把 Agent 助手封装为低耦合 Copilot 组件：优先支持右侧推入式插件栏和隐藏/展开状态，通过 `ticket context -> Agent service -> suggestions/evidence/draft` 的边界与主页面交互；不得遮挡原表单、原系统按钮或回单区域。
-- [x] 强化处理日志和操作记录：基于已有 Trace、工具审计和状态流转生成坐席可读日志，展示时间、操作人、动作类型、处理内容、证据编号和下一步责任人。
-- [x] 明确生产约束与 HITL：高风险不自动处理、敏感资料变更必须人工确认、工具失败不能包装为成功、缺字段必须追问、回单必须复核、结案必须单独点击。
-- [x] 为真实工单系统预留最小接口边界：整理 `TicketContext`、`CopilotSuggestion`、`OperationLog`、`ReplyDraft`、`EvidenceItem` 等前端层概念，避免组件直接依赖 Mock 数据结构。
-- [x] 在文档和演示口径中说明低耦合接入路径：真实企业环境可将 Agent 作为侧边栏、iframe、微前端或内嵌组件接入 Java/Spring 或遗留工单系统，通过 REST/SSE 调用 Python Agent 服务。
-- [x] 保留当前独立工作台能力作为演示入口或 fallback；企业工单系统壳开发过程中不能破坏已有模块 G 的核心演示链路。
+验收状态：工单编号直达、二级菜单过滤、Copilot 展开/隐藏、技术审计、旧版 fallback、SSE 重新生成、回单草稿展示和结案门禁均已联调；`cd frontend && npm.cmd run build`、后端 compileall、模块 D/F smoke 均通过。
 
-验收标准：
-- 首屏观感接近真实银行/客服企业工单详情系统：有细颗粒菜单树、多标签、详情表单、卡片列表、发单内容、处理日志和回单区域，而不是卡片式 AI 展示页。
-- 页面主色符合 `#CD2C42` + 白色 + 浅蓝灰分区的银行系统风格，红色克制用于品牌、选中态和关键动作，不形成大面积红色压迫感。
-- 坐席能在主页面完成业务动作，Agent 助手只是辅助入口；即使 Copilot 不可用，工单详情和人工处理流程仍可展示。
-- Agent Copilot 能读取当前工单上下文并展示建议、证据、风险、缺失字段和回单草稿；展开时主表单应平滑让出空间，隐藏时恢复全宽，不允许遮挡主系统表单、操作按钮或回单区域；写入主页面时必须有明确确认动作。
-- 后续接真实工单系统时，优先替换 API/数据适配层即可继续复用页面框架和 Copilot 组件。
-- 页面能讲清“体验深度融入、架构低耦合可插拔”：前端像原系统的一部分，Agent 服务边界独立可替换。
-- 修改后运行 `cd frontend && npm run build` 通过；若只更新计划文档，则至少检查 Markdown 标题层级和模块顺序正确。
+注意事项：当前 dev 数据库已被多轮演示/联调改动，部分种子工单处于已结案、已升级或待复核状态；后续录制演示建议补一个受控 Demo 数据重置脚本。
+
+后续待删 fallback：
+- [ ] 企业壳稳定后清理旧独立工作台 fallback：评估删除 `/legacy/tickets`、`/legacy/tickets/:id` 及相关旧页面/路由/说明，确认不破坏当前演示入口后再执行。
 
 ## 模块 H：Page Agent 业务化改造（P1 优先）
 
