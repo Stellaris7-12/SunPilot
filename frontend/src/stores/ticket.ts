@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, Ticket, TraceStep } from '../types';
+import type { AiProcessResult, Ticket, ToolCallLog, TraceStep } from '../types';
 import { ticketApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
@@ -9,6 +9,7 @@ export const useTicketStore = defineStore('ticket', () => {
   const isProcessing = ref(false);
   const aiResult = ref<AiProcessResult | null>(null);
   const traceSteps = ref<TraceStep[]>([]);
+  const toolCalls = ref<ToolCallLog[]>([]);
   const replyDraft = ref('');
   const workflowPaused = ref(false);
 
@@ -30,15 +31,19 @@ export const useTicketStore = defineStore('ticket', () => {
   async function loadTicketContext(id: string) {
     selectedTicketId.value = id;
     resetState();
-    const [resultResponse, traceResponse] = await Promise.allSettled([
+    const [resultResponse, traceResponse, toolCallsResponse] = await Promise.allSettled([
       ticketApi.getAiResult(id),
       ticketApi.getTrace(id),
+      ticketApi.getToolCalls(id),
     ]);
     if (resultResponse.status === 'fulfilled') {
       applyProcessResult(resultResponse.value);
     }
     if (traceResponse.status === 'fulfilled') {
       traceSteps.value = traceResponse.value;
+    }
+    if (toolCallsResponse.status === 'fulfilled') {
+      toolCalls.value = toolCallsResponse.value;
     }
   }
 
@@ -58,6 +63,7 @@ export const useTicketStore = defineStore('ticket', () => {
     isProcessing.value = true;
     aiResult.value = null;
     traceSteps.value = [];
+    toolCalls.value = [];
     replyDraft.value = '';
     workflowPaused.value = false;
 
@@ -98,6 +104,11 @@ export const useTicketStore = defineStore('ticket', () => {
       isProcessing.value = false;
       eventSource.close();
       await refreshTicket(ticketId);
+      try {
+        toolCalls.value = await ticketApi.getToolCalls(ticketId);
+      } catch {
+        toolCalls.value = [];
+      }
     };
 
     eventSource.addEventListener('workflow_paused', e => finish(e as MessageEvent, true));
@@ -119,6 +130,11 @@ export const useTicketStore = defineStore('ticket', () => {
       traceSteps.value = response.trace || traceSteps.value;
     }
     await refreshTicket(ticketId);
+    try {
+      toolCalls.value = await ticketApi.getToolCalls(ticketId);
+    } catch {
+      toolCalls.value = [];
+    }
   }
 
   async function closeTicket(ticketId: string, finalReply: string) {
@@ -130,6 +146,7 @@ export const useTicketStore = defineStore('ticket', () => {
     isProcessing.value = false;
     aiResult.value = null;
     traceSteps.value = [];
+    toolCalls.value = [];
     replyDraft.value = '';
     workflowPaused.value = false;
   }
@@ -140,6 +157,7 @@ export const useTicketStore = defineStore('ticket', () => {
     isProcessing,
     aiResult,
     traceSteps,
+    toolCalls,
     replyDraft,
     workflowPaused,
     selectedTicket,

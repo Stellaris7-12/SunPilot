@@ -1,5 +1,25 @@
 ﻿# 进度日志
 
+## 会话：2026-07-20（模块 G+ 页面 demo 选型补充）
+
+### 背景
+
+用户希望新开会话实现模块 G+ 前，先把本轮页面 demo 的最终选择和关键交互约束补充到 `doc/planning/task_plan.md`，避免后续实现时误回到粗粒度菜单或遮挡式 Copilot。
+
+### 执行内容
+
+- 在 `doc/planning/task_plan.md` 的模块 G+ 中新增“页面参考与最终选型”。
+- 明确静态 demo 目录：`C:\Users\heyunhui\.codex\visualizations\2026\07\20\019f7da3-b38f-7c30-bdc0-8c1c59ba862a\ticketagent-gplus-demos\`。
+- 明确正式实现优先参考 `demo-1-core-system.html` 最新版本：传统银行/企业核心系统详情页、左侧细颗粒业务菜单、顶部多标签、主详情表单、处理日志、回单区域和技术审计折叠区。
+- 将 Copilot 交互口径定为“推入式插件栏”：展开时主表单让出右侧空间，隐藏时恢复全宽，不允许遮挡原表单、主系统按钮或回单区域。
+- 将左侧菜单粒度补充为受理队列、权益与活动、客户资料、交易与风险、申请与账务、人工协办等二级业务队列。
+
+### 当前结论
+
+- 模块 G+ 正式开发应优先迁移第一版 demo 的最新板式，而不是重新设计页面。
+- Copilot 是低耦合插件，不是覆盖主页面的悬浮层；写入类动作仍必须通过主系统按钮和现有后端 API。
+- 本次只更新规划文档，未修改前后端源码。
+
 ## 会话：2026-07-20（模块 H 优先级调整：Page Agent 业务化优先）
 
 ### 背景
@@ -620,3 +640,42 @@
 
 - 将模块 F 中“预检链路稳定后执行完整 40 条真实 LLM 测评”标记为已完成。
 - 修正旁边过期的“本轮未跑完整 40 条”历史表述，改为引用最终 F+ 全量测评产物。
+
+## 会话：2026-07-20（模块G+完成：企业工单系统壳与 Copilot 解耦接入）
+
+### 背景
+
+用户要求按照 `doc/planning/task_plan.md` 模块 G+ 的清单完成开发与测试，并使用子 Agent 做前后端联调复核。当前取舍是“替换首页+详情”：默认 `/tickets` 和 `/tickets/:id` 使用新的企业工单系统壳，旧模块 G 工作台保留 fallback。
+
+### 执行内容
+
+- 新增 `frontend/src/views/EnterpriseTicketShellView.vue`，实现企业/银行客服后台风格的工单系统壳：左侧细颗粒业务菜单、顶部多标签、首页队列、详情表单、客户/卡片信息、发单内容、字段核验、证据链、处理日志、回单区、技术审计折叠区和推入式 Agent Copilot。
+- 将 `frontend/src/views/TicketListView.vue`、`frontend/src/views/TicketDetailView.vue` 改为企业壳 wrapper；将旧页面复制为 `LegacyTicketListView.vue`、`LegacyTicketDetailView.vue`。
+- 更新 `frontend/src/router/index.ts`，新增 `/legacy/tickets` 和 `/legacy/tickets/:id`，保留旧工作台 fallback。
+- 更新 `frontend/src/utils/business.ts`、`frontend/src/types/index.ts`、`frontend/src/stores/ticket.ts`，补齐 G+ 前端适配概念、工具审计恢复、Copilot 建议、证据链和坐席可读操作日志。
+- 更新 `frontend/src/assets/styles.css`、`frontend/src/components/ai/ConfirmDialog.vue`、`frontend/src/components/layout/AppSidebar.vue`，统一 UTF-8 中文文案和企业系统视觉令牌。
+- 修复直达路由：`/tickets/:id` 同时支持内部 `id` 和可见工单编号 `no`，并保留真正未找到工单时的空状态。
+- 收紧结案门禁：只有工单处于 `pending_human_review`、`notification.closureSuggestion.canClose` 为真且有回单草稿时，“复核并结案”才启用；Copilot 不能直接结案。
+- 增加刷新后待人工确认入口：`pending_human_confirm` 状态下可重新打开人工确认弹窗，仍调用后端 `/confirm-action`。
+- 根据只读子 Agent 复核结果，补充重新 SSE 时清空旧 `toolCalls`，并为人工确认/结案提交失败增加页面错误提示。
+- 使用只读子 Agent 复核后端契约和前端实现风险，并根据反馈修复了路由解析、结案启用条件、审计折叠同步和工具调用空响应兼容等问题。
+
+### 验证结果
+
+- `cd frontend && npm.cmd run build`：通过。
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_d.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_f.py`：通过。
+- 浏览器联调 `http://127.0.0.1:5173/tickets/T20260715001`：可用可见工单编号直达，并自动解析到 `/tickets/coupon`，展示详情页而不是掉回首页。
+- 浏览器联调首页菜单：`餐饮券/满减券` 二级菜单可过滤出餐饮优惠券工单；`/legacy/tickets` 可打开旧工作台。
+- 浏览器联调 Copilot：展开/隐藏正常，打开技术审计正常，证据/缺失/回单动作只定位或填草稿，不覆盖主系统状态。
+- 浏览器联调 SSE：在 `missing_d` 上点击“重新生成建议”后，后端真实链路跑完，页面展示 4 步 Trace、回单草稿和升级状态；结案按钮保持禁用。
+- 浏览器联调待复核状态：`address` 有回单草稿且 `closureSuggestion.canClose=true` 时，主页面“复核并结案”按钮启用；Copilot 的“进入人工确认”在非待确认状态下禁用并显示原因。
+- 子 Agent Bernoulli 只读复核：未发现 P0/P1 阻断问题；提出的 P2 结案门禁和旧工具证据短暂残留问题已修复，P3 写操作失败反馈已补充。
+
+### 当前阶段
+
+- **状态：** completed
+- **阶段名称：** 模块G+：企业工单系统壳与 Agent Copilot 解耦接入
+- **注意事项：** 当前 dev 数据库已被多轮演示/联调改动，部分种子工单处于已结案、已升级或待复核状态；如后续录制演示，建议先补一个受控 Demo 数据重置脚本。
+- **下一步：** 进入模块 H1：Page Agent 业务化 MVP，把当前 Copilot/Page Assistant 动作进一步抽象为 `PageContext`、`PageAction`、`PageActionRunner` 和前端动作日志。

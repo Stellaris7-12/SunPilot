@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTicketStore } from '../../stores/ticket'
 import { bucketMatches, scenarioFamily, statusMeta, suggestedAction, workBuckets } from '../../utils/business'
 import StatusBadge from '../shared/StatusBadge.vue'
 
 const store = useTicketStore()
 const router = useRouter()
+const route = useRoute()
 const activeBucket = ref('all')
 const familyFilter = ref('all')
+
+const legacyMode = computed(() => route.path.startsWith('/legacy'))
+const listPath = computed(() => legacyMode.value ? '/legacy/tickets' : '/tickets')
 
 const buckets = computed(() => workBuckets(store.tickets))
 const families = computed(() => {
@@ -30,13 +34,13 @@ const handoffCount = computed(() => store.tickets.filter(ticket =>
 
 function onSelect(id: string) {
   store.selectTicket(id)
-  router.push(`/tickets/${id}`)
+  router.push(`${listPath.value}/${id}`)
 }
 </script>
 
 <template>
   <aside class="sidebar">
-    <RouterLink class="brand" to="/tickets">
+    <RouterLink class="brand" :to="listPath">
       <span class="brand-mark">TA</span>
       <span>
         <strong>TicketAgent</strong>
@@ -108,11 +112,10 @@ function onSelect(id: string) {
 .sidebar {
   width: 320px;
   min-height: 100vh;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.96);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  box-shadow: 14px 0 40px rgba(23, 33, 43, 0.05);
 }
 .brand {
   display: flex;
@@ -129,12 +132,10 @@ function onSelect(id: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--ink);
-  border-radius: 8px;
-  background: var(--ink);
+  border: 1px solid var(--brand);
+  background: var(--brand);
   color: #fff;
   font-weight: 900;
-  letter-spacing: 0;
 }
 .brand strong { display: block; font-size: 15px; letter-spacing: 0; }
 .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
@@ -149,7 +150,6 @@ function onSelect(id: string) {
   min-width: 0;
   padding: 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
   background: var(--panel-2);
 }
 .shift-label { display: block; color: var(--muted); font-size: 12px; }
@@ -167,14 +167,12 @@ function onSelect(id: string) {
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
   background: var(--panel);
   color: var(--ink);
-  cursor: pointer;
 }
 .bucket span { font-size: 12px; font-weight: 700; }
 .bucket strong { font-size: 13px; font-family: var(--mono); }
-.bucket.active { border-color: var(--ink); background: var(--ink); color: #fff; }
+.bucket.active { border-color: var(--brand); background: #fff5f6; color: var(--brand); }
 .filter-label {
   display: flex;
   flex-direction: column;
@@ -186,9 +184,8 @@ function onSelect(id: string) {
 }
 select {
   width: 100%;
-  min-height: 36px;
+  min-height: 32px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
   background: var(--panel);
   color: var(--ink);
   padding: 0 10px;
@@ -202,14 +199,12 @@ select {
   margin-bottom: 8px;
   padding: 12px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
   background: transparent;
   color: var(--ink);
-  cursor: pointer;
   text-align: left;
 }
 .ticket-item:hover { background: var(--panel-2); border-color: var(--line); }
-.ticket-item.active { background: var(--paper-warm); border-color: var(--green); box-shadow: inset 4px 0 0 var(--green); }
+.ticket-item.active { background: #fff5f6; border-color: var(--brand); box-shadow: inset 4px 0 0 var(--brand); }
 .ticket-top, .ticket-meta {
   display: flex;
   align-items: center;
@@ -239,7 +234,6 @@ select {
   margin: 16px 8px;
   padding: 18px;
   border: 1px dashed var(--line-strong);
-  border-radius: var(--radius);
   color: var(--muted);
   text-align: center;
   font-size: 13px;

@@ -198,3 +198,19 @@ export interface EvaluationMetrics {
   avgManualStepsSaved?: number;
   source?: string;
 }
+
+export interface TicketContext {
+  ticket: Ticket;
+  aiResult: AiProcessResult | null;
+  traceSteps: TraceStep[];
+  toolCalls: ToolCallLog[];
+  replyDraft: string;
+  allowedActions: string[];
+  disabledReasons: Record<string, string>;
+}
+
+export interface ReplyDraftState {
+  body: string;
+  source: 'agent' | 'operator' | 'empty';
+  canSubmit: boolean;
+}

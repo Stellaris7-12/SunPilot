@@ -26,16 +26,14 @@ const emit = defineEmits<{ confirm: []; reject: [] }>()
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(23, 33, 43, 0.52);
-  backdrop-filter: blur(10px);
+  background: rgba(31, 41, 51, 0.52);
 }
 .dialog {
   width: min(440px, 100%);
-  padding: 26px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  padding: 22px;
+  border: 1px solid var(--line-dark);
   background: var(--panel);
-  box-shadow: 0 24px 70px rgba(23, 33, 43, 0.28);
+  box-shadow: 0 24px 70px rgba(31, 41, 51, 0.28);
 }
 .dialog-mark {
   width: 34px;
@@ -44,20 +42,25 @@ const emit = defineEmits<{ confirm: []; reject: [] }>()
   align-items: center;
   justify-content: center;
   margin-bottom: 12px;
-  border-radius: 8px;
+  border: 1px solid rgba(196, 123, 24, 0.34);
   background: var(--amber-soft);
-  color: var(--amber);
+  color: var(--warn);
   font-family: var(--mono);
   font-weight: 900;
 }
-h2 { font-size: 18px; }
+h2 {
+  font-size: 18px;
+}
 p {
   margin-top: 10px;
   color: var(--ink-2);
   font-size: 14px;
   line-height: 1.7;
 }
-.hint { color: var(--muted); font-size: 13px; }
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}
 .actions {
   display: flex;
   gap: 10px;
@@ -65,13 +68,18 @@ p {
 }
 .btn {
   flex: 1;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px;
-  cursor: pointer;
+  padding: 8px;
   font-size: 13px;
   font-weight: 900;
 }
-.btn-confirm { background: var(--green); border-color: var(--green); color: #fff; }
-.btn-reject { background: var(--red-soft); border-color: rgba(196, 78, 78, 0.28); color: var(--red); }
+.btn-confirm {
+  border-color: var(--brand-dark);
+  background: var(--brand);
+  color: #fff;
+}
+.btn-reject {
+  border-color: rgba(180, 35, 53, 0.3);
+  background: var(--red-soft);
+  color: var(--danger);
+}
 </style>

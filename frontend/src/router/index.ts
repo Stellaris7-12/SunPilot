@@ -18,6 +18,17 @@ const router = createRouter({
       component: () => import('../views/TicketDetailView.vue'),
       props: true,
     },
+    {
+      path: '/legacy/tickets',
+      name: 'LegacyTicketList',
+      component: () => import('../views/LegacyTicketListView.vue'),
+    },
+    {
+      path: '/legacy/tickets/:id',
+      name: 'LegacyTicketDetail',
+      component: () => import('../views/LegacyTicketDetailView.vue'),
+      props: true,
+    },
   ],
 });
 

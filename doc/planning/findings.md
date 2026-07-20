@@ -249,6 +249,19 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 - 最终 40 条真实回归指标为 `intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
 - `closedLoopSuccessRate` 当前工程含义更接近“期望状态匹配率/expected outcome match”，不是客户真实结案率；模块 G 或答辩展示时应明确解释，不应把它包装成真实生产闭环率。
 
+## 模块 G+ 完成后的实现事实
+
+- 默认 `/tickets` 和 `/tickets/:id` 已切换为企业工单系统壳，旧坐席工作台保留在 `/legacy/tickets` 和 `/legacy/tickets/:id`。
+- 企业壳采用左侧细颗粒信用卡二线菜单、顶部多标签、主内容高密度表单、处理日志、证据链、回单区和底部技术审计折叠区，视觉令牌统一为品牌红 `#CD2C42`、白色、浅蓝灰分区栏和细边框。
+- `/tickets/:id` 支持内部 `id` 和可见工单编号 `no` 两种入口；使用工单编号直达时会解析到内部 id，并替换为稳定 URL，避免演示人员看到编号后手输路由掉回首页。
+- Agent Copilot 以右侧推入式插件栏接入，隐藏后主工作区恢复全宽；它只提供启动处理、填入回单草稿、定位证据、查看缺失字段、打开技术审计、进入回单复核和进入人工确认等辅助动作。
+- Copilot 不直接保存、结案、转派或覆盖主系统状态；人工确认仍通过 `/api/tickets/{ticket_id}/confirm-action`，结案仍通过主页面“复核并结案”按钮调用 `/api/tickets/{ticket_id}/close`。
+- `canClose` 已收紧为必须处于 `pending_human_review` 且存在 `notification.closureSuggestion.canClose`，不能仅凭有回单草稿或 AI 结果启用结案。
+- 前端重新发起 SSE 处理时会同步清空旧 `toolCalls`，避免处理完成前短暂展示上一轮工具证据。
+- 前端适配层新增 `TicketContext`、`ReplyDraftState`、`CopilotSuggestion`、`EvidenceItem`、`OperationLog` 等概念，后续接真实 Java/Spring 或遗留系统时可优先替换 API/数据适配层。
+- 浏览器联调确认：工单编号直达、二级菜单过滤、Copilot 展开/隐藏、打开技术审计、旧版 fallback、真实 SSE 重新生成建议、回单草稿展示和结案门禁均正常；待复核工单可结案，已结案工单不可重复结案。
+- 当前 dev 数据库已被多轮演示验证改动过，部分种子工单处于已结案、已升级或待复核状态；本轮验证未重置种子数据，后续如需录制全新演示建议增加一键重置 Demo 数据脚本。
+
 ## 模块 H 三路进阶调研发现
 
 ### 语音入口
@@ -295,5 +308,3 @@ Page Agent 有价值，但不能一开始就做成“自动操作外部系统”
 | 前端过技术化 | 默认展示业务流程，开发 Trace 折叠 |
 | 进阶功能分散精力 | Dispatcher、A2A、MCP、PageAgent、语音全部后置 |
 | Agent 效果难证明 | 建立标注样本和评测脚本，每轮开发后回归 |
-
-
