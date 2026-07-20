@@ -27,7 +27,19 @@
 - 模块 B：Agent 编排与业务化封装，已完成。
 - 模块 C：Resolution 执行能力与工具审计，已完成。
 - 模块 D：Notification 与回单闭环，已完成。
-- 下一阶段优先看 `doc/planning/task_plan.md` 中的模块 E/F/G，不要跳过 planning 直接扩散开发范围。
+- 模块 E：数据集构建与场景扩展，已完成。
+- 模块 F/F+：Agent 测评框架与 40 条真实 LLM 全量测评收口，已完成。
+- 模块 G：坐席业务工作台重构，已完成。
+- 模块 G+：企业工单系统壳与 Agent Copilot 解耦接入，已完成。
+- 下一阶段优先看 `doc/planning/task_plan.md` 中的模块 H/H1，不要跳过 planning 直接扩散开发范围。
+
+规划文档维护口径：
+
+- `doc/planning/task_plan.md` 是当前压缩版计划，保留可执行的当前阶段细节和已完成模块摘要。
+- `doc/planning/task_plan.before-compression-20260720.md` 是压缩前完整版备份，用于追溯历史过程和详细验收记录；不要把其中长过程直接复制回当前计划，除非用户明确要求。
+- 压缩、重排或大幅删减 planning 文件前，必须先创建备份文件，并在 `doc/planning/progress.md` 记录原因、备份路径和保留/删除口径。
+- 已完成模块只保留“完成摘要、关键产物、边界/口径、验收状态”；未完成模块保留可执行 checklist。
+- 模块 B 仍有旧 Agent shim 清理待办；模块 G+ 仍有旧独立工作台 fallback 后续清理待办。
 
 模块 D 的关键契约：
 
@@ -81,9 +93,15 @@
   - `frontend/src/stores/`
   - `frontend/src/api/`
 - 当前 AI 工单详情页重点组件：
+  - `frontend/src/views/EnterpriseTicketShellView.vue`
+  - `frontend/src/views/TicketListView.vue`
+  - `frontend/src/views/TicketDetailView.vue`
   - `frontend/src/components/ai/NotificationBundlePanel.vue`
   - `frontend/src/components/ai/ReplyDraftEditor.vue`
   - `frontend/src/components/ai/PageAssistantPanel.vue`
+- 默认 `/tickets` 和 `/tickets/:id` 已切换为企业工单系统壳；旧工作台保留在 `/legacy/tickets` 和 `/legacy/tickets/:id`，后续稳定后再评估删除 fallback。
+- Agent Copilot 是低耦合前端插件：只能读取当前工单上下文并辅助填回单、定位证据/缺失字段、打开技术审计、进入复核或人工确认区域；不得直接保存、结案、转派或覆盖主系统状态。
+- 模块 H 的 Page Agent 业务化优先在前端抽象 `PageContext`、`PageAction`、`PageActionRunner` 和 `PageActionLog`；不要新增后端第六个业务 Agent，不要开放任意 DOM index 点击或任意 JavaScript 执行。
 
 ## 常用命令
 

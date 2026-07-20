@@ -679,3 +679,57 @@
 - **阶段名称：** 模块G+：企业工单系统壳与 Agent Copilot 解耦接入
 - **注意事项：** 当前 dev 数据库已被多轮演示/联调改动，部分种子工单处于已结案、已升级或待复核状态；如后续录制演示，建议先补一个受控 Demo 数据重置脚本。
 - **下一步：** 进入模块 H1：Page Agent 业务化 MVP，把当前 Copilot/Page Assistant 动作进一步抽象为 `PageContext`、`PageAction`、`PageActionRunner` 和前端动作日志。
+
+## 会话：2026-07-20（压缩已完成模块计划内容）
+
+### 背景
+
+用户希望压缩 `doc/planning/task_plan.md` 中已完成模块的过程性内容，避免文件过于臃肿，减少后续模型上下文浪费和幻觉风险。
+
+### 执行内容
+
+- 将模块 A-G+ 的长 checklist、执行过程和重复验收标准压缩为“完成摘要、关键产物、边界/口径、验收状态”。
+- 保留模块 F+ 的最终真实 LLM 指标、`closedLoopSuccessRate` 工程口径、模块 B 旧 shim 遗留事项和 G+ 的 Copilot 接入边界。
+- 保留模块 H/H1/H2/H3/H4 的待办粒度，避免压缩当前未完成阶段的执行指引。
+- 将模块 D、模块 G 标题补齐为“已完成”，与当前项目状态保持一致。
+
+### 验证结果
+
+- `doc/planning/task_plan.md` 标题层级和模块顺序检查通过。
+- 文件行数从约 441 行压缩到 247 行。
+- 本次仅修改规划文档，未运行后端或前端构建。
+
+## 会话：2026-07-20（补充压缩前计划备份与 diff comment）
+
+### 背景
+
+用户指出压缩 `task_plan.md` 前应先备份原计划，并在 diff comment 中标注两条需要保留的内容。
+
+### 执行内容
+
+- 从 Git `HEAD` 中恢复压缩前原文，创建备份文件：`doc/planning/task_plan.before-compression-20260720.md`。
+- 在压缩版模块 B 中恢复旧 Agent shim 清理待办，保留为明确未完成项。
+- 在压缩版模块 G+ 中新增“后续待删 fallback”，将旧独立工作台 fallback 改为后续清理事项。
+
+### 验证结果
+
+- 已确认备份文件存在。
+- 已确认 `task_plan.md` 标题层级和模块顺序仍正确。
+
+## 会话：2026-07-20（更新 AGENTS.md 项目协作口径）
+
+### 背景
+
+用户要求更新 `AGENTS.md`，使新会话能读取到当前模块状态、规划文件压缩/备份规则以及模块 H 的下一步工作边界。
+
+### 执行内容
+
+- 更新当前模块状态：模块 A-G+ 已完成，下一阶段优先进入模块 H/H1。
+- 新增规划文档维护口径：当前压缩版计划、压缩前备份文件、压缩前必须备份并记录 progress。
+- 补充前端/G+ 口径：默认企业工单系统壳、旧 `/legacy/tickets` fallback 后续清理、Agent Copilot 不直接保存/结案/转派。
+- 补充模块 H 约束：优先抽象 `PageContext`、`PageAction`、`PageActionRunner`、`PageActionLog`，不新增后端第六个业务 Agent，不开放任意 DOM index 点击或任意 JavaScript 执行。
+
+### 验证结果
+
+- 已检查 `AGENTS.md` 关键条目存在。
+- 本次仅修改文档，未运行前后端构建。
