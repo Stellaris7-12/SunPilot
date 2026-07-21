@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, Ticket, ToolCallLog, TraceStep } from '../types';
+import type { AiProcessResult, CreateTicketPayload, Ticket, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload } from '../types';
 import { ticketApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
@@ -10,6 +10,7 @@ export const useTicketStore = defineStore('ticket', () => {
   const aiResult = ref<AiProcessResult | null>(null);
   const traceSteps = ref<TraceStep[]>([]);
   const toolCalls = ref<ToolCallLog[]>([]);
+  const operationLogs = ref<TicketOperationLog[]>([]);
   const replyDraft = ref('');
   const workflowPaused = ref(false);
 
@@ -19,8 +20,8 @@ export const useTicketStore = defineStore('ticket', () => {
   const openCount = computed(() => tickets.value.filter(t => t.status !== 'closed').length);
   const closedCount = computed(() => tickets.value.filter(t => t.status === 'closed').length);
 
-  async function fetchTickets() {
-    tickets.value = await ticketApi.list();
+  async function fetchTickets(filters?: TicketListFilters) {
+    tickets.value = await ticketApi.list(filters);
   }
 
   function selectTicket(id: string) {
@@ -31,10 +32,11 @@ export const useTicketStore = defineStore('ticket', () => {
   async function loadTicketContext(id: string) {
     selectedTicketId.value = id;
     resetState();
-    const [resultResponse, traceResponse, toolCallsResponse] = await Promise.allSettled([
+    const [resultResponse, traceResponse, toolCallsResponse, operationsResponse] = await Promise.allSettled([
       ticketApi.getAiResult(id),
       ticketApi.getTrace(id),
       ticketApi.getToolCalls(id),
+      ticketApi.getOperations(id),
     ]);
     if (resultResponse.status === 'fulfilled') {
       applyProcessResult(resultResponse.value);
@@ -44,6 +46,9 @@ export const useTicketStore = defineStore('ticket', () => {
     }
     if (toolCallsResponse.status === 'fulfilled') {
       toolCalls.value = toolCallsResponse.value;
+    }
+    if (operationsResponse.status === 'fulfilled') {
+      operationLogs.value = operationsResponse.value;
     }
   }
 
@@ -142,11 +147,54 @@ export const useTicketStore = defineStore('ticket', () => {
     await refreshTicket(ticketId);
   }
 
+  async function updateTicket(ticketId: string, payload: UpdateTicketPayload) {
+    const updated = await ticketApi.update(ticketId, payload);
+    upsertTicket(updated);
+  }
+
+  async function createTicket(payload: CreateTicketPayload) {
+    const created = await ticketApi.create(payload);
+    upsertTicket(created);
+    selectedTicketId.value = created.id;
+    return created;
+  }
+
+  async function assignTicket(ticketId: string, assignee: string, department?: string, operator?: string) {
+    const updated = await ticketApi.assign(ticketId, assignee, department, operator);
+    upsertTicket(updated);
+    operationLogs.value = await ticketApi.getOperations(ticketId);
+  }
+
+  async function cancelTicket(ticketId: string, reason: string, operator?: string) {
+    const updated = await ticketApi.cancel(ticketId, reason, operator);
+    upsertTicket(updated);
+    operationLogs.value = await ticketApi.getOperations(ticketId);
+  }
+
+  async function reopenTicket(ticketId: string, reason = '', operator?: string) {
+    const updated = await ticketApi.reopen(ticketId, reason, operator);
+    upsertTicket(updated);
+    operationLogs.value = await ticketApi.getOperations(ticketId);
+  }
+
+  async function saveReplyDraft(ticketId: string, draft: string, operator?: string) {
+    await ticketApi.saveDraft(ticketId, draft, operator);
+    replyDraft.value = draft;
+    operationLogs.value = await ticketApi.getOperations(ticketId);
+  }
+
+  function upsertTicket(updated: Ticket) {
+    const index = tickets.value.findIndex(t => t.id === updated.id);
+    if (index >= 0) tickets.value[index] = updated;
+    else tickets.value.unshift(updated);
+  }
+
   function resetState() {
     isProcessing.value = false;
     aiResult.value = null;
     traceSteps.value = [];
     toolCalls.value = [];
+    operationLogs.value = [];
     replyDraft.value = '';
     workflowPaused.value = false;
   }
@@ -158,6 +206,7 @@ export const useTicketStore = defineStore('ticket', () => {
     aiResult,
     traceSteps,
     toolCalls,
+    operationLogs,
     replyDraft,
     workflowPaused,
     selectedTicket,
@@ -169,6 +218,12 @@ export const useTicketStore = defineStore('ticket', () => {
     startAiProcess,
     confirmAction,
     closeTicket,
+    createTicket,
+    updateTicket,
+    assignTicket,
+    cancelTicket,
+    reopenTicket,
+    saveReplyDraft,
     resetState,
   };
 });

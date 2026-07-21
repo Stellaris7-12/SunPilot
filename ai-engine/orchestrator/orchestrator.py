@@ -12,7 +12,7 @@ from agents.intake_agent import IntakeAgent
 from agents.notification_agent import NotificationAgent
 from agents.resolution_agent import ResolutionAgent
 from models.agent_card import AgentCard
-from models.ai_result import AiProcessResult, FieldResult, IntentResult, VerifyCheck
+from models.ai_result import AiProcessResult, FieldEnrichmentResult, FieldResult, IntentResult, VerifyCheck
 from models.repositories import ticket_repository, tool_call_repository
 from models.ticket import RiskLevel, Ticket, TicketStatus
 from orchestrator.state_machine import TicketState, TicketStateMachine
@@ -113,6 +113,15 @@ class Orchestrator:
                     "intent_label": intent_result.get("label", "未知"),
                     "workflow_config": workflow_config,
                 },
+                trace,
+                push,
+            )
+
+            await self._run_field_enrichment(
+                ticket,
+                intent_result,
+                extract_result,
+                workflow_config,
                 trace,
                 push,
             )
@@ -264,6 +273,61 @@ class Orchestrator:
             finally:
                 await self._emit_terminal(push, ticket_id, result)
             return result
+
+    async def _run_field_enrichment(
+        self,
+        ticket: Ticket,
+        intent_result: dict,
+        extract_result: dict,
+        workflow_config: dict,
+        trace: TraceCollector,
+        push,
+    ):
+        scenario = workflow_config.get("scenarios", {}).get(intent_result.get("type", "UNKNOWN"), {})
+        tool_name = scenario.get("recommended_tool", "")
+        if not tool_name:
+            return
+        enrich = getattr(mock_executor, "enrich_params", None)
+        if not callable(enrich):
+            return
+        params = {
+            field.get("name"): field.get("value")
+            for field in extract_result.get("fields", [])
+        }
+        enriched_params, enrichment_result = await enrich(tool_name, params, ticket)
+        if not enrichment_result.get("filledFields"):
+            return
+
+        field_by_name = {field.get("name"): field for field in extract_result.get("fields", [])}
+        for name, value in enrichment_result["filledFields"].items():
+            if name in field_by_name:
+                field_by_name[name]["value"] = str(value)
+            else:
+                extract_result.setdefault("fields", []).append({
+                    "label": name,
+                    "name": name,
+                    "value": str(value),
+                })
+        extract_result["_field_enrichment"] = enrichment_result
+        if push:
+            await push("agent_complete", {
+                "agent_id": "field_enrichment",
+                "summary": f"Filled {len(enrichment_result['filledFields'])} field(s)",
+                "duration_ms": 0,
+                "status": TraceStatus.SUCCESS.value,
+                "result": enrichment_result,
+            })
+        trace.add_step(
+            agent="Field Enrichment / 字段补全",
+            agent_id="field_enrichment",
+            summary=(
+                "Filled "
+                f"{len(enrichment_result.get('filledFields', {}))} field(s) via "
+                f"{', '.join(enrichment_result.get('sourceTools', []))}"
+            ),
+            duration="0ms",
+            status=TraceStatus.SUCCESS,
+        )
 
     async def _run_escalation_step(
         self,
@@ -418,6 +482,28 @@ class Orchestrator:
         push,
     ) -> dict | None:
         missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
+        if missing_params:
+            enrich = getattr(mock_executor, "enrich_params", None)
+            if callable(enrich):
+                enriched_params, enrichment_result = await enrich(tool_name, tool_params, ticket)
+            else:
+                enriched_params, enrichment_result = tool_params, {}
+            if enrichment_result.get("filledFields"):
+                tool_params.clear()
+                tool_params.update(enriched_params)
+                extract_result["_field_enrichment"] = enrichment_result
+                trace.add_step(
+                    agent="Field Enrichment / 字段补全",
+                    agent_id="field_enrichment",
+                    summary=(
+                        "Filled "
+                        f"{len(enrichment_result.get('filledFields', {}))} field(s) via "
+                        f"{', '.join(enrichment_result.get('sourceTools', []))}"
+                    ),
+                    duration="0ms",
+                    status=TraceStatus.SUCCESS,
+                )
+                missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
         if not missing_params:
             return None
 
@@ -740,6 +826,12 @@ class Orchestrator:
 
         fields = [FieldResult(**field) for field in extract_result.get("fields", [])]
         checks = [VerifyCheck(**check) for check in verify_result.get("checks", [])]
+        enrichment_payload = extract_result.get("_field_enrichment")
+        field_enrichment = (
+            FieldEnrichmentResult(**enrichment_payload)
+            if enrichment_payload
+            else None
+        )
 
         tool_evidence = ""
         tool_name = ""
@@ -772,6 +864,7 @@ class Orchestrator:
             tool_name=tool_name,
             tool_request=tool_request or {},
             tool_response=tool_response,
+            field_enrichment=field_enrichment,
             verify_checks=checks,
             reply_draft=reply_draft,
             notification=notification,

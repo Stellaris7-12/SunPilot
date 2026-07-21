@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     'pending_human_review',
     'escalated',
     'failed',
+    'cancelled',
     'closed'
   ) NOT NULL DEFAULT 'open',
   content TEXT NOT NULL,
@@ -173,4 +174,35 @@ CREATE TABLE IF NOT EXISTS mock_applications (
   current_node VARCHAR(128) NOT NULL DEFAULT '',
   expected_finish_at DATETIME NULL,
   CONSTRAINT fk_mock_applications_customer FOREIGN KEY (customer_id) REFERENCES mock_customers(customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS mock_coupons (
+  coupon_id VARCHAR(64) PRIMARY KEY,
+  customer_id VARCHAR(32) NOT NULL,
+  coupon_type VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE',
+  operation_id VARCHAR(128) NOT NULL DEFAULT '',
+  evidence_id VARCHAR(128) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_mock_coupons_customer FOREIGN KEY (customer_id) REFERENCES mock_customers(customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS mock_permissions (
+  permission_id VARCHAR(64) PRIMARY KEY,
+  tool_name VARCHAR(128) NOT NULL,
+  risk_level VARCHAR(32) NOT NULL DEFAULT 'low',
+  requires_human TINYINT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS mock_tool_history (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  ticket_id VARCHAR(64) NOT NULL DEFAULT '',
+  customer_id VARCHAR(32) NOT NULL DEFAULT '',
+  tool_name VARCHAR(128) NOT NULL,
+  operation_id VARCHAR(128) NOT NULL DEFAULT '',
+  evidence_id VARCHAR(128) NOT NULL DEFAULT '',
+  request_json JSON NOT NULL,
+  response_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_mock_tool_history_ticket_created (ticket_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -21,9 +21,15 @@ from models.api_schemas import (
     ConfirmActionRequest,
     CreateTicketRequest,
     EvaluationMetrics,
+    AssignTicketRequest,
+    CancelTicketRequest,
     ProcessTicketResponse,
+    ReopenTicketRequest,
+    SaveDraftRequest,
     TicketResponse,
+    TicketOperationLogResponse,
     ToolCallLogResponse,
+    UpdateTicketRequest,
 )
 from models.database import init_db
 from models.repositories import (
@@ -110,6 +116,19 @@ def _ticket_response(row) -> dict:
     ).model_dump(by_alias=True)
 
 
+def _operation_log_response(row) -> dict:
+    return TicketOperationLogResponse(
+        id=row["id"],
+        ticket_id=row["ticket_id"],
+        operation=row["operation"],
+        operator=row["operator"],
+        from_status=row["from_status"] or "",
+        to_status=row["to_status"] or "",
+        detail=json.loads(row["detail_json"] or "{}"),
+        created_at=row["created_at"],
+    ).model_dump(by_alias=True)
+
+
 def _trace_response(trace: TraceCollector) -> list[dict]:
     return [
         {
@@ -134,8 +153,34 @@ async def _persist_ai_result(ticket_id: str, trace: TraceCollector, result: dict
 
 
 @app.get("/api/tickets")
-async def list_tickets():
-    rows = await ticket_repository.list_tickets()
+async def list_tickets(
+    ticket_no: str | None = Query(None, alias="ticketNo"),
+    customer_id: str | None = Query(None, alias="customerId"),
+    customer_name: str | None = Query(None, alias="customerName"),
+    status: str | None = None,
+    category: str | None = None,
+    priority: str | None = None,
+    risk_level: str | None = Query(None, alias="riskLevel"),
+    assignee: str | None = None,
+    channel: str | None = None,
+    created_from: str | None = Query(None, alias="createdFrom"),
+    created_to: str | None = Query(None, alias="createdTo"),
+    sla_overdue: bool | None = Query(None, alias="slaOverdue"),
+):
+    rows = await ticket_repository.list_tickets({
+        "ticket_no": ticket_no,
+        "customer_id": customer_id,
+        "customer_name": customer_name,
+        "status": status,
+        "category": category,
+        "priority": priority,
+        "risk_level": risk_level,
+        "assignee": assignee,
+        "channel": channel,
+        "created_from": created_from,
+        "created_to": created_to,
+        "sla_overdue": sla_overdue,
+    })
     return [_ticket_response(row) for row in rows]
 
 
@@ -179,6 +224,84 @@ async def get_ticket(ticket_id: str):
     if row is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return _ticket_response(row)
+
+
+@app.patch("/api/tickets/{ticket_id}")
+async def update_ticket(ticket_id: str, body: UpdateTicketRequest):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    try:
+        updated = await ticket_repository.update_ticket(
+            ticket_id,
+            body.model_dump(exclude={"operator"}, exclude_none=True),
+            operator=body.operator,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _ticket_response(updated)
+
+
+@app.post("/api/tickets/{ticket_id}/assign")
+async def assign_ticket(ticket_id: str, body: AssignTicketRequest):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    try:
+        updated = await ticket_repository.assign_ticket(
+            ticket_id,
+            body.assignee,
+            body.department,
+            operator=body.operator,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _ticket_response(updated)
+
+
+@app.post("/api/tickets/{ticket_id}/cancel")
+async def cancel_ticket(ticket_id: str, body: CancelTicketRequest):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    try:
+        updated = await ticket_repository.cancel_ticket(ticket_id, body.reason, operator=body.operator)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _ticket_response(updated)
+
+
+@app.post("/api/tickets/{ticket_id}/reopen")
+async def reopen_ticket(ticket_id: str, body: ReopenTicketRequest):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    try:
+        updated = await ticket_repository.reopen_ticket(ticket_id, body.reason, operator=body.operator)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _ticket_response(updated)
+
+
+@app.post("/api/tickets/{ticket_id}/reply-draft")
+async def save_reply_draft(ticket_id: str, body: SaveDraftRequest):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    try:
+        await ticket_repository.save_reply_draft(ticket_id, body.draft, operator=body.operator)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ticketId": ticket_id, "status": row["status"]}
+
+
+@app.get("/api/tickets/{ticket_id}/operations")
+async def get_ticket_operations(ticket_id: str):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    rows = await ticket_repository.list_operation_logs(ticket_id)
+    return [_operation_log_response(item) for item in rows]
 
 
 @app.post("/api/tickets/{ticket_id}/ai-process")

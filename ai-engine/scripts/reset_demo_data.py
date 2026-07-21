@@ -15,7 +15,7 @@ ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
 from config import DB_BACKEND, TICKETS_JSON  # noqa: E402
-from models.database import get_db, init_db, insert_ticket_row  # noqa: E402
+from models.database import get_db, init_db, insert_ticket_row, _seed_mock_domain_data  # noqa: E402
 
 
 RESET_TABLES = (
@@ -24,6 +24,9 @@ RESET_TABLES = (
     "trace_steps",
     "ai_results",
     "tickets",
+    "mock_tool_history",
+    "mock_permissions",
+    "mock_coupons",
     "mock_applications",
     "mock_benefits",
     "mock_transactions",
@@ -45,6 +48,7 @@ async def reset_demo_data():
             await db.execute(f"DELETE FROM {table}")
         for ticket in tickets:
             await insert_ticket_row(db, ticket)
+        await _seed_mock_domain_data(db)
         await db.commit()
 
     print(f"Reset local demo database with {len(tickets)} tickets from {TICKETS_JSON}.")

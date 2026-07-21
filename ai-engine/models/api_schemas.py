@@ -27,6 +27,47 @@ class CreateTicketRequest(ApiModel):
     content: str
 
 
+class UpdateTicketRequest(ApiModel):
+    title: str | None = None
+    customer_id: str | None = None
+    customer_name: str | None = None
+    phone: str | None = None
+    card_last4: str | None = None
+    scene: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    priority: str | None = None
+    channel: str | None = None
+    assignee: str | None = None
+    department: str | None = None
+    due_at: str | None = None
+    risk_label: str | None = None
+    risk_level: str | None = None
+    content: str | None = None
+    operator: str = "operator"
+
+
+class AssignTicketRequest(ApiModel):
+    assignee: str
+    department: str | None = None
+    operator: str = "operator"
+
+
+class CancelTicketRequest(ApiModel):
+    reason: str
+    operator: str = "operator"
+
+
+class ReopenTicketRequest(ApiModel):
+    reason: str = ""
+    operator: str = "operator"
+
+
+class SaveDraftRequest(ApiModel):
+    draft: str
+    operator: str = "operator"
+
+
 class TicketResponse(ApiModel):
     id: str
     no: str
@@ -89,6 +130,17 @@ class ToolCallLogResponse(ApiModel):
     success: bool
     duration_ms: int
     failure_reason: str = ""
+    created_at: str
+
+
+class TicketOperationLogResponse(ApiModel):
+    id: int
+    ticket_id: str
+    operation: str
+    operator: str
+    from_status: str = ""
+    to_status: str = ""
+    detail: dict = Field(default_factory=dict)
     created_at: str
 
 

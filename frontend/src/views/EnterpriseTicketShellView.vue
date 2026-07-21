@@ -32,6 +32,9 @@ const auditOpen = ref(false)
 const confirmVisible = ref(false)
 const operationError = ref('')
 const metrics = ref<EvaluationMetrics | null>(null)
+const editableTitle = ref('')
+const assignTo = ref('')
+const cancelReason = ref('')
 
 const ticketId = computed(() => route.params.id as string | undefined)
 const ticket = computed(() => store.selectedTicket)
@@ -104,6 +107,8 @@ const canClose = computed(() => Boolean(
   store.aiResult?.notification?.closureSuggestion?.canClose,
 ))
 const needsHumanConfirm = computed(() => ticket.value?.status === 'pending_human_confirm')
+const canCancel = computed(() => Boolean(ticket.value && !['closed', 'cancelled'].includes(ticket.value.status)))
+const canReopen = computed(() => Boolean(ticket.value && ['closed', 'cancelled', 'escalated', 'failed', 'pending_info'].includes(ticket.value.status)))
 const showConfirmDialog = computed(() => Boolean(ticket.value && (store.workflowPaused || confirmVisible.value)))
 const tabTickets = computed(() => {
   const selected = ticket.value ? [ticket.value] : []
@@ -124,6 +129,12 @@ onMounted(async () => {
 watch(ticketId, async id => {
   await loadRouteTicket(id)
 })
+
+watch(ticket, current => {
+  editableTitle.value = current?.title || ''
+  assignTo.value = current?.assignee || ''
+  cancelReason.value = ''
+}, { immediate: true })
 
 function selectTicket(id: string) {
   store.selectTicket(id)
@@ -172,6 +183,85 @@ async function handleClose() {
     await store.closeTicket(ticket.value.id, store.replyDraft)
   } catch {
     operationError.value = '结案提交失败，请刷新工单状态后重试。'
+  }
+}
+
+async function handleCreateTicket() {
+  operationError.value = ''
+  const stamp = Date.now().toString().slice(-6)
+  try {
+    const created = await store.createTicket({
+      id: `desk_${stamp}`,
+      no: `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${stamp}`,
+      title: '新建信用卡工单',
+      customerId: `C29${stamp.slice(-3)}`,
+      customerName: '待补充客户',
+      phone: '138****0000',
+      cardLast4: '0000',
+      scene: '优惠券补发',
+      category: '权益与活动',
+      subcategory: '优惠券补发',
+      priority: 'normal',
+      channel: '坐席新建',
+      assignee: '坐席 A1027',
+      department: '信用卡权益组',
+      riskLabel: '低风险',
+      riskLevel: 'low',
+      content: '坐席新建工单，请补充客户诉求后启动智能处理。',
+    })
+    await router.push(`/tickets/${created.id}`)
+  } catch {
+    operationError.value = '新建工单失败，请检查工单编号是否重复。'
+  }
+}
+
+async function handleEditTicket() {
+  if (!ticket.value || !editableTitle.value.trim()) return
+  operationError.value = ''
+  try {
+    await store.updateTicket(ticket.value.id, { title: editableTitle.value.trim(), operator: 'desk-a1027' })
+  } catch {
+    operationError.value = '编辑工单失败，请确认当前状态是否允许修改。'
+  }
+}
+
+async function handleAssignTicket() {
+  if (!ticket.value || !assignTo.value.trim()) return
+  operationError.value = ''
+  try {
+    await store.assignTicket(ticket.value.id, assignTo.value.trim(), ticket.value.department, 'desk-a1027')
+  } catch {
+    operationError.value = '指派失败，请确认当前状态是否允许指派。'
+  }
+}
+
+async function handleSaveDraft() {
+  if (!ticket.value || !store.replyDraft.trim()) return
+  operationError.value = ''
+  try {
+    await store.saveReplyDraft(ticket.value.id, store.replyDraft, 'desk-a1027')
+  } catch {
+    operationError.value = '保存草稿失败，请刷新后重试。'
+  }
+}
+
+async function handleCancelTicket() {
+  if (!ticket.value || !cancelReason.value.trim()) return
+  operationError.value = ''
+  try {
+    await store.cancelTicket(ticket.value.id, cancelReason.value.trim(), 'desk-a1027')
+  } catch {
+    operationError.value = '作废失败，请确认当前状态是否允许作废。'
+  }
+}
+
+async function handleReopenTicket() {
+  if (!ticket.value) return
+  operationError.value = ''
+  try {
+    await store.reopenTicket(ticket.value.id, '坐席重新打开工单', 'desk-a1027')
+  } catch {
+    operationError.value = '重开失败，请确认当前状态是否允许重开。'
   }
 }
 
@@ -291,6 +381,7 @@ function ticketSourceLabel(item?: Ticket | null) {
             <button class="btn-primary" type="button" :disabled="!queueTickets.length" @click="queueTickets[0] && selectTicket(queueTickets[0].id)">
               处理下一张
             </button>
+            <button class="btn-plain" type="button" @click="handleCreateTicket">新建工单</button>
           </div>
 
           <section class="bucket-strip" aria-label="状态筛选">
@@ -394,6 +485,26 @@ function ticketSourceLabel(item?: Ticket | null) {
               <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">复核并结案</button>
             </div>
           </div>
+
+          <section class="business-actions">
+            <label>
+              <span>标题</span>
+              <input v-model="editableTitle" type="text" />
+              <button class="btn-plain" type="button" :disabled="!canCancel" @click="handleEditTicket">保存</button>
+            </label>
+            <label>
+              <span>指派</span>
+              <input v-model="assignTo" type="text" />
+              <button class="btn-plain" type="button" :disabled="!canCancel" @click="handleAssignTicket">指派</button>
+            </label>
+            <button class="btn-plain" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
+            <label>
+              <span>作废原因</span>
+              <input v-model="cancelReason" type="text" />
+              <button class="btn-plain danger" type="button" :disabled="!canCancel || !cancelReason.trim()" @click="handleCancelTicket">作废</button>
+            </label>
+            <button class="btn-plain" type="button" :disabled="!canReopen" @click="handleReopenTicket">重开</button>
+          </section>
 
           <section class="case-grid">
             <section class="sys-panel">
@@ -763,6 +874,38 @@ function ticketSourceLabel(item?: Ticket | null) {
 }
 .btn-plain {
   background: #fff;
+}
+.btn-plain.danger {
+  border-color: #c4263c;
+  color: #b31f34;
+}
+.business-actions {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(180px, 0.8fr) auto minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.business-actions label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 900;
+}
+.business-actions input {
+  min-width: 0;
+  height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--line-dark);
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
 }
 .home-view,
 .detail-view {

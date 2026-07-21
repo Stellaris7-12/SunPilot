@@ -12,9 +12,34 @@ def _now() -> str:
 
 
 class TicketRepository:
-    async def list_tickets(self) -> list[dict[str, Any]]:
+    async def list_tickets(self, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        filters = filters or {}
+        where: list[str] = []
+        params: list[Any] = []
+        _add_like_filter(where, params, "no", filters.get("ticket_no"))
+        _add_like_filter(where, params, "customer_id", filters.get("customer_id"))
+        _add_like_filter(where, params, "customer_name", filters.get("customer_name"))
+        _add_equal_filter(where, params, "status", filters.get("status"))
+        _add_equal_filter(where, params, "category", filters.get("category"))
+        _add_equal_filter(where, params, "priority", filters.get("priority") or filters.get("risk"))
+        _add_equal_filter(where, params, "risk_level", filters.get("risk_level"))
+        _add_equal_filter(where, params, "assignee", filters.get("assignee"))
+        _add_equal_filter(where, params, "channel", filters.get("channel"))
+        if filters.get("created_from"):
+            where.append("created_at >= ?")
+            params.append(filters["created_from"])
+        if filters.get("created_to"):
+            where.append("created_at <= ?")
+            params.append(filters["created_to"])
+        if filters.get("sla_overdue") is True:
+            where.append("due_at <> '' AND due_at < ? AND status NOT IN ('closed', 'cancelled')")
+            params.append(_now())
+        sql = "SELECT * FROM tickets"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC"
         async with get_db() as db:
-            cursor = await db.execute("SELECT * FROM tickets ORDER BY created_at DESC")
+            cursor = await db.execute(sql, tuple(params))
             return [row_to_dict(row) for row in await cursor.fetchall()]
 
     async def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
@@ -57,11 +82,216 @@ class TicketRepository:
                     ticket["content"],
                 ),
             )
+            await db.execute(
+                """INSERT INTO ticket_operation_log
+                   (ticket_id, operation, operator, from_status, to_status, detail_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket["id"],
+                    "create_ticket",
+                    ticket.get("operator", "operator"),
+                    "",
+                    ticket.get("status", "open"),
+                    json.dumps({"no": ticket["no"], "title": ticket["title"]}, ensure_ascii=False),
+                ),
+            )
             await db.commit()
         row = await self.get_ticket(ticket["id"])
         if row is None:
             raise RuntimeError(f"Ticket {ticket['id']} was not created")
         return row
+
+    async def update_ticket(self, ticket_id: str, changes: dict[str, Any], *, operator: str = "operator") -> dict[str, Any]:
+        row = await self.get_ticket(ticket_id)
+        if row is None:
+            raise ValueError("Ticket not found")
+        if row["status"] in {"closed", "cancelled"}:
+            raise ValueError(f"Cannot edit ticket in status '{row['status']}'")
+        allowed = {
+            "title",
+            "customer_id",
+            "customer_name",
+            "phone",
+            "card_last4",
+            "scene",
+            "category",
+            "subcategory",
+            "priority",
+            "channel",
+            "assignee",
+            "department",
+            "due_at",
+            "risk_label",
+            "risk_level",
+            "content",
+        }
+        update = {key: value for key, value in changes.items() if key in allowed and value is not None}
+        if not update:
+            return row
+        update["updated_at"] = _now()
+        assignments = ", ".join(f"{key} = ?" for key in update)
+        params = [nullable_datetime(value) if key == "due_at" else value for key, value in update.items()]
+        params.append(ticket_id)
+        async with get_db() as db:
+            await db.execute(f"UPDATE tickets SET {assignments} WHERE id = ?", tuple(params))
+            await db.execute(
+                """INSERT INTO ticket_operation_log
+                   (ticket_id, operation, operator, from_status, to_status, detail_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    "edit_ticket",
+                    operator,
+                    row["status"],
+                    row["status"],
+                    json.dumps({"changedFields": sorted(update.keys())}, ensure_ascii=False),
+                ),
+            )
+            await db.commit()
+        updated = await self.get_ticket(ticket_id)
+        if updated is None:
+            raise RuntimeError("Ticket disappeared after update")
+        return updated
+
+    async def assign_ticket(
+        self,
+        ticket_id: str,
+        assignee: str,
+        department: str | None = None,
+        *,
+        operator: str = "operator",
+    ) -> dict[str, Any]:
+        row = await self.get_ticket(ticket_id)
+        if row is None:
+            raise ValueError("Ticket not found")
+        if row["status"] in {"closed", "cancelled"}:
+            raise ValueError(f"Cannot assign ticket in status '{row['status']}'")
+        updated_at = _now()
+        async with get_db() as db:
+            if department is None:
+                await db.execute(
+                    "UPDATE tickets SET assignee = ?, updated_at = ? WHERE id = ?",
+                    (assignee, updated_at, ticket_id),
+                )
+            else:
+                await db.execute(
+                    "UPDATE tickets SET assignee = ?, department = ?, updated_at = ? WHERE id = ?",
+                    (assignee, department, updated_at, ticket_id),
+                )
+            await db.execute(
+                """INSERT INTO ticket_operation_log
+                   (ticket_id, operation, operator, from_status, to_status, detail_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    "assign_ticket",
+                    operator,
+                    row["status"],
+                    row["status"],
+                    json.dumps({"assignee": assignee, "department": department}, ensure_ascii=False),
+                ),
+            )
+            await db.commit()
+        updated = await self.get_ticket(ticket_id)
+        if updated is None:
+            raise RuntimeError("Ticket disappeared after assign")
+        return updated
+
+    async def cancel_ticket(self, ticket_id: str, reason: str, *, operator: str = "operator") -> dict[str, Any]:
+        row = await self.get_ticket(ticket_id)
+        if row is None:
+            raise ValueError("Ticket not found")
+        _ensure_transition(ticket_id, row["status"], "cancelled")
+        now = _now()
+        async with get_db() as db:
+            await db.execute(
+                """UPDATE tickets
+                   SET status = ?, cancel_reason = ?, updated_at = ?
+                   WHERE id = ?""",
+                ("cancelled", reason, now, ticket_id),
+            )
+            await db.execute(
+                """INSERT INTO ticket_operation_log
+                   (ticket_id, operation, operator, from_status, to_status, detail_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    "cancel_ticket",
+                    operator,
+                    row["status"],
+                    "cancelled",
+                    json.dumps({"reason": reason}, ensure_ascii=False),
+                ),
+            )
+            await db.commit()
+        updated = await self.get_ticket(ticket_id)
+        if updated is None:
+            raise RuntimeError("Ticket disappeared after cancel")
+        return updated
+
+    async def reopen_ticket(self, ticket_id: str, reason: str = "", *, operator: str = "operator") -> dict[str, Any]:
+        row = await self.get_ticket(ticket_id)
+        if row is None:
+            raise ValueError("Ticket not found")
+        _ensure_transition(ticket_id, row["status"], "open")
+        now = _now()
+        async with get_db() as db:
+            await db.execute(
+                """UPDATE tickets
+                   SET status = ?, closed_at = ?, cancel_reason = '', updated_at = ?
+                   WHERE id = ?""",
+                ("open", nullable_datetime(""), now, ticket_id),
+            )
+            await db.execute(
+                """INSERT INTO ticket_operation_log
+                   (ticket_id, operation, operator, from_status, to_status, detail_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    "reopen_ticket",
+                    operator,
+                    row["status"],
+                    "open",
+                    json.dumps({"reason": reason}, ensure_ascii=False),
+                ),
+            )
+            await db.commit()
+        updated = await self.get_ticket(ticket_id)
+        if updated is None:
+            raise RuntimeError("Ticket disappeared after reopen")
+        return updated
+
+    async def save_reply_draft(self, ticket_id: str, draft: str, *, operator: str = "operator"):
+        row = await self.get_ticket(ticket_id)
+        if row is None:
+            raise ValueError("Ticket not found")
+        if row["status"] in {"closed", "cancelled"}:
+            raise ValueError(f"Cannot save draft in status '{row['status']}'")
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO ticket_operation_log
+                   (ticket_id, operation, operator, from_status, to_status, detail_json)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    "save_reply_draft",
+                    operator,
+                    row["status"],
+                    row["status"],
+                    json.dumps({"draft": draft}, ensure_ascii=False),
+                ),
+            )
+            await db.commit()
+
+    async def list_operation_logs(self, ticket_id: str) -> list[dict[str, Any]]:
+        async with get_db() as db:
+            cursor = await db.execute(
+                """SELECT * FROM ticket_operation_log
+                   WHERE ticket_id = ?
+                   ORDER BY created_at DESC, id DESC""",
+                (ticket_id,),
+            )
+            return [row_to_dict(row) for row in await cursor.fetchall()]
 
     async def update_status(
         self,
@@ -74,6 +304,8 @@ class TicketRepository:
     ):
         row = await self.get_ticket(ticket_id)
         from_status = row["status"] if row else ""
+        if row:
+            _ensure_transition(ticket_id, from_status, status)
         async with get_db() as db:
             await db.execute(
                 "UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?",
@@ -95,6 +327,10 @@ class TicketRepository:
             await db.commit()
 
     async def close_ticket(self, ticket_id: str, final_reply: str):
+        row = await self.get_ticket(ticket_id)
+        if row is None:
+            raise ValueError("Ticket not found")
+        _ensure_transition(ticket_id, row["status"], "closed")
         closed_at = _now()
         async with get_db() as db:
             await db.execute(
@@ -122,7 +358,7 @@ class TicketRepository:
                     ticket_id,
                     "close_ticket",
                     "operator",
-                    "pending_human_review",
+                    row["status"],
                     "closed",
                     json.dumps({"finalReply": final_reply}, ensure_ascii=False),
                 ),
@@ -238,7 +474,159 @@ class ToolCallRepository:
             return [row_to_dict(row) for row in await cursor.fetchall()]
 
 
+class MockBusinessRepository:
+    async def find_customer(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        customer_id = params.get("customerId") or params.get("customer_id")
+        phone = params.get("phone")
+        name = params.get("customerName") or params.get("customer_name")
+        card_last4 = params.get("cardLast4") or params.get("card_last4")
+        where: list[str] = []
+        values: list[Any] = []
+        if customer_id:
+            where.append("c.customer_id = ?")
+            values.append(customer_id)
+        if phone:
+            where.append("c.phone = ?")
+            values.append(phone)
+        if name:
+            where.append("c.customer_name = ?")
+            values.append(name)
+        if card_last4:
+            where.append("card.card_last4 = ?")
+            values.append(card_last4)
+        if not where:
+            return None
+        async with get_db() as db:
+            cursor = await db.execute(
+                f"""SELECT c.*, card.card_last4, card.card_status, card.product_name
+                    FROM mock_customers c
+                    LEFT JOIN mock_cards card ON card.customer_id = c.customer_id
+                    WHERE {' AND '.join(where)}
+                    LIMIT 1""",
+                tuple(values),
+            )
+            return row_to_dict(await cursor.fetchone())
+
+    async def get_card(self, customer_id: str, card_last4: str = "") -> dict[str, Any] | None:
+        sql = "SELECT * FROM mock_cards WHERE customer_id = ?"
+        params: list[Any] = [customer_id]
+        if card_last4:
+            sql += " AND card_last4 = ?"
+            params.append(card_last4)
+        sql += " LIMIT 1"
+        async with get_db() as db:
+            cursor = await db.execute(sql, tuple(params))
+            return row_to_dict(await cursor.fetchone())
+
+    async def get_benefit(self, customer_id: str, benefit_code: str = "") -> dict[str, Any] | None:
+        sql = "SELECT * FROM mock_benefits WHERE customer_id = ?"
+        params: list[Any] = [customer_id]
+        if benefit_code:
+            sql += " AND benefit_code = ?"
+            params.append(benefit_code)
+        sql += " ORDER BY expire_at DESC LIMIT 1"
+        async with get_db() as db:
+            cursor = await db.execute(sql, tuple(params))
+            return row_to_dict(await cursor.fetchone())
+
+    async def get_application(self, customer_id: str, application_no: str = "") -> dict[str, Any] | None:
+        sql = "SELECT * FROM mock_applications WHERE customer_id = ?"
+        params: list[Any] = [customer_id]
+        if application_no:
+            sql += " AND application_no = ?"
+            params.append(application_no)
+        sql += " ORDER BY expected_finish_at DESC LIMIT 1"
+        async with get_db() as db:
+            cursor = await db.execute(sql, tuple(params))
+            return row_to_dict(await cursor.fetchone())
+
+    async def get_transaction(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        where = ["customer_id = ?"]
+        values: list[Any] = [params.get("customerId") or params.get("customer_id")]
+        if not values[0]:
+            return None
+        if params.get("transactionId"):
+            where.append("transaction_id = ?")
+            values.append(params["transactionId"])
+        if params.get("cardLast4"):
+            where.append("card_last4 = ?")
+            values.append(params["cardLast4"])
+        if params.get("amount") not in {None, ""}:
+            where.append("ABS(amount - ?) < 0.01")
+            values.append(float(params["amount"]))
+        if params.get("merchantName"):
+            where.append("LOWER(merchant) LIKE ?")
+            values.append(f"%{str(params['merchantName']).lower()}%")
+        async with get_db() as db:
+            cursor = await db.execute(
+                f"SELECT * FROM mock_transactions WHERE {' AND '.join(where)} LIMIT 1",
+                tuple(values),
+            )
+            return row_to_dict(await cursor.fetchone())
+
+    async def get_history(self, ticket_id: str = "", customer_id: str = "", tool_name: str = "") -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        _add_equal_filter(where, params, "ticket_id", ticket_id)
+        _add_equal_filter(where, params, "customer_id", customer_id)
+        _add_equal_filter(where, params, "tool_name", tool_name)
+        sql = "SELECT * FROM mock_tool_history"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC, id DESC"
+        async with get_db() as db:
+            cursor = await db.execute(sql, tuple(params))
+            return [row_to_dict(row) for row in await cursor.fetchall()]
+
+    async def record_history(
+        self,
+        *,
+        ticket_id: str = "",
+        customer_id: str = "",
+        tool_name: str,
+        operation_id: str,
+        evidence_id: str,
+        request: dict[str, Any],
+        response: dict[str, Any],
+    ):
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO mock_tool_history
+                   (ticket_id, customer_id, tool_name, operation_id, evidence_id, request_json, response_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    customer_id,
+                    tool_name,
+                    operation_id,
+                    evidence_id,
+                    json.dumps(request, ensure_ascii=False),
+                    json.dumps(response, ensure_ascii=False),
+                ),
+            )
+            await db.commit()
+
+
+def _add_like_filter(where: list[str], params: list[Any], column: str, value: Any):
+    if value not in {None, ""}:
+        where.append(f"LOWER({column}) LIKE ?")
+        params.append(f"%{str(value).lower()}%")
+
+
+def _add_equal_filter(where: list[str], params: list[Any], column: str, value: Any):
+    if value not in {None, ""}:
+        where.append(f"{column} = ?")
+        params.append(value)
+
+
+def _ensure_transition(ticket_id: str, from_status: str, to_status: str):
+    from orchestrator.state_machine import TicketStateMachine
+
+    TicketStateMachine.transition(ticket_id, from_status, to_status)
+
+
 ticket_repository = TicketRepository()
 ai_result_repository = AiResultRepository()
 trace_repository = TraceRepository()
 tool_call_repository = ToolCallRepository()
+mock_business_repository = MockBusinessRepository()

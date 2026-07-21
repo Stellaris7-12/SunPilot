@@ -1,5 +1,48 @@
 ﻿# 进度日志
 
+## 会话：2026-07-21（模块 I2/I3：CRUD 状态流转与 Mock Tools 生产化）
+
+### 背景
+
+用户要求参照 `doc/planning/task_plan.md` 模块 I2 和 I3，完成开发、测试工作。当前 I1 数据库底座已完成，本轮在其上补齐企业工单最小 CRUD/状态流转闭环，并将 Mock Tools 从固定响应升级为数据驱动、可补全、可审计的业务能力层。
+
+### 执行内容
+
+- I2 后端新增列表筛选、编辑、指派、作废、重开、保存回单草稿和操作日志查询接口；新增 `cancelled` 状态并接入状态机校验。
+- I2 Repository 增加业务写操作日志，覆盖新建、编辑、指派、作废、重开、保存草稿、结案等动作。
+- I2 前端轻量接入基础业务操作入口：首页新建工单、详情页编辑标题、指派、保存草稿、作废和重开；Agent Copilot 仍不直接提交业务状态。
+- I3 新增 Mock 业务域数据派生：客户档案、卡片、交易、权益、申请、权限和工具历史。
+- I3 扩展 22 个 Mock 工具注册项，覆盖信息补全、业务核验和受控执行三类工具。
+- I3 重写 `mock_executor.py`，工具调用先读业务域数据和历史记录，再统一返回 `businessStatus`、`businessCode`、`operationId`、`evidenceId`、`requiresHuman`、`auditPayload` 等结构。
+- I3 在 Orchestrator 中新增字段补全阶段：`Intake -> Field Enrichment -> Escalation -> Resolution -> Notification`，只读补全成功后再进入风险兜底和工具执行。
+- 新增 `FieldEnrichmentResult`，在 AI 结果中暴露 `filledFields`、`unresolvedFields`、`sourceTools`、`evidenceIds`、`confidence`、`conflicts`、`requiresHumanReview`。
+- 新增 smoke：`ai-engine/evaluation/smoke_module_i2_crud.py`、`ai-engine/evaluation/smoke_module_i3_mock_tools.py`。
+
+### 兼容问题与修复
+
+- SQLite 初始化连接未设置 `row_factory`，Mock 种子读取 `SELECT *` 时 tuple 转 dict 失败；已在初始化连接补齐 `aiosqlite.Row`。
+- 新增 SQL 默认 JSON `'{}'` 在 f-string 中触发空表达式语法错误；已改为 `'{{}}'`。
+- 缺失值判断一开始把任意包含“未”的正常业务描述误判为缺失；已收紧为仅识别空值、UNKNOWN、`未提供`、`未提取`、`未填写`、`未知` 和旧编码占位符。
+- 业务编码提取一开始把测试哨兵 `MISSING_D` 当成券类型；已限制到 `DINING_`、`COFFEE_`、`AIRPORT_`、`HOTEL_`、`POINT_`、`ROAD_` 等白名单业务码前缀。
+- 模块 D 的失败工具测试会替换 `mock_executor`，替身没有 `enrich_params`；已在 Orchestrator 字段补全阶段加能力探测，不支持补全时自动跳过。
+- 地址变更确认后，旧测试会传中文“已通过”；MockExecutor 已兼容 `PASSED` 和中文“通过”。
+
+### 验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_i1_database.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_i2_crud.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_i3_mock_tools.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_d.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_f.py`：通过。
+- `cd frontend && npm.cmd run build`：通过。
+
+### 当前结论
+
+- 模块 I2/I3 已完成后端开发、前端轻量入口和 smoke 验证。
+- 本轮未运行真实 MySQL/TDSQL 连接 smoke，仅运行 SQLite 临时库 smoke；如需要主演示库验证，应在确认 `DATABASE_URL` 和服务可用后设置 `RUN_MYSQL_SMOKE=1` 另行执行。
+- 模块 I4 的大布局与业务逻辑重构仍后置，不属于本轮 I2/I3 范围。
+
 ## 会话：2026-07-20（新增模块 J：评委视角答辩收口）
 
 ### 背景

@@ -19,6 +19,7 @@ class TicketStatus(str, Enum):
     PENDING_HUMAN_REVIEW = "pending_human_review"
     ESCALATED = "escalated"
     FAILED = "failed"
+    CANCELLED = "cancelled"
     CLOSED = "closed"
 
 

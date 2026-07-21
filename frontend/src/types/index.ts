@@ -1,6 +1,6 @@
 // Enums
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type TicketStatus = 'open' | 'in_progress' | 'pending_info' | 'pending_human_confirm' | 'pending_human_review' | 'escalated' | 'failed' | 'closed';
+export type TicketStatus = 'open' | 'in_progress' | 'pending_info' | 'pending_human_confirm' | 'pending_human_review' | 'escalated' | 'failed' | 'cancelled' | 'closed';
 export type TraceStatusEnum = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
 
 // Core models
@@ -81,6 +81,16 @@ export interface VerifyCheck {
   status: string; // "通过" | "待确认" | "需复核" | "已拦截"
 }
 
+export interface FieldEnrichmentResult {
+  filledFields: Record<string, unknown>;
+  unresolvedFields: string[];
+  sourceTools: string[];
+  evidenceIds: string[];
+  confidence: number;
+  conflicts: string[];
+  requiresHumanReview: boolean;
+}
+
 export type NotificationStatus = 'ready' | 'needs_info' | 'needs_review' | 'escalated' | 'closed' | 'failed';
 export type NotificationOwner = 'customer' | 'agent' | 'human' | 'system';
 
@@ -130,6 +140,7 @@ export interface AiProcessResult {
   toolName: string;
   toolRequest: Record<string, unknown>;
   toolResponse: Record<string, unknown>;
+  fieldEnrichment?: FieldEnrichmentResult | null;
   verifyChecks: VerifyCheck[];
   replyDraft: string;
   notification?: NotificationBundle | null;
@@ -149,6 +160,73 @@ export interface ToolCallLog {
   durationMs: number;
   failureReason: string;
   createdAt: string;
+}
+
+export interface TicketOperationLog {
+  id: number;
+  ticketId: string;
+  operation: string;
+  operator: string;
+  fromStatus: TicketStatus | string;
+  toStatus: TicketStatus | string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TicketListFilters {
+  ticketNo?: string;
+  customerId?: string;
+  customerName?: string;
+  status?: TicketStatus;
+  category?: string;
+  priority?: Ticket['priority'];
+  riskLevel?: RiskLevel;
+  assignee?: string;
+  channel?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  slaOverdue?: boolean;
+}
+
+export interface UpdateTicketPayload {
+  title?: string;
+  customerId?: string;
+  customerName?: string;
+  phone?: string;
+  cardLast4?: string;
+  scene?: string;
+  category?: string;
+  subcategory?: string;
+  priority?: Ticket['priority'];
+  channel?: string;
+  assignee?: string;
+  department?: string;
+  dueAt?: string;
+  riskLabel?: string;
+  riskLevel?: RiskLevel;
+  content?: string;
+  operator?: string;
+}
+
+export interface CreateTicketPayload {
+  id?: string;
+  no?: string;
+  title: string;
+  customerId?: string;
+  customerName: string;
+  phone: string;
+  cardLast4: string;
+  scene: string;
+  category?: string;
+  subcategory?: string;
+  priority?: Ticket['priority'];
+  channel?: string;
+  assignee?: string;
+  department?: string;
+  dueAt?: string;
+  riskLabel?: string;
+  riskLevel?: RiskLevel;
+  content: string;
 }
 
 export interface ProcessTicketResponse {

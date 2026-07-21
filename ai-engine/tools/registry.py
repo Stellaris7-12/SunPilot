@@ -84,13 +84,25 @@ class ToolRegistry:
         missing = []
         for param in tool.parameters:
             value = params.get(param.name)
-            if param.required and value in _MISSING_VALUES:
+            if param.required and _is_missing_value(value):
                 missing.append({
                     "name": param.name,
                     "description": param.description,
                     "example": param.example,
                 })
         return missing
+
+
+def _is_missing_value(value) -> bool:
+    if value in _MISSING_VALUES:
+        return True
+    text = str(value).strip()
+    return (
+        not text
+        or text.lower() in {"none", "null"}
+        or text in {"未提供", "未提取", "未填写", "未知"}
+        or text.startswith("鏈")
+    )
 
 
 tool_registry = ToolRegistry()

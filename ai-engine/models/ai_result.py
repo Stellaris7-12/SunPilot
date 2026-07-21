@@ -40,6 +40,16 @@ class VerifyCheck(ApiModel):
     status: str
 
 
+class FieldEnrichmentResult(ApiModel):
+    filled_fields: dict = Field(default_factory=dict)
+    unresolved_fields: list[str] = Field(default_factory=list)
+    source_tools: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    conflicts: list[str] = Field(default_factory=list)
+    requires_human_review: bool = False
+
+
 class NotificationArtifact(ApiModel):
     title: str = ""
     body: str = ""
@@ -86,6 +96,7 @@ class AiProcessResult(ApiModel):
     tool_name: str = ""
     tool_request: dict = Field(default_factory=dict)
     tool_response: dict = Field(default_factory=dict)
+    field_enrichment: Optional[FieldEnrichmentResult] = None
     verify_checks: list[VerifyCheck] = Field(default_factory=list)
     reply_draft: str = ""
     notification: Optional[NotificationBundle] = None

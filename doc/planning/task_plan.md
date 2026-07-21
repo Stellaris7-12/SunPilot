@@ -285,19 +285,19 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - 前端详情页客户号显示真实 `customerId`。
 - 业务代码通过 Repository/adapter 访问数据，不把新增业务逻辑写死在 SQLite 细节上。
 
-### I2：基础 CRUD 与工单状态流转
+### I2：基础 CRUD 与工单状态流转（已完成）
 
 目标：在 MySQL/TDSQL 数据底座稳定后，补齐企业工单系统最小可用闭环，让系统具备真实的增删改查、指派、作废、重开、复核和结案能力。
 
 开发方案：
-- [ ] 扩展列表查询参数：工单号、客户号、客户姓名、状态、分类、风险/优先级、处理人、渠道、创建时间范围、SLA 是否超时。
-- [ ] 补齐后端接口：`PATCH /api/tickets/{ticket_id}` 编辑工单，`POST /api/tickets/{ticket_id}/assign` 指派，`POST /api/tickets/{ticket_id}/cancel` 作废，`POST /api/tickets/{ticket_id}/reopen` 重开。
-- [ ] 保留并强化现有结案接口：实际结案仍必须走 `/api/tickets/{ticket_id}/close`，并写入 `final_reply`、`closed_at` 和处理日志。
-- [ ] 增加操作日志模型，记录新建、编辑、指派、作废、重开、启动智能处理、人工确认、填回单、结案等坐席动作。
-- [ ] 前端增加基础业务操作入口：新建工单、编辑基本信息、指派处理人、作废、重开、保存草稿、复核结案。
-- [ ] 所有写操作都走明确按钮和 API；智能辅助只能准备内容、定位信息或填草稿，不直接提交业务状态。
-- [ ] 补齐状态机校验：不能从任意状态直接跳到 `closed`，作废、重开、结案、人工确认必须符合当前状态。
-- [ ] 为 CRUD 和状态流转补充后端 smoke，覆盖新增、查询、编辑、指派、作废、重开、AI 处理、人工确认和结案回写。
+- [x] 扩展列表查询参数：工单号、客户号、客户姓名、状态、分类、风险/优先级、处理人、渠道、创建时间范围、SLA 是否超时。
+- [x] 补齐后端接口：`PATCH /api/tickets/{ticket_id}` 编辑工单，`POST /api/tickets/{ticket_id}/assign` 指派，`POST /api/tickets/{ticket_id}/cancel` 作废，`POST /api/tickets/{ticket_id}/reopen` 重开。
+- [x] 保留并强化现有结案接口：实际结案仍必须走 `/api/tickets/{ticket_id}/close`，并写入 `final_reply`、`closed_at` 和处理日志。
+- [x] 增加操作日志模型，记录新建、编辑、指派、作废、重开、启动智能处理、人工确认、填回单、结案等坐席动作。
+- [x] 前端增加基础业务操作入口：新建工单、编辑基本信息、指派处理人、作废、重开、保存草稿、复核结案。
+- [x] 所有写操作都走明确按钮和 API；智能辅助只能准备内容、定位信息或填草稿，不直接提交业务状态。
+- [x] 补齐状态机校验：不能从任意状态直接跳到 `closed`，作废、重开、结案、人工确认必须符合当前状态。
+- [x] 为 CRUD 和状态流转补充后端 smoke，覆盖新增、查询、编辑、指派、作废、重开、AI 处理、人工确认和结案回写。
 
 验收标准：
 - 坐席能在系统内完成新建、查询、查看、编辑、指派、作废/重开和结案的最小闭环。
@@ -305,30 +305,30 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - 每次业务写操作都有操作日志，能区分坐席动作、系统动作和智能辅助动作。
 - CRUD 不破坏现有 AI 处理、人工确认、工具审计和结案接口。
 
-### I3：Mock Tools 与字段补全生产化
+### I3：Mock Tools 与字段补全生产化（已完成）
 
 目标：在稳定数据结构和 CRUD 闭环之上，把 Mock 工具从固定响应升级为可查询、可核验、可补全、可审计的业务能力层，优先提升成功路径和自动补全能力。
 
 开发方案：
-- [ ] 新增 Mock 业务域数据：客户档案、卡片账户、交易流水、优惠券/权益库存、申请单、操作权限、历史工具调用记录。
-- [ ] 改造 `mock_executor.py`：工具调用先读取业务域数据并做规则校验，再返回业务结果，不再只套固定 `mock_response`。
-- [ ] 扩展信息补全类工具：`customer.lookup`、`customer.profile-query`、`card.account-status-query`、`ticket.history-search`、`knowledge.policy-search`，用于从手机号、卡尾号、姓名、工单内容和历史记录中补齐客户号、卡片、规则和历史上下文。
-- [ ] 扩展业务核验类工具：`campaign.eligibility-check`、`coupon.status-query`、`benefit.entitlement-query`、`transaction.detail-query`、`merchant.info-query`、`statement.bill-query`、`application.progress-query`，用于补齐券类型、权益编码、交易流水、商户、账单和申请单状态。
-- [ ] 扩展受控执行类工具：`coupon.reissue`、`points.repair-request`、`fee.adjustment-request`、`dispute.case-create`、`customer.update-address`、`notification.send-draft`、`ticket.assign`、`ticket.close-request`；其中写入类工具必须走状态机和人工确认门禁。
-- [ ] 增加成功场景矩阵：客户命中、卡片正常、活动达标、券未到账、权益可用、申请单存在、交易可定位、账单可查询、积分可修复、年费可减免申请、争议可建案、资料变更人工确认后可成功执行。
-- [ ] 保留少量必要边界提示：重复补发返回已有成功流水和证据，敏感写入进入人工确认，高风险争议进入建案/协办成功而不是直接失败。
-- [ ] 增加幂等控制：同一工单/客户/券类型重复补发不能无限成功，重复调用返回已有业务流水和证据。
-- [ ] 增加权限门禁：资料变更、拒付、征信异议、高风险交易等只能给出查询或待确认结果，不允许 Mock 直接包装成自动成功。
-- [ ] 统一业务返回结构：`success`、`businessStatus`、`businessCode`、`businessMessage`、`operationId`、`evidenceId`、`requiresHuman`、`failureReason`、`nextStep`、`auditPayload`、`durationMs`。
-- [ ] 工具审计日志记录请求摘要、脱敏参数、响应摘要、业务流水、证据号、失败原因、耗时和是否需要人工接管。
-- [ ] 在 Orchestrator 中增加字段补全阶段，建议位于 Intake 后、Escalation 前：`Intake -> Enrichment -> Escalation -> Resolution -> Notification`。
-- [ ] 定义 `FieldEnrichmentResult`：`filledFields`、`unresolvedFields`、`sourceTools`、`evidenceIds`、`confidence`、`conflicts`、`requiresHumanReview`。
-- [ ] 定义缺字段补全策略表：`customerId` 可由手机号/卡尾号查客户；`couponType` 可由活动名称/达标记录/优惠券状态查得；`benefitCode` 可由权益名称查得；`applicationNo` 可由客户近期申请查得；`transactionId` 可由日期、金额、商户和卡号查得。
-- [ ] 补全工具只允许只读查询，不允许在补全阶段发券、改资料、创建拒付、发送通知或关闭工单。
-- [ ] 增加冲突处理：多个客户匹配、活动规则冲突、交易多笔命中、权益不满足、证据不足时，不能强行自动成功，应进入人工复核或客户补充。
-- [ ] 将 `pending_info` 从“缺字段默认状态”改为“工具补全失败后的最后状态”；新增或映射 `auto_enriched`、`ready_for_action` 等中间业务状态用于前端表达。
-- [ ] Page Agent 跨页面读取仅作为后置补充能力：优先 API/Mock API/MCP，只在没有接口时读取白名单页面和白名单字段；禁止任意点击、任意 JS 执行和跨系统提交。
-- [ ] 工具补全过程写入审计日志，记录查询条件、脱敏参数、补全字段、来源系统、证据编号和失败原因。
+- [x] 新增 Mock 业务域数据：客户档案、卡片账户、交易流水、优惠券/权益库存、申请单、操作权限、历史工具调用记录。
+- [x] 改造 `mock_executor.py`：工具调用先读取业务域数据并做规则校验，再返回业务结果，不再只套固定 `mock_response`。
+- [x] 扩展信息补全类工具：`customer.lookup`、`customer.profile-query`、`card.account-status-query`、`ticket.history-search`、`knowledge.policy-search`，用于从手机号、卡尾号、姓名、工单内容和历史记录中补齐客户号、卡片、规则和历史上下文。
+- [x] 扩展业务核验类工具：`campaign.eligibility-check`、`coupon.status-query`、`benefit.entitlement-query`、`transaction.detail-query`、`merchant.info-query`、`statement.bill-query`、`application.progress-query`，用于补齐券类型、权益编码、交易流水、商户、账单和申请单状态。
+- [x] 扩展受控执行类工具：`coupon.reissue`、`points.repair-request`、`fee.adjustment-request`、`dispute.case-create`、`customer.update-address`、`notification.send-draft`、`ticket.assign`、`ticket.close-request`；其中写入类工具必须走状态机和人工确认门禁。
+- [x] 增加成功场景矩阵：客户命中、卡片正常、活动达标、券未到账、权益可用、申请单存在、交易可定位、账单可查询、积分可修复、年费可减免申请、争议可建案、资料变更人工确认后可成功执行。
+- [x] 保留少量必要边界提示：重复补发返回已有成功流水和证据，敏感写入进入人工确认，高风险争议进入建案/协办成功而不是直接失败。
+- [x] 增加幂等控制：同一工单/客户/券类型重复补发不能无限成功，重复调用返回已有业务流水和证据。
+- [x] 增加权限门禁：资料变更、拒付、征信异议、高风险交易等只能给出查询或待确认结果，不允许 Mock 直接包装成自动成功。
+- [x] 统一业务返回结构：`success`、`businessStatus`、`businessCode`、`businessMessage`、`operationId`、`evidenceId`、`requiresHuman`、`failureReason`、`nextStep`、`auditPayload`、`durationMs`。
+- [x] 工具审计日志记录请求摘要、脱敏参数、响应摘要、业务流水、证据号、失败原因、耗时和是否需要人工接管。
+- [x] 在 Orchestrator 中增加字段补全阶段，建议位于 Intake 后、Escalation 前：`Intake -> Enrichment -> Escalation -> Resolution -> Notification`。
+- [x] 定义 `FieldEnrichmentResult`：`filledFields`、`unresolvedFields`、`sourceTools`、`evidenceIds`、`confidence`、`conflicts`、`requiresHumanReview`。
+- [x] 定义缺字段补全策略表：`customerId` 可由手机号/卡尾号查客户；`couponType` 可由活动名称/达标记录/优惠券状态查得；`benefitCode` 可由权益名称查得；`applicationNo` 可由客户近期申请查得；`transactionId` 可由日期、金额、商户和卡号查得。
+- [x] 补全工具只允许只读查询，不允许在补全阶段发券、改资料、创建拒付、发送通知或关闭工单。
+- [x] 增加冲突处理：多个客户匹配、活动规则冲突、交易多笔命中、权益不满足、证据不足时，不能强行自动成功，应进入人工复核或客户补充。
+- [x] 将 `pending_info` 从“缺字段默认状态”改为“工具补全失败后的最后状态”；新增或映射 `auto_enriched`、`ready_for_action` 等中间业务状态用于前端表达。
+- [x] Page Agent 跨页面读取仅作为后置补充能力：优先 API/Mock API/MCP，只在没有接口时读取白名单页面和白名单字段；禁止任意点击、任意 JS 执行和跨系统提交。
+- [x] 工具补全过程写入审计日志，记录查询条件、脱敏参数、补全字段、来源系统、证据编号和失败原因。
 
 验收标准：
 - 低风险优惠券补发能成功并生成可复用证据号。
@@ -531,9 +531,9 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - [x] 至少 40 条标注样本可跑评测。
 - [x] Agent 测评能输出准确率、完整率、工具命中率、闭环成功率、耗时节省等指标。
 - [x] 准生产业务种子库不含模块测试污染数据，客户号、工单号、分类和状态均可信。
-- [ ] Mock 工具具备业务规则、成功场景矩阵、幂等控制、权限门禁和审计证据。
+- [x] Mock 工具具备业务规则、成功场景矩阵、幂等控制、权限门禁和审计证据。
 - [x] 主演示环境使用 MySQL 或 TDSQL，SQLite 仅保留为测试兼容或本地 fallback。
-- [ ] 前端具备基础 CRUD/流转入口，技术细节默认隐藏到审计区。
+- [x] 前端具备基础 CRUD/流转入口，技术细节默认隐藏到审计区。
 - [ ] 评委视角问题清单、答辩 Q&A、演示脚本和话术稿已准备完成。
 - [ ] 最可能被质疑的项目弱点已完成针对性修复、演示证明或明确后置说明。
 - [ ] Demo 讲解、README、AGENTS.md 与当前 Agent 口径一致。

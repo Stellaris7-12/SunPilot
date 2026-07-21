@@ -14,6 +14,7 @@ class TicketState(str, Enum):
     PENDING_HUMAN_REVIEW = "pending_human_review"
     ESCALATED = "escalated"
     FAILED = "failed"
+    CANCELLED = "cancelled"
     CLOSED = "closed"
 
 
@@ -25,6 +26,7 @@ _TRANSITIONS: dict[TicketState, set[TicketState]] = {
         TicketState.PENDING_HUMAN_REVIEW,
         TicketState.ESCALATED,
         TicketState.FAILED,
+        TicketState.CANCELLED,
     },
     TicketState.IN_PROGRESS: {
         TicketState.PENDING_INFO,
@@ -32,32 +34,45 @@ _TRANSITIONS: dict[TicketState, set[TicketState]] = {
         TicketState.PENDING_HUMAN_REVIEW,
         TicketState.ESCALATED,
         TicketState.FAILED,
+        TicketState.CANCELLED,
     },
     TicketState.PENDING_INFO: {
         TicketState.IN_PROGRESS,
         TicketState.ESCALATED,
+        TicketState.CANCELLED,
         TicketState.CLOSED,
     },
     TicketState.PENDING_HUMAN_CONFIRM: {
         TicketState.IN_PROGRESS,
         TicketState.ESCALATED,
+        TicketState.CANCELLED,
         TicketState.CLOSED,
     },
     TicketState.PENDING_HUMAN_REVIEW: {
         TicketState.IN_PROGRESS,
         TicketState.ESCALATED,
+        TicketState.CANCELLED,
         TicketState.CLOSED,
     },
     TicketState.ESCALATED: {
+        TicketState.OPEN,
         TicketState.IN_PROGRESS,
+        TicketState.CANCELLED,
         TicketState.CLOSED,
     },
     TicketState.FAILED: {
+        TicketState.OPEN,
         TicketState.IN_PROGRESS,
         TicketState.ESCALATED,
+        TicketState.CANCELLED,
         TicketState.CLOSED,
     },
-    TicketState.CLOSED: set(),
+    TicketState.CANCELLED: {
+        TicketState.OPEN,
+    },
+    TicketState.CLOSED: {
+        TicketState.OPEN,
+    },
 }
 
 
