@@ -1,0 +1,910 @@
+[
+  {
+    "id": "call-001",
+    "source": "synthetic_call_mvp",
+    "scenario": "coupon_reissue",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20001",
+      "customerName": "张明",
+      "phone": "138****2001",
+      "cardLast4": "1234",
+      "channel": "客服热线",
+      "agent": "坐席A1027",
+      "callStartedAt": "2026-07-21 09:05:00"
+    },
+    "speakerTurns": [
+      {"speaker": "agent", "text": "您好，这里是信用卡客服，请问有什么可以帮您？"},
+      {"speaker": "customer", "text": "我参加满100减20的餐饮活动，消费已经达标了，但是优惠券中心一直没到账。"},
+      {"speaker": "agent", "text": "我帮您核实一下，方便确认客户号和卡尾号吗？"},
+      {"speaker": "customer", "text": "客户号C20001，卡尾号1234，活动券应该是DINING_100_20。"},
+      {"speaker": "agent", "text": "好的，您的诉求是核实餐饮满减券未到账并申请补发，对吗？"},
+      {"speaker": "customer", "text": "对，麻烦尽快处理，我晚上还想用。"}
+    ],
+    "transcript": "坐席：您好，这里是信用卡客服，请问有什么可以帮您？\n客户：我参加满100减20的餐饮活动，消费已经达标了，但是优惠券中心一直没到账。\n坐席：我帮您核实一下，方便确认客户号和卡尾号吗？\n客户：客户号C20001，卡尾号1234，活动券应该是DINING_100_20。\n坐席：好的，您的诉求是核实餐饮满减券未到账并申请补发，对吗？\n客户：对，麻烦尽快处理，我晚上还想用。",
+    "ticketDraft": {
+      "title": "活动达标未收到餐饮优惠券",
+      "customerId": "C20001",
+      "customerName": "张明",
+      "phone": "138****2001",
+      "cardLast4": "1234",
+      "scene": "优惠券补发",
+      "category": "权益与活动",
+      "subcategory": "优惠券补发",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20001来电反馈参加信用卡餐饮满100减20活动，消费已达标但App优惠券中心未收到券，券类型DINING_100_20，诉求为核实活动达标情况并补发优惠券。"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "workflowName": "coupon_reissue_flow",
+      "keyFields": {"customerId": "C20001", "couponType": "DINING_100_20", "reason": "活动达标未到账"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-002",
+    "source": "synthetic_call_mvp",
+    "scenario": "benefit_query",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20003",
+      "customerName": "陈浩",
+      "phone": "137****2003",
+      "cardLast4": "5678",
+      "channel": "客服热线",
+      "agent": "坐席A1028",
+      "callStartedAt": "2026-07-21 09:20:00"
+    },
+    "speakerTurns": [
+      {"speaker": "agent", "text": "您好，请问需要查询哪项信用卡权益？"},
+      {"speaker": "customer", "text": "我本周要出差，想查白金卡机场贵宾厅还能不能用。"},
+      {"speaker": "agent", "text": "请提供客户号或预留手机号后四位，以及权益编码如果您知道的话。"},
+      {"speaker": "customer", "text": "客户号C20003，卡尾5678，权益编码应该是AIRPORT_LOUNGE_2026。"},
+      {"speaker": "agent", "text": "好的，我会发起权益资格和剩余次数核验。"}
+    ],
+    "transcript": "坐席：您好，请问需要查询哪项信用卡权益？\n客户：我本周要出差，想查白金卡机场贵宾厅还能不能用。\n坐席：请提供客户号或预留手机号后四位，以及权益编码如果您知道的话。\n客户：客户号C20003，卡尾5678，权益编码应该是AIRPORT_LOUNGE_2026。\n坐席：好的，我会发起权益资格和剩余次数核验。",
+    "ticketDraft": {
+      "title": "查询机场贵宾厅权益剩余次数",
+      "customerId": "C20003",
+      "customerName": "陈浩",
+      "phone": "137****2003",
+      "cardLast4": "5678",
+      "scene": "权益资格查询",
+      "category": "权益与活动",
+      "subcategory": "机场贵宾厅",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20003来电咨询白金卡机场贵宾厅权益是否可用，权益编码AIRPORT_LOUNGE_2026，希望出行前确认剩余次数和有效期。"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "workflowName": "benefit_query_flow",
+      "keyFields": {"customerId": "C20003", "benefitCode": "AIRPORT_LOUNGE_2026"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-003",
+    "source": "synthetic_call_mvp",
+    "scenario": "application_progress",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20005",
+      "customerName": "吴迪",
+      "phone": "135****2005",
+      "cardLast4": "0005",
+      "channel": "客服热线",
+      "agent": "坐席A1029",
+      "callStartedAt": "2026-07-21 09:35:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我想查信用卡申请进度，资料已经补交了。"},
+      {"speaker": "agent", "text": "请问申请单号是多少？"},
+      {"speaker": "customer", "text": "APP20260718005，客户号C20005。"},
+      {"speaker": "agent", "text": "您主要想确认当前节点和预计完成时间，对吗？"},
+      {"speaker": "customer", "text": "是的，我想知道是否还缺材料。"}
+    ],
+    "transcript": "客户：我想查信用卡申请进度，资料已经补交了。\n坐席：请问申请单号是多少？\n客户：APP20260718005，客户号C20005。\n坐席：您主要想确认当前节点和预计完成时间，对吗？\n客户：是的，我想知道是否还缺材料。",
+    "ticketDraft": {
+      "title": "信用卡申请进度查询",
+      "customerId": "C20005",
+      "customerName": "吴迪",
+      "phone": "135****2005",
+      "cardLast4": "0005",
+      "scene": "申请进度查询",
+      "category": "申请与账务",
+      "subcategory": "信用卡申请",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20005来电查询信用卡申请进度，申请单号APP20260718005，客户表示已补交收入证明，希望了解当前处理节点、是否仍缺材料以及预计完成时间。"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "workflowName": "application_progress_query_flow",
+      "keyFields": {"customerId": "C20005", "applicationNo": "APP20260718005"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-004",
+    "source": "synthetic_call_mvp",
+    "scenario": "customer_info_update",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20007",
+      "customerName": "赵珊",
+      "phone": "132****2007",
+      "cardLast4": "7707",
+      "channel": "客服热线",
+      "agent": "坐席A1030",
+      "callStartedAt": "2026-07-21 09:48:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我搬家了，想把信用卡账单地址改成新地址。"},
+      {"speaker": "agent", "text": "资料变更需要人工确认，我先记录您的诉求。请提供客户号和卡尾号。"},
+      {"speaker": "customer", "text": "客户号C20007，卡尾7707，新地址是上海市浦东新区世纪大道示例小区。"},
+      {"speaker": "agent", "text": "我会发起资料变更复核，最终生效前需要您确认。"},
+      {"speaker": "customer", "text": "可以，我希望尽快处理。"}
+    ],
+    "transcript": "客户：我搬家了，想把信用卡账单地址改成新地址。\n坐席：资料变更需要人工确认，我先记录您的诉求。请提供客户号和卡尾号。\n客户：客户号C20007，卡尾7707，新地址是上海市浦东新区世纪大道示例小区。\n坐席：我会发起资料变更复核，最终生效前需要您确认。\n客户：可以，我希望尽快处理。",
+    "ticketDraft": {
+      "title": "账单地址变更申请",
+      "customerId": "C20007",
+      "customerName": "赵珊",
+      "phone": "132****2007",
+      "cardLast4": "7707",
+      "scene": "资料变更",
+      "category": "客户资料",
+      "subcategory": "地址变更",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20007来电申请变更信用卡账单地址，新地址为上海市浦东新区世纪大道示例小区。该资料变更涉及敏感客户信息，需人工确认后再执行。"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_INFO_UPDATE",
+      "workflowName": "customer_info_update_flow",
+      "keyFields": {"customerId": "C20007", "field": "billingAddress", "newValue": "上海市浦东新区世纪大道示例小区"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_confirm",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-005",
+    "source": "synthetic_call_mvp",
+    "scenario": "transaction_query",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20009",
+      "customerName": "林琪",
+      "phone": "131****2009",
+      "cardLast4": "3409",
+      "channel": "客服热线",
+      "agent": "坐席A1031",
+      "callStartedAt": "2026-07-21 10:02:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我看到一笔星河商场的消费，想确认是不是已经入账。"},
+      {"speaker": "agent", "text": "请问交易流水号或大概金额是多少？"},
+      {"speaker": "customer", "text": "流水TXN20260721009，金额是268.50元，客户号C20009。"},
+      {"speaker": "agent", "text": "好的，我记录为交易入账查询。"}
+    ],
+    "transcript": "客户：我看到一笔星河商场的消费，想确认是不是已经入账。\n坐席：请问交易流水号或大概金额是多少？\n客户：流水TXN20260721009，金额是268.50元，客户号C20009。\n坐席：好的，我记录为交易入账查询。",
+    "ticketDraft": {
+      "title": "查询星河商场交易入账状态",
+      "customerId": "C20009",
+      "customerName": "林琪",
+      "phone": "131****2009",
+      "cardLast4": "3409",
+      "scene": "交易查询",
+      "category": "交易与风险",
+      "subcategory": "交易入账查询",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20009来电查询星河商场交易入账状态，交易流水号TXN20260721009，金额268.50元，希望确认该笔消费是否已经入账。"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_QUERY",
+      "workflowName": "transaction_query_flow",
+      "keyFields": {"customerId": "C20009", "transactionId": "TXN20260721009", "amount": "268.50"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-006",
+    "source": "synthetic_call_mvp",
+    "scenario": "transaction_dispute",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C20011",
+      "customerName": "王敏",
+      "phone": "130****2011",
+      "cardLast4": "6611",
+      "channel": "客服热线",
+      "agent": "坐席A1032",
+      "callStartedAt": "2026-07-21 10:15:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我有一笔境外网站扣款不是我本人消费的。"},
+      {"speaker": "agent", "text": "这类交易争议风险较高，我会记录并升级复核。请提供流水号。"},
+      {"speaker": "customer", "text": "流水是TXN20260721011，金额899.00元，商户叫GLOBAL SHOP。"},
+      {"speaker": "agent", "text": "请问您是否需要同步挂失或冻结卡片？"},
+      {"speaker": "customer", "text": "先帮我查这笔并建争议处理，是否冻结等专员联系我确认。"}
+    ],
+    "transcript": "客户：我有一笔境外网站扣款不是我本人消费的。\n坐席：这类交易争议风险较高，我会记录并升级复核。请提供流水号。\n客户：流水是TXN20260721011，金额899.00元，商户叫GLOBAL SHOP。\n坐席：请问您是否需要同步挂失或冻结卡片？\n客户：先帮我查这笔并建争议处理，是否冻结等专员联系我确认。",
+    "ticketDraft": {
+      "title": "境外非本人交易争议",
+      "customerId": "C20011",
+      "customerName": "王敏",
+      "phone": "130****2011",
+      "cardLast4": "6611",
+      "scene": "交易争议",
+      "category": "交易与风险",
+      "subcategory": "非本人交易",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "content": "客户C20011来电反馈一笔境外网站GLOBAL SHOP扣款疑似非本人交易，交易流水号TXN20260721011，金额899.00元。客户要求查询并建争议处理，冻结或挂失需专员联系后确认。"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_DISPUTE",
+      "workflowName": "transaction_dispute_flow",
+      "keyFields": {"customerId": "C20011", "transactionId": "TXN20260721011", "merchant": "GLOBAL SHOP", "amount": "899.00"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-007",
+    "source": "synthetic_call_mvp",
+    "scenario": "campaign_eligibility",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20013",
+      "customerName": "孙磊",
+      "phone": "139****2013",
+      "cardLast4": "8813",
+      "channel": "客服热线",
+      "agent": "坐席A1033",
+      "callStartedAt": "2026-07-21 10:30:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我报名了夏季积分活动，想确认有没有资格。"},
+      {"speaker": "agent", "text": "请问活动编码是多少？"},
+      {"speaker": "customer", "text": "POINT_MILEAGE_2026，客户号C20013。"},
+      {"speaker": "agent", "text": "好的，我会核验活动资格和当前达标状态。"}
+    ],
+    "transcript": "客户：我报名了夏季积分活动，想确认有没有资格。\n坐席：请问活动编码是多少？\n客户：POINT_MILEAGE_2026，客户号C20013。\n坐席：好的，我会核验活动资格和当前达标状态。",
+    "ticketDraft": {
+      "title": "夏季积分活动资格核验",
+      "customerId": "C20013",
+      "customerName": "孙磊",
+      "phone": "139****2013",
+      "cardLast4": "8813",
+      "scene": "活动资格查询",
+      "category": "权益与活动",
+      "subcategory": "积分活动",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20013来电咨询夏季积分活动资格，活动编码POINT_MILEAGE_2026，希望核验是否具备参与资格以及当前达标状态。"
+    },
+    "expected": {
+      "intentType": "BENEFIT_QUERY",
+      "workflowName": "benefit_query_flow",
+      "keyFields": {"customerId": "C20013", "benefitCode": "POINT_MILEAGE_2026"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-008",
+    "source": "synthetic_call_mvp",
+    "scenario": "installment_repayment",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20015",
+      "customerName": "周凯",
+      "phone": "136****2015",
+      "cardLast4": "2015",
+      "channel": "客服热线",
+      "agent": "坐席A1034",
+      "callStartedAt": "2026-07-21 10:45:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我这期账单想做分期，金额比较大。"},
+      {"speaker": "agent", "text": "请问希望办理的账单金额和期数是多少？"},
+      {"speaker": "customer", "text": "账单金额12800元，想分12期，客户号C20015。"},
+      {"speaker": "agent", "text": "分期申请涉及资费和规则确认，我会记录后转人工复核建议。"},
+      {"speaker": "customer", "text": "好的，我需要知道手续费和是否能办。"}
+    ],
+    "transcript": "客户：我这期账单想做分期，金额比较大。\n坐席：请问希望办理的账单金额和期数是多少？\n客户：账单金额12800元，想分12期，客户号C20015。\n坐席：分期申请涉及资费和规则确认，我会记录后转人工复核建议。\n客户：好的，我需要知道手续费和是否能办。",
+    "ticketDraft": {
+      "title": "账单分期申请咨询",
+      "customerId": "C20015",
+      "customerName": "周凯",
+      "phone": "136****2015",
+      "cardLast4": "2015",
+      "scene": "分期还款",
+      "category": "申请与账务",
+      "subcategory": "账单分期",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20015来电咨询本期账单分期，账单金额12800元，期望分12期，客户希望确认手续费、资格和是否可办理。该场景涉及资费确认，建议人工复核。"
+    },
+    "expected": {
+      "intentType": "INSTALLMENT_REPAYMENT",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20015", "amount": "12800", "periods": "12"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-009",
+    "source": "synthetic_call_mvp",
+    "scenario": "lost_card_replacement",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C20017",
+      "customerName": "刘洋",
+      "phone": "133****2017",
+      "cardLast4": "9017",
+      "channel": "客服热线",
+      "agent": "坐席A1035",
+      "callStartedAt": "2026-07-21 11:00:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我的信用卡找不到了，担心被别人拿去刷。"},
+      {"speaker": "agent", "text": "挂失补卡属于高风险操作，系统会先登记并转人工安全确认。请提供客户号和卡尾。"},
+      {"speaker": "customer", "text": "客户号C20017，卡尾9017。"},
+      {"speaker": "agent", "text": "请问是否已经发现异常交易？"},
+      {"speaker": "customer", "text": "暂时没有，但我希望尽快有人联系我处理挂失和补卡。"}
+    ],
+    "transcript": "客户：我的信用卡找不到了，担心被别人拿去刷。\n坐席：挂失补卡属于高风险操作，系统会先登记并转人工安全确认。请提供客户号和卡尾。\n客户：客户号C20017，卡尾9017。\n坐席：请问是否已经发现异常交易？\n客户：暂时没有，但我希望尽快有人联系我处理挂失和补卡。",
+    "ticketDraft": {
+      "title": "信用卡遗失申请挂失补卡",
+      "customerId": "C20017",
+      "customerName": "刘洋",
+      "phone": "133****2017",
+      "cardLast4": "9017",
+      "scene": "挂失补卡",
+      "category": "交易与风险",
+      "subcategory": "卡片挂失",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "content": "客户C20017来电反馈信用卡遗失，卡尾9017，暂未发现异常交易，但担心被盗刷，希望尽快处理挂失和补卡。该操作属于高风险业务，需人工安全确认。"
+    },
+    "expected": {
+      "intentType": "CARD_LOSS_REPLACEMENT",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20017", "cardLast4": "9017"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-010",
+    "source": "synthetic_call_mvp",
+    "scenario": "points_adjustment",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20019",
+      "customerName": "何倩",
+      "phone": "135****2019",
+      "cardLast4": "7819",
+      "channel": "客服热线",
+      "agent": "坐席A1036",
+      "callStartedAt": "2026-07-21 11:15:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我上个月消费积分少算了，想查一下能不能补。"},
+      {"speaker": "agent", "text": "请问有对应交易或活动编码吗？"},
+      {"speaker": "customer", "text": "活动是POINT_DOUBLE_2026，客户号C20019，交易流水我现在没有。"},
+      {"speaker": "agent", "text": "缺少交易流水时可能需要后续补充，我先登记为积分争议。"}
+    ],
+    "transcript": "客户：我上个月消费积分少算了，想查一下能不能补。\n坐席：请问有对应交易或活动编码吗？\n客户：活动是POINT_DOUBLE_2026，客户号C20019，交易流水我现在没有。\n坐席：缺少交易流水时可能需要后续补充，我先登记为积分争议。",
+    "ticketDraft": {
+      "title": "积分少计要求核实补登",
+      "customerId": "C20019",
+      "customerName": "何倩",
+      "phone": "135****2019",
+      "cardLast4": "7819",
+      "scene": "积分争议",
+      "category": "权益与活动",
+      "subcategory": "积分补登",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20019来电反馈上月消费积分少计，活动编码POINT_DOUBLE_2026，希望核实并补登积分。客户暂未提供具体交易流水，可能需后续补充。"
+    },
+    "expected": {
+      "intentType": "POINTS_ADJUSTMENT",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20019", "benefitCode": "POINT_DOUBLE_2026"},
+      "missingFields": ["transactionId"],
+      "expectedStatus": "pending_info",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-011",
+    "source": "synthetic_call_mvp",
+    "scenario": "annual_fee",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20021",
+      "customerName": "许然",
+      "phone": "139****2021",
+      "cardLast4": "4321",
+      "channel": "客服热线",
+      "agent": "坐席A1037",
+      "callStartedAt": "2026-07-21 11:30:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我被扣了年费，但我记得刷卡次数已经够了。"},
+      {"speaker": "agent", "text": "请问客户号和扣费金额是多少？"},
+      {"speaker": "customer", "text": "客户号C20021，扣了580元，卡尾4321。"},
+      {"speaker": "agent", "text": "年费减免需要核验达标规则和交易次数，我会登记复核。"}
+    ],
+    "transcript": "客户：我被扣了年费，但我记得刷卡次数已经够了。\n坐席：请问客户号和扣费金额是多少？\n客户：客户号C20021，扣了580元，卡尾4321。\n坐席：年费减免需要核验达标规则和交易次数，我会登记复核。",
+    "ticketDraft": {
+      "title": "年费扣收争议要求复核",
+      "customerId": "C20021",
+      "customerName": "许然",
+      "phone": "139****2021",
+      "cardLast4": "4321",
+      "scene": "年费争议",
+      "category": "申请与账务",
+      "subcategory": "年费减免",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20021来电反馈信用卡被扣年费580元，客户认为刷卡次数已达标，要求核验年费减免规则和交易次数并给出处理建议。"
+    },
+    "expected": {
+      "intentType": "ANNUAL_FEE_DISPUTE",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20021", "amount": "580"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-012",
+    "source": "synthetic_call_mvp",
+    "scenario": "credit_limit",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20023",
+      "customerName": "马骁",
+      "phone": "138****2023",
+      "cardLast4": "2023",
+      "channel": "客服热线",
+      "agent": "坐席A1038",
+      "callStartedAt": "2026-07-21 11:45:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我想临时提高额度，最近要付一笔旅行费用。"},
+      {"speaker": "agent", "text": "额度业务需要资质和风险核验，请问希望提高到多少？"},
+      {"speaker": "customer", "text": "客户号C20023，卡尾2023，希望临时额度到50000元。"},
+      {"speaker": "agent", "text": "我会登记额度咨询并转人工复核，系统不会自动调整额度。"}
+    ],
+    "transcript": "客户：我想临时提高额度，最近要付一笔旅行费用。\n坐席：额度业务需要资质和风险核验，请问希望提高到多少？\n客户：客户号C20023，卡尾2023，希望临时额度到50000元。\n坐席：我会登记额度咨询并转人工复核，系统不会自动调整额度。",
+    "ticketDraft": {
+      "title": "临时额度调整咨询",
+      "customerId": "C20023",
+      "customerName": "马骁",
+      "phone": "138****2023",
+      "cardLast4": "2023",
+      "scene": "额度咨询",
+      "category": "申请与账务",
+      "subcategory": "临时额度",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20023来电咨询临时额度调整，卡尾2023，希望临时额度提高到50000元用于旅行费用支付。额度调整需资质和风险核验，不应自动执行。"
+    },
+    "expected": {
+      "intentType": "CREDIT_LIMIT_ADJUSTMENT",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20023", "targetLimit": "50000"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-013",
+    "source": "synthetic_call_mvp",
+    "scenario": "missing_coupon_type",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20025",
+      "customerName": "顾宁",
+      "phone": "137****2025",
+      "cardLast4": "5525",
+      "channel": "客服热线",
+      "agent": "坐席A1039",
+      "callStartedAt": "2026-07-21 13:05:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我参加了一个信用卡活动，说消费达标给券，但是我没收到。"},
+      {"speaker": "agent", "text": "请问具体活动名称或券类型是什么？"},
+      {"speaker": "customer", "text": "我不记得了，只知道是上周报名的，客户号C20025。"},
+      {"speaker": "agent", "text": "目前缺少活动或券类型，我会先登记并生成补充信息请求。"}
+    ],
+    "transcript": "客户：我参加了一个信用卡活动，说消费达标给券，但是我没收到。\n坐席：请问具体活动名称或券类型是什么？\n客户：我不记得了，只知道是上周报名的，客户号C20025。\n坐席：目前缺少活动或券类型，我会先登记并生成补充信息请求。",
+    "ticketDraft": {
+      "title": "活动达标未收到优惠券但缺少券类型",
+      "customerId": "C20025",
+      "customerName": "顾宁",
+      "phone": "137****2025",
+      "cardLast4": "5525",
+      "scene": "优惠券补发",
+      "category": "权益与活动",
+      "subcategory": "优惠券补发",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20025来电反馈参加信用卡活动并消费达标后未收到优惠券，但无法提供具体活动名称或券类型，只说明为上周报名的活动。需客户补充活动名称或券类型后继续处理。"
+    },
+    "expected": {
+      "intentType": "COUPON_REISSUE",
+      "workflowName": "coupon_reissue_flow",
+      "keyFields": {"customerId": "C20025", "reason": "活动达标未收到券"},
+      "missingFields": ["couponType"],
+      "expectedStatus": "pending_info",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-014",
+    "source": "synthetic_call_mvp",
+    "scenario": "business_card_profile",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C20027",
+      "customerName": "郑航",
+      "phone": "136****2027",
+      "cardLast4": "6627",
+      "channel": "客服热线",
+      "agent": "坐席A1040",
+      "callStartedAt": "2026-07-21 13:20:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我们公司商务卡的开票抬头和联系人要改。"},
+      {"speaker": "agent", "text": "商务卡资料变更涉及公司信息，需要人工复核。请提供客户号。"},
+      {"speaker": "customer", "text": "客户号C20027，公司名称是示例科技有限公司，联系人改成郑航。"},
+      {"speaker": "agent", "text": "我会登记为商务卡资料变更协办，不会自动改公司资料。"}
+    ],
+    "transcript": "客户：我们公司商务卡的开票抬头和联系人要改。\n坐席：商务卡资料变更涉及公司信息，需要人工复核。请提供客户号。\n客户：客户号C20027，公司名称是示例科技有限公司，联系人改成郑航。\n坐席：我会登记为商务卡资料变更协办，不会自动改公司资料。",
+    "ticketDraft": {
+      "title": "商务卡公司资料变更协办",
+      "customerId": "C20027",
+      "customerName": "郑航",
+      "phone": "136****2027",
+      "cardLast4": "6627",
+      "scene": "商务卡资料变更",
+      "category": "客户资料",
+      "subcategory": "公司资料变更",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "content": "客户C20027来电要求变更商务卡公司开票抬头和联系人，公司名称为示例科技有限公司，联系人拟改为郑航。该场景涉及公司资料和商务卡权限，需人工复核协办，不允许自动修改。"
+    },
+    "expected": {
+      "intentType": "BUSINESS_CARD_PROFILE_UPDATE",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20027", "companyName": "示例科技有限公司", "contactName": "郑航"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-015",
+    "source": "synthetic_call_mvp",
+    "scenario": "complaint",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C20029",
+      "customerName": "冯悦",
+      "phone": "135****2029",
+      "cardLast4": "9029",
+      "channel": "客服热线",
+      "agent": "坐席A1041",
+      "callStartedAt": "2026-07-21 13:35:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我前面反映过三次优惠券问题都没人处理，我要投诉。"},
+      {"speaker": "agent", "text": "非常抱歉给您带来不便，我会记录投诉并升级处理。请提供客户号。"},
+      {"speaker": "customer", "text": "C20029，卡尾9029，问题是活动券一直没解决。"},
+      {"speaker": "agent", "text": "投诉类工单会转人工复核，并保留前序处理记录。"}
+    ],
+    "transcript": "客户：我前面反映过三次优惠券问题都没人处理，我要投诉。\n坐席：非常抱歉给您带来不便，我会记录投诉并升级处理。请提供客户号。\n客户：C20029，卡尾9029，问题是活动券一直没解决。\n坐席：投诉类工单会转人工复核，并保留前序处理记录。",
+    "ticketDraft": {
+      "title": "多次反馈优惠券问题未解决引发投诉",
+      "customerId": "C20029",
+      "customerName": "冯悦",
+      "phone": "135****2029",
+      "cardLast4": "9029",
+      "scene": "客户投诉",
+      "category": "投诉与协办",
+      "subcategory": "服务投诉",
+      "priority": "critical",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "content": "客户C20029来电投诉前序三次反馈优惠券问题未得到解决，客户要求升级处理。需保留前序处理记录并转人工复核，不应自动结案。"
+    },
+    "expected": {
+      "intentType": "COMPLAINT",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20029", "complaintReason": "多次反馈优惠券问题未解决"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-016",
+    "source": "synthetic_call_mvp",
+    "scenario": "mobile_phone_update",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20031",
+      "customerName": "唐一",
+      "phone": "138****2031",
+      "cardLast4": "2031",
+      "channel": "客服热线",
+      "agent": "坐席A1042",
+      "callStartedAt": "2026-07-21 13:50:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我想把预留手机号换成新的，旧手机快不用了。"},
+      {"speaker": "agent", "text": "手机号变更属于敏感资料变更，需要人工确认。请先提供客户号和卡尾。"},
+      {"speaker": "customer", "text": "客户号C20031，卡尾2031，新手机号我稍后通过安全渠道确认。"},
+      {"speaker": "agent", "text": "好的，我会记录为待人工确认，不在电话里直接展示完整手机号。"}
+    ],
+    "transcript": "客户：我想把预留手机号换成新的，旧手机快不用了。\n坐席：手机号变更属于敏感资料变更，需要人工确认。请先提供客户号和卡尾。\n客户：客户号C20031，卡尾2031，新手机号我稍后通过安全渠道确认。\n坐席：好的，我会记录为待人工确认，不在电话里直接展示完整手机号。",
+    "ticketDraft": {
+      "title": "预留手机号变更申请",
+      "customerId": "C20031",
+      "customerName": "唐一",
+      "phone": "138****2031",
+      "cardLast4": "2031",
+      "scene": "资料变更",
+      "category": "客户资料",
+      "subcategory": "手机号变更",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20031来电申请变更信用卡预留手机号，客户表示新手机号稍后通过安全渠道确认。该场景属于敏感资料变更，需人工确认，不能直接自动执行。"
+    },
+    "expected": {
+      "intentType": "CUSTOMER_INFO_UPDATE",
+      "workflowName": "customer_info_update_flow",
+      "keyFields": {"customerId": "C20031", "field": "mobilePhone"},
+      "missingFields": ["newPhone"],
+      "expectedStatus": "pending_human_confirm",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-017",
+    "source": "synthetic_call_mvp",
+    "scenario": "refund_status",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20033",
+      "customerName": "董晨",
+      "phone": "139****2033",
+      "cardLast4": "3033",
+      "channel": "客服热线",
+      "agent": "坐席A1043",
+      "callStartedAt": "2026-07-21 14:05:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我商户退款已经说完成了，但信用卡账单还没看到退回。"},
+      {"speaker": "agent", "text": "请提供原交易流水或退款流水。"},
+      {"speaker": "customer", "text": "原交易流水TXN20260715033，退款金额399元，客户号C20033。"},
+      {"speaker": "agent", "text": "我会发起交易查询，确认退款状态和预计入账时间。"}
+    ],
+    "transcript": "客户：我商户退款已经说完成了，但信用卡账单还没看到退回。\n坐席：请提供原交易流水或退款流水。\n客户：原交易流水TXN20260715033，退款金额399元，客户号C20033。\n坐席：我会发起交易查询，确认退款状态和预计入账时间。",
+    "ticketDraft": {
+      "title": "商户退款未入账查询",
+      "customerId": "C20033",
+      "customerName": "董晨",
+      "phone": "139****2033",
+      "cardLast4": "3033",
+      "scene": "交易查询",
+      "category": "交易与风险",
+      "subcategory": "退款入账查询",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20033来电反馈商户退款已完成但信用卡账单未见入账，原交易流水TXN20260715033，退款金额399元，希望查询退款状态和预计入账时间。"
+    },
+    "expected": {
+      "intentType": "TRANSACTION_QUERY",
+      "workflowName": "transaction_query_flow",
+      "keyFields": {"customerId": "C20033", "transactionId": "TXN20260715033", "amount": "399"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-018",
+    "source": "synthetic_call_mvp",
+    "scenario": "application_progress_missing_no",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C20035",
+      "customerName": "叶青",
+      "phone": "136****2035",
+      "cardLast4": "0000",
+      "channel": "客服热线",
+      "agent": "坐席A1044",
+      "callStartedAt": "2026-07-21 14:20:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我想查一下信用卡申请到哪一步了。"},
+      {"speaker": "agent", "text": "请问申请单号是多少？"},
+      {"speaker": "customer", "text": "我现在找不到申请单号，只记得客户号C20035。"},
+      {"speaker": "agent", "text": "缺少申请单号时需要补充，我先生成待补充工单。"}
+    ],
+    "transcript": "客户：我想查一下信用卡申请到哪一步了。\n坐席：请问申请单号是多少？\n客户：我现在找不到申请单号，只记得客户号C20035。\n坐席：缺少申请单号时需要补充，我先生成待补充工单。",
+    "ticketDraft": {
+      "title": "信用卡申请进度查询缺少申请单号",
+      "customerId": "C20035",
+      "customerName": "叶青",
+      "phone": "136****2035",
+      "cardLast4": "0000",
+      "scene": "申请进度查询",
+      "category": "申请与账务",
+      "subcategory": "信用卡申请",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "content": "客户C20035来电查询信用卡申请进度，但无法提供申请单号，仅提供客户号。需补充申请单号后继续查询。"
+    },
+    "expected": {
+      "intentType": "APPLICATION_PROGRESS_QUERY",
+      "workflowName": "application_progress_query_flow",
+      "keyFields": {"customerId": "C20035"},
+      "missingFields": ["applicationNo"],
+      "expectedStatus": "pending_info",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-019",
+    "source": "synthetic_call_mvp",
+    "scenario": "cross_department",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C20037",
+      "customerName": "梁拓",
+      "phone": "137****2037",
+      "cardLast4": "7737",
+      "channel": "客服热线",
+      "agent": "坐席A1045",
+      "callStartedAt": "2026-07-21 14:35:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我这笔酒店预授权一直没释放，酒店说要银行处理。"},
+      {"speaker": "agent", "text": "预授权释放可能需要交易和商户协办，请提供流水号。"},
+      {"speaker": "customer", "text": "流水TXN20260712037，金额1200元，客户号C20037。"},
+      {"speaker": "agent", "text": "我会登记跨部门协办，核实交易状态并给出下一步责任人。"}
+    ],
+    "transcript": "客户：我这笔酒店预授权一直没释放，酒店说要银行处理。\n坐席：预授权释放可能需要交易和商户协办，请提供流水号。\n客户：流水TXN20260712037，金额1200元，客户号C20037。\n坐席：我会登记跨部门协办，核实交易状态并给出下一步责任人。",
+    "ticketDraft": {
+      "title": "酒店预授权未释放跨部门协办",
+      "customerId": "C20037",
+      "customerName": "梁拓",
+      "phone": "137****2037",
+      "cardLast4": "7737",
+      "scene": "跨部门协办",
+      "category": "投诉与协办",
+      "subcategory": "预授权释放",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "content": "客户C20037来电反馈酒店预授权一直未释放，商户称需银行处理。交易流水TXN20260712037，金额1200元。需核实交易状态并转相关团队协办。"
+    },
+    "expected": {
+      "intentType": "CROSS_DEPARTMENT_SUPPORT",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20037", "transactionId": "TXN20260712037", "amount": "1200"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-020",
+    "source": "synthetic_call_mvp",
+    "scenario": "credit_report_dispute",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C20039",
+      "customerName": "沈若",
+      "phone": "138****2039",
+      "cardLast4": "8839",
+      "channel": "客服热线",
+      "agent": "坐席A1046",
+      "callStartedAt": "2026-07-21 14:50:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我征信上显示信用卡逾期，但我确定已经按时还款了。"},
+      {"speaker": "agent", "text": "征信异议属于高风险合规场景，需要人工专员复核。请提供客户号和涉及月份。"},
+      {"speaker": "customer", "text": "客户号C20039，涉及2026年6月账单，卡尾8839。"},
+      {"speaker": "agent", "text": "我会登记征信异议工单，并转人工核查账务和上报记录。"}
+    ],
+    "transcript": "客户：我征信上显示信用卡逾期，但我确定已经按时还款了。\n坐席：征信异议属于高风险合规场景，需要人工专员复核。请提供客户号和涉及月份。\n客户：客户号C20039，涉及2026年6月账单，卡尾8839。\n坐席：我会登记征信异议工单，并转人工核查账务和上报记录。",
+    "ticketDraft": {
+      "title": "征信逾期记录异议",
+      "customerId": "C20039",
+      "customerName": "沈若",
+      "phone": "138****2039",
+      "cardLast4": "8839",
+      "scene": "征信异议",
+      "category": "投诉与协办",
+      "subcategory": "征信记录",
+      "priority": "critical",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "content": "客户C20039来电反馈征信显示信用卡逾期，但客户称2026年6月账单已按时还款，卡尾8839。该场景属于高风险合规问题，需人工核查账务和征信上报记录。"
+    },
+    "expected": {
+      "intentType": "CREDIT_REPORT_DISPUTE",
+      "workflowName": "unsupported_or_manual_flow",
+      "keyFields": {"customerId": "C20039", "billMonth": "2026-06", "cardLast4": "8839"},
+      "missingFields": [],
+      "expectedStatus": "escalated",
+      "requiresHuman": true
+    }
+  }
+]
