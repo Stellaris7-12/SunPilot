@@ -57,6 +57,9 @@ class ClassifierAgent(BaseAgent):
     async def run(self, input_data: dict, context: dict = None) -> dict:
         ticket_content = input_data.get("ticket_content", "")
         workflow_config = input_data.get("workflow_config", {})
+        deterministic_result = _deterministic_scene_result(ticket_content, workflow_config)
+        if deterministic_result:
+            return deterministic_result
         unsupported_result = _unsupported_scene_result(ticket_content, workflow_config)
         if unsupported_result:
             return unsupported_result
@@ -97,6 +100,52 @@ class ClassifierAgent(BaseAgent):
             result.get("confidence"),
         )
         return result
+
+
+def _deterministic_scene_result(ticket_content: str, workflow_config: dict) -> dict | None:
+    """Route stable demo scenes before LLM wording can drift."""
+    if not ticket_content:
+        return None
+    text = ticket_content
+
+    scenario_type = ""
+    reason = ""
+    confidence = 0.95
+
+    if _contains_any(text, ("优惠券补发", "优惠券", "补发", "未收到券", "领取失败", "券类型")):
+        scenario_type = "COUPON_REISSUE"
+        reason = "命中优惠券补发/领取失败业务线索"
+    elif _contains_any(text, ("资料修改", "地址变更", "账单寄送地址", "紧急联系人", "联系人变更", "预留手机号", "手机号变更")):
+        scenario_type = "CUSTOMER_ADDRESS_UPDATE"
+        reason = "命中客户资料变更业务线索"
+    elif not _contains_any(text, ("挂失", "补卡", "分期")) and (
+        _contains_any(text, ("申请进度", "办卡进度", "进度查询", "进度长时间未更新"))
+        or re.search(r"(?<![A-Z0-9])APP\d+", text)
+    ):
+        scenario_type = "APPLICATION_PROGRESS_QUERY"
+        reason = "命中申请/业务进度查询线索"
+    elif _looks_like_benefit_scene(text):
+        scenario_type = "BENEFIT_QUERY"
+        reason = "命中权益、活动或积分资格查询线索"
+    elif _contains_any(text, ("交易核查", "交易争议", "账单明细", "交易明细", "调单", "拒付", "非本人", "盗刷", "境外交易", "商户")):
+        scenario_type = "TRANSACTION_DISPUTE"
+        reason = "命中交易核查/交易争议业务线索"
+
+    if not scenario_type:
+        return None
+    scenario_config = workflow_config.get("scenarios", {}).get(scenario_type)
+    if not scenario_config:
+        return None
+    return {
+        "type": scenario_type,
+        "label": scenario_config.get("label", scenario_type),
+        "confidence": confidence,
+        "workflow_name": scenario_config.get(
+            "workflow_name",
+            workflow_config.get("default_workflow", "unknown_flow"),
+        ),
+        "reason": reason,
+    }
 
 
 def _unsupported_scene_result(ticket_content: str, workflow_config: dict) -> dict | None:
@@ -143,3 +192,18 @@ def _looks_like_supported_scene(ticket_content: str) -> bool:
     ):
         return True
     return False
+
+
+def _looks_like_benefit_scene(ticket_content: str) -> bool:
+    if _contains_any(ticket_content, ("权益", "活动资格", "资格核验", "贵宾厅", "道路救援", "礼宾", "返现")):
+        return True
+    if "积分" in ticket_content and not _contains_any(ticket_content, ("征信", "投诉")):
+        return True
+    return bool(
+        re.search(r"[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+", ticket_content)
+        and _contains_any(ticket_content, ("活动", "资格", "参加", "权益"))
+    )
+
+
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)

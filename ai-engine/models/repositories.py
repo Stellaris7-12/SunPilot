@@ -342,13 +342,8 @@ class TicketRepository:
             await db.execute(
                 """UPDATE ai_results
                    SET final_reply = ?, closed_at = ?
-                   WHERE id = (
-                       SELECT id FROM ai_results
-                       WHERE ticket_id = ?
-                       ORDER BY created_at DESC, id DESC
-                       LIMIT 1
-                   )""",
-                (final_reply, closed_at, ticket_id),
+                   WHERE id = ?""",
+                (final_reply, closed_at, await self._latest_ai_result_id(db, ticket_id)),
             )
             await db.execute(
                 """INSERT INTO ticket_operation_log
@@ -364,6 +359,17 @@ class TicketRepository:
                 ),
             )
             await db.commit()
+
+    async def _latest_ai_result_id(self, db, ticket_id: str):
+        cursor = await db.execute(
+            """SELECT id FROM ai_results
+               WHERE ticket_id = ?
+               ORDER BY created_at DESC, id DESC
+               LIMIT 1""",
+            (ticket_id,),
+        )
+        row = await cursor.fetchone()
+        return row["id"] if row else None
 
 
 class AiResultRepository:
@@ -551,12 +557,14 @@ class MockBusinessRepository:
         if params.get("cardLast4"):
             where.append("card_last4 = ?")
             values.append(params["cardLast4"])
-        if params.get("amount") not in {None, ""}:
+        amount = _optional_float(params.get("amount"))
+        if amount is not None:
             where.append("ABS(amount - ?) < 0.01")
-            values.append(float(params["amount"]))
-        if params.get("merchantName"):
+            values.append(amount)
+        merchant_name = params.get("merchantName") or params.get("merchant")
+        if merchant_name:
             where.append("LOWER(merchant) LIKE ?")
-            values.append(f"%{str(params['merchantName']).lower()}%")
+            values.append(f"%{str(merchant_name).lower()}%")
         async with get_db() as db:
             cursor = await db.execute(
                 f"SELECT * FROM mock_transactions WHERE {' AND '.join(where)} LIMIT 1",
@@ -606,11 +614,19 @@ class MockBusinessRepository:
             )
             await db.commit()
 
-
 def _add_like_filter(where: list[str], params: list[Any], column: str, value: Any):
     if value not in {None, ""}:
         where.append(f"LOWER({column}) LIKE ?")
         params.append(f"%{str(value).lower()}%")
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in {None, "", "未提供", "未提取", "N/A", "UNKNOWN"}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _add_equal_filter(where: list[str], params: list[Any], column: str, value: Any):

@@ -107,6 +107,17 @@ class EscalationAgent(BaseAgent):
                 "needs_more_info": True,
             }
 
+        if intent_type == "TRANSACTION_DISPUTE" and not tool_result:
+            checks.append({"label": "交易核查先执行只读查询取证", "status": "通过"})
+            return {
+                "checks": checks,
+                "risk_level": ticket_risk,
+                "risk_decision": "交易信息已基本齐全，先查询 Mock 交易流水作为人工复核证据",
+                "can_auto_proceed": True,
+                "missing_fields": [],
+                "needs_more_info": False,
+            }
+
         checks.append({"label": "必填字段完整", "status": "通过"})
 
         scenarios = workflow_config.get("scenarios", {})

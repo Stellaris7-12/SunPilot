@@ -325,23 +325,13 @@ class MockExecutor:
 
 def _extract_business_code(content: str) -> str | None:
     match = re.search(
-        r"(DINING|COFFEE|AIRPORT|HOTEL|POINT|ROAD|FEE|MILEAGE|CASHBACK)_[A-Z0-9_]+",
+        r"(?<![A-Z0-9])([A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+)(?![A-Z0-9])",
         content or "",
     )
     if not match:
         return None
-    code = match.group(0)
-    return code if code.startswith((
-        "DINING_",
-        "COFFEE_",
-        "AIRPORT_",
-        "HOTEL_",
-        "POINT_",
-        "ROAD_",
-        "FEE_",
-        "MILEAGE_",
-        "CASHBACK_",
-    )) else None
+    code = match.group(1)
+    return code if not code.startswith(("APP", "TXN")) else None
 
 
 def _is_missing(value: Any) -> bool:

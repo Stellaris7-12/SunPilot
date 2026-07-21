@@ -65,15 +65,6 @@ class ResolutionAgent(BaseAgent):
 
 请选择最合适的工具并生成调用参数。"""
 
-        if intent_type == "TRANSACTION_DISPUTE":
-            logger.info("[ResolutionAgent] TRANSACTION_DISPUTE detected - skipping tool")
-            return {
-                "tool_name": "",
-                "tool_params": {},
-                "skip": True,
-                "skip_reason": "交易争议类工单需转人工复核，不自动执行业务工具",
-            }
-
         logger.info("[ResolutionAgent] Selecting tool for intent=%s", intent_type)
         result = await self.call_llm(RESOLUTION_SYSTEM_PROMPT, user_prompt)
 

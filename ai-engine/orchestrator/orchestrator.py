@@ -91,12 +91,13 @@ class Orchestrator:
                 await self._emit_terminal(push, ticket_id, result)
                 return result
 
+            ticket_context = self._build_ticket_context(ticket)
             intent_result = await self._run_agent_step(
                 "classifier_agent",
                 "Classifier Agent / 分类与优先级判定",
                 self.classifier_agent,
                 {
-                    "ticket_content": ticket.content,
+                    "ticket_content": ticket_context,
                     "workflow_config": workflow_config,
                 },
                 trace,
@@ -108,7 +109,7 @@ class Orchestrator:
                 "Intake Agent / 接单与信息提取",
                 self.intake_agent,
                 {
-                    "ticket_content": ticket.content,
+                    "ticket_content": ticket_context,
                     "intent_type": intent_result.get("type", "UNKNOWN"),
                     "intent_label": intent_result.get("label", "未知"),
                     "workflow_config": workflow_config,
@@ -273,6 +274,22 @@ class Orchestrator:
             finally:
                 await self._emit_terminal(push, ticket_id, result)
             return result
+
+    @staticmethod
+    def _build_ticket_context(ticket: Ticket) -> str:
+        """Include structured ticket fields so agents do not rely on prose only."""
+        parts = [
+            ("标题", ticket.title),
+            ("场景", ticket.scene),
+            ("类目", ticket.category),
+            ("子类目", ticket.subcategory),
+            ("客户号", ticket.customer_id),
+            ("手机号", ticket.phone),
+            ("卡尾号", ticket.card_last4),
+            ("风险等级", ticket.risk_level),
+            ("正文", ticket.content),
+        ]
+        return "\n".join(f"{label}: {value}" for label, value in parts if value)
 
     async def _run_field_enrichment(
         self,
