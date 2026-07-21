@@ -1,10 +1,8 @@
 """FastAPI router for tool endpoints."""
 
-import json
-
 from fastapi import APIRouter, HTTPException
 
-from models.database import get_db
+from models.repositories import ticket_repository, tool_call_repository
 from tools.mock_executor import mock_executor
 from tools.registry import tool_registry
 
@@ -44,24 +42,6 @@ async def execute_tool(tool_name: str, body: dict):
 
 
 async def _persist_debug_tool_call(ticket_id: str, tool_name: str, request: dict, tool_result):
-    async with get_db() as db:
-        cursor = await db.execute("SELECT 1 FROM tickets WHERE id = ?", (ticket_id,))
-        if await cursor.fetchone() is None:
-            raise HTTPException(status_code=404, detail="Ticket not found")
-        await db.execute(
-            """INSERT INTO tool_call_log
-               (ticket_id, tool_name, request_json, response_json, evidence_id,
-                success, duration_ms, failure_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                ticket_id,
-                tool_name,
-                json.dumps(request, ensure_ascii=False),
-                json.dumps(tool_result.model_dump(by_alias=True), ensure_ascii=False),
-                tool_result.evidence_id,
-                1 if tool_result.success else 0,
-                tool_result.duration_ms,
-                "" if tool_result.success else (tool_result.failure_reason or tool_result.message),
-            ),
-        )
-        await db.commit()
+    if await ticket_repository.get_ticket(ticket_id) is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    await tool_call_repository.insert_tool_call(ticket_id, tool_name, request, tool_result)

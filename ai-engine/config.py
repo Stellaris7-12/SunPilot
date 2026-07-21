@@ -15,7 +15,12 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 
 # Database
+DB_BACKEND = os.getenv("DB_BACKEND", "sqlite").lower()
 DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "tickets.db"))
+DATABASE_URL = os.path.expandvars(os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}"))
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+DB_TIMEOUT_SECONDS = int(os.getenv("DB_TIMEOUT_SECONDS", "30"))
+DB_SSL_ENABLED = os.getenv("DB_SSL_ENABLED", "false").lower() in {"1", "true", "yes"}
 
 # Data files
 TICKETS_JSON = BASE_DIR / "data" / "tickets.json"

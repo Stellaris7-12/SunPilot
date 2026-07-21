@@ -8,15 +8,27 @@ export interface Ticket {
   id: string;
   no: string;
   title: string;
+  customerId: string;
   customerName: string;
   phone: string;
   cardLast4: string;
   scene: string;
+  category: string;
+  subcategory: string;
+  priority: 'low' | 'normal' | 'urgent' | 'critical';
+  channel: string;
+  assignee: string;
+  department: string;
   createdAt: string;
+  dueAt: string;
+  updatedAt: string;
   riskLabel: string;
   riskLevel: RiskLevel;
   status: TicketStatus;
   content: string;
+  closedAt: string;
+  finalReply: string;
+  cancelReason: string;
 }
 
 export interface AgentSkill {

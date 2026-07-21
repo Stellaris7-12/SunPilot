@@ -414,7 +414,7 @@ function ticketSourceLabel(item?: Ticket | null) {
               <div class="sys-title">客户与卡片信息 <small>工单上下文派生</small></div>
               <div class="field-grid two">
                 <div class="field"><label>客户姓名</label><strong>{{ ticket.customerName }}</strong></div>
-                <div class="field"><label>客户号</label><strong class="mono">{{ ticket.id.toUpperCase() }}</strong></div>
+                <div class="field"><label>客户号</label><strong class="mono">{{ ticket.customerId }}</strong></div>
                 <div class="field"><label>预留手机</label><strong class="mono">{{ ticket.phone }}</strong></div>
                 <div class="field"><label>卡号后四位</label><strong class="mono">{{ ticket.cardLast4 }}</strong></div>
               </div>

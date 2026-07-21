@@ -261,21 +261,21 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 目标：先把主数据结构、数据库访问层和干净业务种子库稳定下来，让后续 CRUD、Mock Tools 和前端展示都有可信字段可用。该阶段直接以 MySQL/TDSQL 作为主演示数据库，SQLite 仅保留为测试兼容或本地 fallback。
 
 开发方案：
-- [ ] 设计 MySQL/TDSQL 主 schema，覆盖 `tickets`、`ai_results`、`trace_steps`、`tool_call_log`、`evaluations`、`ticket_operation_log`，并预留客户、卡片、交易、权益、申请等 Mock 业务域数据结构。
-- [ ] 为 `tickets` 增补核心业务字段：`customer_id`、`category`、`subcategory`、`priority`、`channel`、`assignee`、`department`、`due_at`、`updated_at`、`closed_at`、`final_reply`、`cancel_reason`。
-- [ ] 统一字段类型与约束：状态枚举、风险等级、时间字段、唯一工单号、客户号索引、分类索引、处理人索引、SLA 查询索引、JSON 字段和字符集 `utf8mb4`。
-- [ ] 引入数据库配置：`DB_BACKEND=mysql|tdsql|sqlite`、`DATABASE_URL`、连接池大小、超时、SSL 开关；主演示默认 MySQL/TDSQL，敏感配置只放 `.env`，示例放 `.env.example`。
-- [ ] 选择并落地数据库访问方案：优先评估 SQLAlchemy Async + Alembic，或轻量封装 `aiomysql/asyncmy`；避免业务代码继续散落 SQLite SQL。
-- [ ] 将 `models/database.py` 拆成初始化/迁移/连接管理/Repository 层，至少覆盖 tickets、ai_results、trace_steps、tool_call_log、evaluations 和 ticket_operation_log。
-- [ ] 编写 MySQL/TDSQL DDL 或 Alembic 迁移脚本，处理 `AUTOINCREMENT`、`TEXT`/`JSON`、`datetime('now','localtime')`、`PRAGMA`、SQLite `?` 占位符等差异。
-- [ ] 重写 `ai-engine/data/tickets.json` 为 30-50 条可信业务工单，覆盖低/中/高风险、待处理/待补充/待确认/待复核/已升级/已结案等状态。
-- [ ] 覆盖信用卡二线常见分类：优惠券补发、机场贵宾厅、道路救援、积分兑换、地址变更、手机号变更、联系人变更、非本人交易、境外交易、调单/拒付、申请进度、额度调整、年费、还款协商、征信异议、投诉升级、跨部门协办。
-- [ ] 增加种子数据导入脚本，支持向 MySQL/TDSQL 写入干净业务种子库，并可受控重置演示数据。
-- [ ] 增加受控 Demo 数据重置能力：只重置本地演示库，不删除评测样本，不写入真实外部系统；重置前在文档中明确会清空本地处理记录。
-- [ ] 明确隔离三类数据：业务演示种子 `tickets.json`、评测样本 `evaluation_samples.json`、Mock 业务系统数据（客户/卡片/交易/权益/申请）。
-- [ ] 修改 `TicketResponse`、`CreateTicketRequest` 和前端 `Ticket` 类型，前端客户号必须读取 `customerId`，不得再用内部 `id` 兜底展示。
-- [ ] 更新启动文档：本地 MySQL、云端 TDSQL、SQLite fallback 三种模式的配置方式和注意事项。
-- [ ] 增加数据库 smoke：连接检查、建表/迁移、种子导入、CRUD 基础读写、AI 结果持久化、工具审计、结案回写。
+- [x] 设计 MySQL/TDSQL 主 schema，覆盖 `tickets`、`ai_results`、`trace_steps`、`tool_call_log`、`evaluations`、`ticket_operation_log`，并预留客户、卡片、交易、权益、申请等 Mock 业务域数据结构。
+- [x] 为 `tickets` 增补核心业务字段：`customer_id`、`category`、`subcategory`、`priority`、`channel`、`assignee`、`department`、`due_at`、`updated_at`、`closed_at`、`final_reply`、`cancel_reason`。
+- [x] 统一字段类型与约束：状态枚举、风险等级、时间字段、唯一工单号、客户号索引、分类索引、处理人索引、SLA 查询索引、JSON 字段和字符集 `utf8mb4`。
+- [x] 引入数据库配置：`DB_BACKEND=mysql|tdsql|sqlite`、`DATABASE_URL`、连接池大小、超时、SSL 开关；主演示默认 MySQL/TDSQL，敏感配置只放 `.env`，示例放 `.env.example`。
+- [x] 选择并落地数据库访问方案：优先评估 SQLAlchemy Async + Alembic，或轻量封装 `aiomysql/asyncmy`；避免业务代码继续散落 SQLite SQL。
+- [x] 将 `models/database.py` 拆成初始化/迁移/连接管理/Repository 层，至少覆盖 tickets、ai_results、trace_steps、tool_call_log、evaluations 和 ticket_operation_log。
+- [x] 编写 MySQL/TDSQL DDL 或 Alembic 迁移脚本，处理 `AUTOINCREMENT`、`TEXT`/`JSON`、`datetime('now','localtime')`、`PRAGMA`、SQLite `?` 占位符等差异。
+- [x] 重写 `ai-engine/data/tickets.json` 为 30-50 条可信业务工单，覆盖低/中/高风险、待处理/待补充/待确认/待复核/已升级/已结案等状态。
+- [x] 覆盖信用卡二线常见分类：优惠券补发、机场贵宾厅、道路救援、积分兑换、地址变更、手机号变更、联系人变更、非本人交易、境外交易、调单/拒付、申请进度、额度调整、年费、还款协商、征信异议、投诉升级、跨部门协办。
+- [x] 增加种子数据导入脚本，支持向 MySQL/TDSQL 写入干净业务种子库，并可受控重置演示数据。
+- [x] 增加受控 Demo 数据重置能力：只重置本地演示库，不删除评测样本，不写入真实外部系统；重置前在文档中明确会清空本地处理记录。
+- [x] 明确隔离三类数据：业务演示种子 `tickets.json`、评测样本 `evaluation_samples.json`、Mock 业务系统数据（客户/卡片/交易/权益/申请）。
+- [x] 修改 `TicketResponse`、`CreateTicketRequest` 和前端 `Ticket` 类型，前端客户号必须读取 `customerId`，不得再用内部 `id` 兜底展示。
+- [x] 更新启动文档：本地 MySQL、云端 TDSQL、SQLite fallback 三种模式的配置方式和注意事项。
+- [x] 增加数据库 smoke：连接检查、建表/迁移、种子导入、CRUD 基础读写、AI 结果持久化、工具审计、结案回写。
 
 验收标准：
 - 主演示环境默认连接 MySQL 或 TDSQL，SQLite 仅作为测试兼容或 fallback。
@@ -530,9 +530,9 @@ Dispatcher Agent 不放入当前核心闭环。需要体现“派单中心”时
 - [x] 工具失败、字段缺失、复杂争议能升级人工。
 - [x] 至少 40 条标注样本可跑评测。
 - [x] Agent 测评能输出准确率、完整率、工具命中率、闭环成功率、耗时节省等指标。
-- [ ] 准生产业务种子库不含模块测试污染数据，客户号、工单号、分类和状态均可信。
+- [x] 准生产业务种子库不含模块测试污染数据，客户号、工单号、分类和状态均可信。
 - [ ] Mock 工具具备业务规则、成功场景矩阵、幂等控制、权限门禁和审计证据。
-- [ ] 主演示环境使用 MySQL 或 TDSQL，SQLite 仅保留为测试兼容或本地 fallback。
+- [x] 主演示环境使用 MySQL 或 TDSQL，SQLite 仅保留为测试兼容或本地 fallback。
 - [ ] 前端具备基础 CRUD/流转入口，技术细节默认隐藏到审计区。
 - [ ] 评委视角问题清单、答辩 Q&A、演示脚本和话术稿已准备完成。
 - [ ] 最可能被质疑的项目弱点已完成针对性修复、演示证明或明确后置说明。

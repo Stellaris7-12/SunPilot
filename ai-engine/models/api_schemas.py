@@ -10,10 +10,18 @@ class CreateTicketRequest(ApiModel):
     id: str | None = None
     no: str | None = None
     title: str
+    customer_id: str = ""
     customer_name: str
     phone: str
     card_last4: str
     scene: str
+    category: str = ""
+    subcategory: str = ""
+    priority: str = "normal"
+    channel: str = ""
+    assignee: str = ""
+    department: str = ""
+    due_at: str = ""
     risk_label: str = "低风险"
     risk_level: str = "low"
     content: str
@@ -23,15 +31,27 @@ class TicketResponse(ApiModel):
     id: str
     no: str
     title: str
+    customer_id: str = ""
     customer_name: str
     phone: str
     card_last4: str
     scene: str
+    category: str = ""
+    subcategory: str = ""
+    priority: str = "normal"
+    channel: str = ""
+    assignee: str = ""
+    department: str = ""
     created_at: str
+    due_at: str = ""
+    updated_at: str = ""
     risk_label: str
     risk_level: str
     status: str
     content: str
+    closed_at: str = ""
+    final_reply: str = ""
+    cancel_reason: str = ""
 
 
 class ProcessTicketRequest(ApiModel):

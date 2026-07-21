@@ -1,14 +1,14 @@
 """TraceCollector — collects trace steps during agent pipeline execution.
 
 Provides both in-memory collection (for SSE streaming) and
-persistence to SQLite (for historical lookup).
+persistence to the repository layer (for historical lookup).
 """
 
 import logging
 import uuid
 from datetime import datetime
 from models.agent_trace import TraceStep, TraceStatus
-from models.database import get_db
+from models.repositories import trace_repository
 
 logger = logging.getLogger(__name__)
 
@@ -75,19 +75,10 @@ class TraceCollector:
         return [s.model_dump() for s in self._steps]
 
     async def persist(self):
-        """Write all collected steps to the SQLite trace_steps table."""
+        """Write all collected steps to the trace_steps table."""
         if not self._steps:
             return
-        async with get_db() as db:
-            for i, step in enumerate(self._steps):
-                await db.execute(
-                    """INSERT INTO trace_steps
-                       (ticket_id, run_id, agent, agent_id, summary, duration, status, step_order)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (self.ticket_id, self.run_id, step.agent, step.agent_id,
-                     step.summary, step.duration, step.status.value, i + 1),
-                )
-            await db.commit()
+        await trace_repository.insert_trace_steps(self.ticket_id, self.run_id, self._steps)
         logger.info(
             f"[TraceCollector] Persisted {len(self._steps)} steps for "
             f"ticket {self.ticket_id}, run {self.run_id}"

@@ -1,7 +1,6 @@
 """Orchestrator for the ticket-processing agent pipeline."""
 
 import asyncio
-import json
 import logging
 import time
 from typing import Optional
@@ -14,7 +13,7 @@ from agents.notification_agent import NotificationAgent
 from agents.resolution_agent import ResolutionAgent
 from models.agent_card import AgentCard
 from models.ai_result import AiProcessResult, FieldResult, IntentResult, VerifyCheck
-from models.database import get_db
+from models.repositories import ticket_repository, tool_call_repository
 from models.ticket import RiskLevel, Ticket, TicketStatus
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
@@ -546,25 +545,35 @@ class Orchestrator:
         return result
 
     async def _load_ticket(self, ticket_id: str) -> Optional[Ticket]:
-        async with get_db() as db:
-            cursor = await db.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
-            row = await cursor.fetchone()
-            if row is None:
-                return None
-            return Ticket(
-                id=row["id"],
-                no=row["no"],
-                title=row["title"],
-                customer_name=row["customer_name"],
-                phone=row["phone"],
-                card_last4=row["card_last4"],
-                scene=row["scene"],
-                created_at=row["created_at"],
-                risk_label=row["risk_label"],
-                risk_level=row["risk_level"],
-                status=TicketStatus(row["status"]),
-                content=row["content"],
-            )
+        row = await ticket_repository.get_ticket(ticket_id)
+        if row is None:
+            return None
+        return Ticket(
+            id=row["id"],
+            no=row["no"],
+            title=row["title"],
+            customer_id=row.get("customer_id") or "",
+            customer_name=row["customer_name"],
+            phone=row["phone"],
+            card_last4=row["card_last4"],
+            scene=row["scene"],
+            category=row.get("category") or "",
+            subcategory=row.get("subcategory") or "",
+            priority=row.get("priority") or "normal",
+            channel=row.get("channel") or "",
+            assignee=row.get("assignee") or "",
+            department=row.get("department") or "",
+            created_at=row["created_at"],
+            due_at=row.get("due_at") or "",
+            updated_at=row.get("updated_at") or "",
+            risk_label=row["risk_label"],
+            risk_level=row["risk_level"],
+            status=TicketStatus(row["status"]),
+            content=row["content"],
+            closed_at=row.get("closed_at") or "",
+            final_reply=row.get("final_reply") or "",
+            cancel_reason=row.get("cancel_reason") or "",
+        )
 
     async def _set_ticket_status(self, ticket: Ticket, next_status: str):
         current_status = ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status)
@@ -576,12 +585,7 @@ class Orchestrator:
                 next_status,
             )
             return
-        async with get_db() as db:
-            await db.execute(
-                "UPDATE tickets SET status = ? WHERE id = ?",
-                (next_status, ticket.id),
-            )
-            await db.commit()
+        await ticket_repository.update_status(ticket.id, next_status)
         ticket.status = TicketStatus(next_status)
 
     async def _run_notification_step(
@@ -827,24 +831,7 @@ class Orchestrator:
         await push(event, data)
 
     async def _persist_tool_call(self, ticket_id: str, tool_name: str, request: dict, tool_result):
-        async with get_db() as db:
-            await db.execute(
-                """INSERT INTO tool_call_log
-                   (ticket_id, tool_name, request_json, response_json, evidence_id,
-                    success, duration_ms, failure_reason)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    ticket_id,
-                    tool_name,
-                    json.dumps(request, ensure_ascii=False),
-                    json.dumps(tool_result.model_dump(by_alias=True), ensure_ascii=False),
-                    tool_result.evidence_id,
-                    1 if tool_result.success else 0,
-                    tool_result.duration_ms,
-                    "" if tool_result.success else (tool_result.failure_reason or tool_result.message),
-                ),
-            )
-            await db.commit()
+        await tool_call_repository.insert_tool_call(ticket_id, tool_name, request, tool_result)
 
     @staticmethod
     def public_result(result: dict) -> dict:

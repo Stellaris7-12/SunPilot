@@ -25,7 +25,13 @@ from models.api_schemas import (
     TicketResponse,
     ToolCallLogResponse,
 )
-from models.database import get_db, init_db
+from models.database import init_db
+from models.repositories import (
+    ai_result_repository,
+    ticket_repository,
+    tool_call_repository,
+    trace_repository,
+)
 from orchestrator.orchestrator import orchestrator
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
@@ -75,19 +81,32 @@ app.include_router(tool_router)
 
 
 def _ticket_response(row) -> dict:
+    row = dict(row)
     return TicketResponse(
         id=row["id"],
         no=row["no"],
         title=row["title"],
+        customer_id=row.get("customer_id") or "",
         customer_name=row["customer_name"],
         phone=row["phone"],
         card_last4=row["card_last4"],
         scene=row["scene"],
+        category=row.get("category") or "",
+        subcategory=row.get("subcategory") or "",
+        priority=row.get("priority") or "normal",
+        channel=row.get("channel") or "",
+        assignee=row.get("assignee") or "",
+        department=row.get("department") or "",
         created_at=row["created_at"],
+        due_at=row.get("due_at") or "",
+        updated_at=row.get("updated_at") or "",
         risk_label=row["risk_label"],
         risk_level=row["risk_level"],
         status=row["status"],
         content=row["content"],
+        closed_at=row.get("closed_at") or "",
+        final_reply=row.get("final_reply") or "",
+        cancel_reason=row.get("cancel_reason") or "",
     ).model_dump(by_alias=True)
 
 
@@ -110,47 +129,13 @@ def _public_result(result: dict) -> dict:
 
 
 async def _persist_ai_result(ticket_id: str, trace: TraceCollector, result: dict):
-    result_copy = {k: v for k, v in result.items() if not k.startswith("_")}
     public_result = _public_result(result)
-    intent = result_copy.get("intent") or {}
-    async with get_db() as db:
-        await db.execute(
-            """INSERT INTO ai_results
-               (ticket_id, run_id, status, result_json, workflow_name,
-                intent_type, intent_label, intent_confidence, extracted_fields_json,
-                tool_name, tool_request_json, tool_response_json, evidence_id,
-                reply_draft, notification_json, requires_human_review, duration_ms,
-                failure_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                ticket_id,
-                trace.run_id,
-                result.get("_status", ""),
-                json.dumps(public_result, ensure_ascii=False),
-                result_copy.get("workflow_name", ""),
-                intent.get("type", ""),
-                intent.get("label", ""),
-                intent.get("confidence", 0.0),
-                json.dumps(result_copy.get("fields", []), ensure_ascii=False),
-                result_copy.get("tool_name", ""),
-                json.dumps(result_copy.get("tool_request", {}), ensure_ascii=False),
-                json.dumps(result_copy.get("tool_response", {}), ensure_ascii=False),
-                (result_copy.get("tool_response", {}) or {}).get("evidenceId", ""),
-                result_copy.get("reply_draft", ""),
-                json.dumps(public_result.get("notification"), ensure_ascii=False),
-                1 if result_copy.get("requires_human_review", True) else 0,
-                result.get("_total_duration_ms", 0),
-                result.get("_failure_reason", "") or result_copy.get("failure_reason", ""),
-            ),
-        )
-        await db.commit()
+    await ai_result_repository.insert_ai_result(ticket_id, trace, result, public_result)
 
 
 @app.get("/api/tickets")
 async def list_tickets():
-    async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM tickets ORDER BY created_at DESC")
-        rows = await cursor.fetchall()
+    rows = await ticket_repository.list_tickets()
     return [_ticket_response(row) for row in rows]
 
 
@@ -160,42 +145,37 @@ async def create_ticket(body: CreateTicketRequest):
     ticket_no = body.no or f"T{datetime.now().strftime('%Y%m%d%H%M%S')}"
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    async with get_db() as db:
-        try:
-            await db.execute(
-                """INSERT INTO tickets
-                   (id, no, title, customer_name, phone, card_last4, scene,
-                    created_at, risk_label, risk_level, status, content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    ticket_id,
-                    ticket_no,
-                    body.title,
-                    body.customer_name,
-                    body.phone,
-                    body.card_last4,
-                    body.scene,
-                    created_at,
-                    body.risk_label,
-                    body.risk_level,
-                    TicketState.OPEN.value,
-                    body.content,
-                ),
-            )
-            await db.commit()
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        cursor = await db.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
-        row = await cursor.fetchone()
+    try:
+        row = await ticket_repository.create_ticket({
+            "id": ticket_id,
+            "no": ticket_no,
+            "title": body.title,
+            "customer_id": body.customer_id,
+            "customer_name": body.customer_name,
+            "phone": body.phone,
+            "card_last4": body.card_last4,
+            "scene": body.scene,
+            "category": body.category,
+            "subcategory": body.subcategory,
+            "priority": body.priority,
+            "channel": body.channel,
+            "assignee": body.assignee,
+            "department": body.department,
+            "created_at": created_at,
+            "due_at": body.due_at,
+            "risk_label": body.risk_label,
+            "risk_level": body.risk_level,
+            "status": TicketState.OPEN.value,
+            "content": body.content,
+        })
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _ticket_response(row)
 
 
 @app.get("/api/tickets/{ticket_id}")
 async def get_ticket(ticket_id: str):
-    async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
-        row = await cursor.fetchone()
+    row = await ticket_repository.get_ticket(ticket_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return _ticket_response(row)
@@ -305,9 +285,7 @@ def _sse(event: str, data: dict) -> str:
 
 @app.post("/api/tickets/{ticket_id}/confirm-action")
 async def confirm_action(ticket_id: str, body: ConfirmActionRequest):
-    async with get_db() as db:
-        cursor = await db.execute("SELECT status FROM tickets WHERE id = ?", (ticket_id,))
-        row = await cursor.fetchone()
+    row = await ticket_repository.get_ticket(ticket_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
@@ -373,12 +351,12 @@ async def confirm_action(ticket_id: str, body: ConfirmActionRequest):
             "_pause_type": None,
             "_failure_reason": reason,
         }
-        async with get_db() as db:
-            await db.execute(
-                "UPDATE tickets SET status = ? WHERE id = ?",
-                (TicketState.ESCALATED.value, ticket_id),
-            )
-            await db.commit()
+        await ticket_repository.update_status(
+            ticket_id,
+            TicketState.ESCALATED.value,
+            operation="reject_human_confirm",
+            detail={"reason": reason},
+        )
         await trace.persist()
         await _persist_ai_result(ticket_id, trace, result)
         response = ProcessTicketResponse(
@@ -418,36 +396,18 @@ async def confirm_action(ticket_id: str, body: ConfirmActionRequest):
 
 @app.post("/api/tickets/{ticket_id}/close")
 async def close_ticket(ticket_id: str, body: CloseTicketRequest):
-    async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
-        row = await cursor.fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
-        current_status = row["status"]
-        if not TicketStateMachine.can_transition(current_status, TicketState.CLOSED.value):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot close ticket in status '{current_status}'",
-            )
+    current_status = row["status"]
+    if not TicketStateMachine.can_transition(current_status, TicketState.CLOSED.value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot close ticket in status '{current_status}'",
+        )
 
-        closed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        await db.execute(
-            "UPDATE tickets SET status = ? WHERE id = ?",
-            (TicketState.CLOSED.value, ticket_id),
-        )
-        await db.execute(
-            """UPDATE ai_results
-               SET final_reply = ?, closed_at = ?
-               WHERE id = (
-                   SELECT id FROM ai_results
-                   WHERE ticket_id = ?
-                   ORDER BY created_at DESC, id DESC
-                   LIMIT 1
-               )""",
-            (body.final_reply, closed_at, ticket_id),
-        )
-        await db.commit()
+    await ticket_repository.close_ticket(ticket_id, body.final_reply)
 
     logger.info("Ticket %s closed. Final reply: %s...", ticket_id, body.final_reply[:50])
     return {"ticketId": ticket_id, "status": TicketState.CLOSED.value}
@@ -455,12 +415,7 @@ async def close_ticket(ticket_id: str, body: CloseTicketRequest):
 
 @app.get("/api/tickets/{ticket_id}/trace")
 async def get_trace(ticket_id: str):
-    async with get_db() as db:
-        cursor = await db.execute(
-            "SELECT * FROM trace_steps WHERE ticket_id = ? ORDER BY created_at DESC LIMIT 10",
-            (ticket_id,),
-        )
-        rows = await cursor.fetchall()
+    rows = await trace_repository.list_recent_trace(ticket_id, limit=10)
     return [
         {
             "agent": row["agent"],
@@ -475,27 +430,15 @@ async def get_trace(ticket_id: str):
 
 @app.get("/api/tickets/{ticket_id}/ai-result")
 async def get_ai_result(ticket_id: str):
-    async with get_db() as db:
-        cursor = await db.execute(
-            "SELECT result_json FROM ai_results WHERE ticket_id = ? ORDER BY created_at DESC LIMIT 1",
-            (ticket_id,),
-        )
-        row = await cursor.fetchone()
-    if row is None:
+    result_json = await ai_result_repository.get_latest_result_json(ticket_id)
+    if result_json is None:
         raise HTTPException(status_code=404, detail="No AI result found")
-    return json.loads(row["result_json"])
+    return json.loads(result_json)
 
 
 @app.get("/api/tickets/{ticket_id}/tool-calls")
 async def get_tool_calls(ticket_id: str):
-    async with get_db() as db:
-        cursor = await db.execute(
-            """SELECT * FROM tool_call_log
-               WHERE ticket_id = ?
-               ORDER BY created_at DESC, id DESC""",
-            (ticket_id,),
-        )
-        rows = await cursor.fetchall()
+    rows = await tool_call_repository.list_tool_calls(ticket_id)
     return [
         ToolCallLogResponse(
             id=row["id"],
