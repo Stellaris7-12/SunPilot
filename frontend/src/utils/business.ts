@@ -1,4 +1,4 @@
-import type { AiProcessResult, EvaluationMetrics, Ticket, TicketStatus, ToolCallLog, TraceStep } from '../types';
+import type { AiProcessResult, EvaluationMetrics, Ticket, TicketOperationLog, TicketStatus, ToolCallLog, TraceStep } from '../types';
 
 export type Tone = 'green' | 'blue' | 'amber' | 'red' | 'neutral';
 
@@ -55,6 +55,25 @@ export interface OperationLog {
   content: string;
   evidenceId: string;
   nextOwner: string;
+  transition?: string;
+}
+
+export interface FieldVerificationItem {
+  id: string;
+  label: string;
+  value: string;
+  source: string;
+  evidenceId: string;
+  status: 'verified' | 'enriched' | 'missing' | 'conflict' | 'review';
+  note: string;
+}
+
+export interface ReplyWorkspaceSection {
+  id: 'customer' | 'internal' | 'review' | 'question' | 'followUp' | 'evidence';
+  title: string;
+  status: string;
+  body: string;
+  evidenceIds: string[];
 }
 
 export interface CopilotSuggestion {
@@ -179,8 +198,145 @@ export function evidenceItems(result?: AiProcessResult | null, toolCalls: ToolCa
   return Array.from(items.values());
 }
 
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (Array.isArray(value)) return value.join('、');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+export function fieldVerificationItems(result?: AiProcessResult | null): FieldVerificationItem[] {
+  if (!result) return [];
+
+  const items = new Map<string, FieldVerificationItem>();
+  const enrichment = result.fieldEnrichment;
+  const sourceTools = enrichment?.sourceTools?.length ? enrichment.sourceTools.join('、') : '工单文本';
+  const enrichmentEvidence = enrichment?.evidenceIds?.join(' / ') || '-';
+
+  result.fields?.forEach(field => {
+    items.set(field.name, {
+      id: field.name,
+      label: field.label || field.name,
+      value: stringifyValue(field.value),
+      source: '接单提取',
+      evidenceId: '-',
+      status: 'verified',
+      note: '来自原始工单文本，已进入业务处理上下文。',
+    });
+  });
+
+  Object.entries(enrichment?.filledFields || {}).forEach(([key, value]) => {
+    items.set(key, {
+      id: key,
+      label: key,
+      value: stringifyValue(value),
+      source: sourceTools,
+      evidenceId: enrichmentEvidence,
+      status: 'enriched',
+      note: '已从客户、卡片、交易或权益系统自动核验补齐。',
+    });
+  });
+
+  result.missingFields?.forEach(field => {
+    items.set(field, {
+      id: field,
+      label: field,
+      value: '-',
+      source: '补全兜底',
+      evidenceId: '-',
+      status: 'missing',
+      note: '受控工具仍无法安全补齐，需要客户或人工补充。',
+    });
+  });
+
+  enrichment?.conflicts?.forEach((conflict, index) => {
+    items.set(`conflict-${index}`, {
+      id: `conflict-${index}`,
+      label: '补全冲突',
+      value: conflict,
+      source: sourceTools,
+      evidenceId: enrichmentEvidence,
+      status: 'conflict',
+      note: '存在多源结果不一致，不能直接自动结论。',
+    });
+  });
+
+  result.verifyChecks?.forEach((check, index) => {
+    items.set(`verify-${index}`, {
+      id: `verify-${index}`,
+      label: check.label,
+      value: check.status,
+      source: '风险规则',
+      evidenceId: evidenceIds(result)[0] || '-',
+      status: /待|需|拦截|失败/.test(check.status) ? 'review' : 'verified',
+      note: '用于解释当前处理是否允许自动继续。',
+    });
+  });
+
+  return Array.from(items.values());
+}
+
+export function replyWorkspaceSections(result?: AiProcessResult | null, ticket?: Ticket | null): ReplyWorkspaceSection[] {
+  const notification = result?.notification;
+  const evidence = evidenceIds(result);
+  const standardReply = notification?.standardReply?.body || result?.replyDraft || '';
+  const review = notification?.reviewSummary;
+  const family = ticket ? scenarioFamily(ticket, result) : null;
+  const question = result?.missingFields?.length
+    ? `请客户补充 ${result.missingFields.join('、')} 后继续处理。`
+    : '暂无必须追问客户的信息。';
+  const followUp = notification?.followUp?.enabled
+    ? notification.followUp.template
+    : '结案后按客户满意度回访规则预留跟进。';
+
+  return [
+    {
+      id: 'customer',
+      title: notification?.standardReply?.title || '客户回单',
+      status: standardReply ? '待坐席复核' : '未生成',
+      body: standardReply,
+      evidenceIds: notification?.standardReply?.evidenceIds || evidence,
+    },
+    {
+      id: 'internal',
+      title: notification?.internalNotice?.title || '内部处理意见',
+      status: notification?.internalNotice ? '已生成' : '待生成',
+      body: notification?.internalNotice?.body || family?.deskFocus || '',
+      evidenceIds: notification?.internalNotice?.evidenceIds || evidence,
+    },
+    {
+      id: 'review',
+      title: '复核摘要',
+      status: review ? '待复核岗确认' : '待生成',
+      body: review?.suggestedAction || review?.reason || result?.riskDecision || '',
+      evidenceIds: review?.toolEvidenceIds || evidence,
+    },
+    {
+      id: 'question',
+      title: '客户追问',
+      status: result?.missingFields?.length ? '需要补充' : '无需追问',
+      body: question,
+      evidenceIds: [],
+    },
+    {
+      id: 'followUp',
+      title: '跟进计划',
+      status: notification?.followUp?.enabled ? '已预留' : '默认规则',
+      body: followUp,
+      evidenceIds: [],
+    },
+    {
+      id: 'evidence',
+      title: '证据附件',
+      status: evidence.length ? '可插入回单' : '暂无证据',
+      body: evidence.length ? evidence.join(' / ') : '启动处理后展示证据编号。',
+      evidenceIds: evidence,
+    },
+  ];
+}
+
 export function caseConclusion(ticket: Ticket, result?: AiProcessResult | null): string {
-  if (!result) return '尚未生成处理建议，坐席可启动 Agent Copilot 辅助处理。';
+  if (!result) return '尚未生成处理建议，坐席可启动 SunPilot 辅助处理。';
   if (result.failureReason) return result.failureReason;
   const businessResult = result.toolResponse?.businessResult;
   if (typeof businessResult === 'string' && businessResult) return businessResult;
@@ -320,6 +476,7 @@ export function operationLogs(
   result: AiProcessResult | null,
   traceSteps: TraceStep[],
   toolCalls: ToolCallLog[] = [],
+  ticketOperations: TicketOperationLog[] = [],
 ): OperationLog[] {
   if (!ticket) return [];
   const rows: OperationLog[] = [{
@@ -331,6 +488,19 @@ export function operationLogs(
     evidenceId: '-',
     nextOwner: result ? nextOwner(result, ticket.status) : '坐席',
   }];
+
+  ticketOperations.forEach(operation => {
+    rows.push({
+      id: `${ticket.id}-operation-${operation.id}`,
+      time: formatShortTime(operation.createdAt),
+      operator: operation.operator || '坐席',
+      actionType: operation.operation,
+      content: stringifyValue(operation.detail),
+      evidenceId: '-',
+      nextOwner: result ? nextOwner(result, ticket.status) : '坐席',
+      transition: `${statusMeta(operation.fromStatus).label} -> ${statusMeta(operation.toStatus).label}`,
+    });
+  });
 
   traceSteps.forEach((step, index) => {
     rows.push({
@@ -388,7 +558,7 @@ export function copilotSuggestion(ticket: Ticket | null, result: AiProcessResult
   if (!ticket) {
     return {
       title: '请选择工单',
-      summary: '选择左侧队列中的工单后，Copilot 会读取当前上下文并生成辅助动作。',
+      summary: '选择左侧队列中的工单后，SunPilot 会读取当前上下文并生成辅助动作。',
       tone: 'neutral',
       actions: [],
     };
@@ -402,22 +572,22 @@ export function copilotSuggestion(ticket: Ticket | null, result: AiProcessResult
   const needsConfirm = ticket.status === 'pending_human_confirm';
   const title = result
     ? suggestedAction(ticket, result, processing)
-    : '等待启动 Agent Copilot';
+    : '等待启动 SunPilot';
   const summary = result
     ? caseConclusion(ticket, result)
-    : 'Copilot 只读取当前工单上下文，生成分诊、字段、风险、证据和回单建议；业务状态仍由主系统按钮控制。';
+    : 'SunPilot 只读取当前工单上下文，生成分诊、字段、风险、证据和回单建议；业务状态仍由主系统按钮控制。';
 
   return {
     title,
     summary,
     tone: status.tone,
     actions: [
-      { id: 'process', label: result ? '重新生成建议' : '启动智能处理', disabled: processing, reason: processing ? '正在处理当前工单' : undefined },
+      { id: 'process', label: result ? '生成处理建议' : '生成处理建议', disabled: processing, reason: processing ? '正在处理当前工单' : undefined },
       { id: 'prepare_confirm', label: '进入人工确认', disabled: !needsConfirm, reason: needsConfirm ? undefined : '当前工单不处于待人工确认状态' },
-      { id: 'fill_reply', label: '填入回单草稿', disabled: !canFillReply, reason: canFillReply ? undefined : '暂无可填入的回单草稿' },
+      { id: 'fill_reply', label: '填入回单', disabled: !canFillReply, reason: canFillReply ? undefined : '暂无可填入的回单草稿' },
       { id: 'locate_evidence', label: '定位证据', disabled: !canLocateEvidence, reason: canLocateEvidence ? undefined : '暂无证据编号' },
-      { id: 'locate_missing', label: '查看缺失字段', disabled: !hasMissing, reason: hasMissing ? undefined : '当前未识别到缺失字段' },
-      { id: 'open_audit', label: '打开技术审计', disabled: !canReview, reason: canReview ? undefined : '尚未生成 AI 处理结果' },
+      { id: 'locate_missing', label: '请求补充', disabled: !hasMissing, reason: hasMissing ? undefined : '当前未识别到缺失字段' },
+      { id: 'open_audit', label: '打开系统审计', disabled: !canReview, reason: canReview ? undefined : '尚未生成 AI 处理结果' },
       { id: 'prepare_review', label: '进入回单复核', disabled: !canReview, reason: canReview ? undefined : '尚未生成回单建议' },
     ],
   };
@@ -437,7 +607,7 @@ export function formatMs(value?: number): string {
 export function metricCards(metrics?: EvaluationMetrics | null) {
   return [
     { label: '状态匹配率', value: formatPercent(metrics?.closedLoopSuccessRate), hint: '状态/预期结果匹配，不等同真实客户结案率。' },
-    { label: '工具命中率', value: formatPercent(metrics?.toolCorrectness), hint: 'Resolution 工具选择与参数结果。' },
+    { label: '业务能力匹配率', value: formatPercent(metrics?.toolCorrectness), hint: '处理能力选择与参数结果。' },
     { label: '字段完整率', value: formatPercent(metrics?.fieldCompleteness), hint: 'Intake 关键字段抽取。' },
     { label: '平均耗时', value: formatMs(metrics?.avgProcessingMs), hint: '40 条真实链路平均处理耗时。' },
   ];
