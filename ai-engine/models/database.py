@@ -1,4 +1,4 @@
-"""Database initialization, compatible migrations, and low-level helpers."""
+"""MySQL/TDSQL initialization, seed data, and low-level helpers."""
 
 import json
 import re
@@ -7,336 +7,26 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-import aiosqlite
 from sqlalchemy import text
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from config import DATABASE_PATH, DATABASE_URL, DB_BACKEND, DB_POOL_SIZE, DB_TIMEOUT_SECONDS, TICKETS_JSON
-
-
-TICKET_STATUS_VALUES = (
-    "'open','in_progress','pending_info','pending_human_confirm',"
-    "'pending_human_review','escalated','failed','cancelled','closed'"
-)
-
-TICKET_PRIORITY_VALUES = "'low','normal','urgent','critical'"
+from config import DATABASE_URL, DB_BACKEND, DB_POOL_SIZE, DB_TIMEOUT_SECONDS, TICKETS_JSON, validate_database_config
 
 _async_engine: AsyncEngine | None = None
 
 
 async def init_db():
-    """Create tables, run non-destructive migrations, and seed demo tickets."""
-    if DB_BACKEND in {"mysql", "tdsql"}:
-        await _init_mysql_db()
-        return
-    if DB_BACKEND not in {"sqlite", "fallback"}:
-        raise RuntimeError(f"Unsupported DB_BACKEND={DB_BACKEND!r}")
-
-    db_path = Path(DATABASE_PATH)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    async with aiosqlite.connect(str(db_path)) as db:
-        db.row_factory = aiosqlite.Row
-        await db.execute("PRAGMA journal_mode=WAL")
-        await db.execute("PRAGMA foreign_keys=ON")
-
-        await db.executescript(f"""
-            CREATE TABLE IF NOT EXISTS tickets (
-                id TEXT PRIMARY KEY,
-                no TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                customer_id TEXT NOT NULL DEFAULT '',
-                customer_name TEXT NOT NULL,
-                phone TEXT NOT NULL,
-                card_last4 TEXT NOT NULL,
-                scene TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT '',
-                subcategory TEXT NOT NULL DEFAULT '',
-                priority TEXT NOT NULL DEFAULT 'normal'
-                    CHECK(priority IN ({TICKET_PRIORITY_VALUES})),
-                channel TEXT NOT NULL DEFAULT '',
-                assignee TEXT NOT NULL DEFAULT '',
-                department TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL,
-                due_at TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL DEFAULT '',
-                risk_label TEXT NOT NULL,
-                risk_level TEXT NOT NULL CHECK(risk_level IN ('low','medium','high')),
-                status TEXT NOT NULL DEFAULT 'open'
-                    CHECK(status IN ({TICKET_STATUS_VALUES})),
-                content TEXT NOT NULL,
-                closed_at TEXT NOT NULL DEFAULT '',
-                final_reply TEXT NOT NULL DEFAULT '',
-                cancel_reason TEXT NOT NULL DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS ai_results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id TEXT NOT NULL REFERENCES tickets(id),
-                result_json TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS trace_steps (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id TEXT NOT NULL REFERENCES tickets(id),
-                run_id TEXT NOT NULL,
-                agent TEXT NOT NULL,
-                agent_id TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                duration TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('RUNNING','SUCCESS','FAILED','SKIPPED')),
-                step_order INTEGER NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS tool_call_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id TEXT NOT NULL REFERENCES tickets(id),
-                tool_name TEXT NOT NULL,
-                request_json TEXT NOT NULL,
-                response_json TEXT NOT NULL,
-                evidence_id TEXT,
-                success INTEGER NOT NULL DEFAULT 0,
-                duration_ms INTEGER NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS evaluations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sample_id TEXT NOT NULL,
-                scenario TEXT NOT NULL,
-                intent_correct INTEGER NOT NULL DEFAULT 0,
-                field_complete_count INTEGER NOT NULL DEFAULT 0,
-                field_total_count INTEGER NOT NULL DEFAULT 0,
-                tool_correct INTEGER NOT NULL DEFAULT 0,
-                time_saved_ms INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS ticket_operation_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id TEXT NOT NULL REFERENCES tickets(id),
-                operation TEXT NOT NULL,
-                operator TEXT NOT NULL DEFAULT 'system',
-                from_status TEXT NOT NULL DEFAULT '',
-                to_status TEXT NOT NULL DEFAULT '',
-                detail_json TEXT NOT NULL DEFAULT '{{}}',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_customers (
-                customer_id TEXT PRIMARY KEY,
-                customer_name TEXT NOT NULL,
-                phone TEXT NOT NULL,
-                segment TEXT NOT NULL DEFAULT '',
-                risk_level TEXT NOT NULL DEFAULT 'low',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_cards (
-                card_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL REFERENCES mock_customers(customer_id),
-                card_last4 TEXT NOT NULL,
-                product_name TEXT NOT NULL DEFAULT '',
-                card_status TEXT NOT NULL DEFAULT 'active',
-                credit_limit INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_transactions (
-                transaction_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL REFERENCES mock_customers(customer_id),
-                card_last4 TEXT NOT NULL,
-                amount REAL NOT NULL DEFAULT 0,
-                merchant TEXT NOT NULL DEFAULT '',
-                transaction_time TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_benefits (
-                benefit_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL REFERENCES mock_customers(customer_id),
-                benefit_code TEXT NOT NULL,
-                benefit_name TEXT NOT NULL DEFAULT '',
-                remaining_count INTEGER NOT NULL DEFAULT 0,
-                expire_at TEXT NOT NULL DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_applications (
-                application_no TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL REFERENCES mock_customers(customer_id),
-                product_name TEXT NOT NULL DEFAULT '',
-                current_node TEXT NOT NULL DEFAULT '',
-                expected_finish_at TEXT NOT NULL DEFAULT ''
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_coupons (
-                coupon_id TEXT PRIMARY KEY,
-                customer_id TEXT NOT NULL REFERENCES mock_customers(customer_id),
-                coupon_type TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'AVAILABLE',
-                operation_id TEXT NOT NULL DEFAULT '',
-                evidence_id TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_permissions (
-                permission_id TEXT PRIMARY KEY,
-                tool_name TEXT NOT NULL,
-                risk_level TEXT NOT NULL DEFAULT 'low',
-                requires_human INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS mock_tool_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticket_id TEXT NOT NULL DEFAULT '',
-                customer_id TEXT NOT NULL DEFAULT '',
-                tool_name TEXT NOT NULL,
-                operation_id TEXT NOT NULL DEFAULT '',
-                evidence_id TEXT NOT NULL DEFAULT '',
-                request_json TEXT NOT NULL DEFAULT '{{}}',
-                response_json TEXT NOT NULL DEFAULT '{{}}',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-            );
-        """)
-
-        await _migrate_ticket_status_check(db)
-        await _add_missing_columns(db, "tickets", _ticket_columns())
-        await _add_missing_columns(db, "ai_results", {
-            "run_id": "TEXT",
-            "status": "TEXT",
-            "workflow_name": "TEXT",
-            "intent_type": "TEXT",
-            "intent_label": "TEXT",
-            "intent_confidence": "REAL",
-            "extracted_fields_json": "TEXT",
-            "tool_name": "TEXT",
-            "tool_request_json": "TEXT",
-            "tool_response_json": "TEXT",
-            "evidence_id": "TEXT",
-            "reply_draft": "TEXT",
-            "notification_json": "TEXT",
-            "requires_human_review": "INTEGER NOT NULL DEFAULT 1",
-            "duration_ms": "INTEGER NOT NULL DEFAULT 0",
-            "failure_reason": "TEXT",
-            "final_reply": "TEXT",
-            "closed_at": "TEXT",
-        })
-        await _add_missing_columns(db, "tool_call_log", {
-            "failure_reason": "TEXT",
-        })
-        await _create_indexes(db)
-        await _seed_tickets(db)
-        await _seed_mock_domain_data(db)
-        await db.commit()
+    """Create MySQL/TDSQL tables and seed demo tickets."""
+    validate_database_config()
+    await _ensure_mysql_database()
+    await _init_mysql_db()
 
 
-def _ticket_columns() -> dict[str, str]:
-    return {
-        "customer_id": "TEXT NOT NULL DEFAULT ''",
-        "category": "TEXT NOT NULL DEFAULT ''",
-        "subcategory": "TEXT NOT NULL DEFAULT ''",
-        "priority": "TEXT NOT NULL DEFAULT 'normal'",
-        "channel": "TEXT NOT NULL DEFAULT ''",
-        "assignee": "TEXT NOT NULL DEFAULT ''",
-        "department": "TEXT NOT NULL DEFAULT ''",
-        "due_at": "TEXT NOT NULL DEFAULT ''",
-        "updated_at": "TEXT NOT NULL DEFAULT ''",
-        "closed_at": "TEXT NOT NULL DEFAULT ''",
-        "final_reply": "TEXT NOT NULL DEFAULT ''",
-        "cancel_reason": "TEXT NOT NULL DEFAULT ''",
-    }
-
-
-async def _migrate_ticket_status_check(db: aiosqlite.Connection):
-    """Expand legacy ticket status CHECK constraints while preserving rows."""
-    cursor = await db.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tickets'"
-    )
+async def _seed_tickets(db: Any):
+    cursor = await db.execute("SELECT COUNT(*) AS count FROM tickets")
     row = await cursor.fetchone()
-    table_sql = row[0] if row else ""
-    if "pending_info" in table_sql and "failed" in table_sql and "cancelled" in table_sql:
-        return
-    if not table_sql:
-        return
-
-    await db.executescript(f"""
-        DROP TABLE IF EXISTS tickets_migrated;
-
-        CREATE TABLE IF NOT EXISTS tickets_migrated (
-            id TEXT PRIMARY KEY,
-            no TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            customer_id TEXT NOT NULL DEFAULT '',
-            customer_name TEXT NOT NULL,
-            phone TEXT NOT NULL,
-            card_last4 TEXT NOT NULL,
-            scene TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT '',
-            subcategory TEXT NOT NULL DEFAULT '',
-            priority TEXT NOT NULL DEFAULT 'normal',
-            channel TEXT NOT NULL DEFAULT '',
-            assignee TEXT NOT NULL DEFAULT '',
-            department TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            due_at TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL DEFAULT '',
-            risk_label TEXT NOT NULL,
-            risk_level TEXT NOT NULL CHECK(risk_level IN ('low','medium','high')),
-            status TEXT NOT NULL DEFAULT 'open'
-                CHECK(status IN ({TICKET_STATUS_VALUES})),
-            content TEXT NOT NULL,
-            closed_at TEXT NOT NULL DEFAULT '',
-            final_reply TEXT NOT NULL DEFAULT '',
-            cancel_reason TEXT NOT NULL DEFAULT ''
-        );
-
-        INSERT INTO tickets_migrated
-            (id, no, title, customer_name, phone, card_last4, scene,
-             created_at, risk_label, risk_level, status, content)
-        SELECT
-            id, no, title, customer_name, phone, card_last4, scene,
-            created_at, risk_label, risk_level, status, content
-        FROM tickets;
-
-        DROP TABLE tickets;
-        ALTER TABLE tickets_migrated RENAME TO tickets;
-    """)
-
-
-async def _add_missing_columns(
-    db: aiosqlite.Connection,
-    table_name: str,
-    columns: dict[str, str],
-):
-    cursor = await db.execute(f"PRAGMA table_info({table_name})")
-    existing = {row[1] for row in await cursor.fetchall()}
-    for column_name, column_def in columns.items():
-        if column_name not in existing:
-            await db.execute(
-                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
-            )
-
-
-async def _create_indexes(db: aiosqlite.Connection):
-    await db.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_tickets_customer_id ON tickets(customer_id);
-        CREATE INDEX IF NOT EXISTS idx_tickets_category ON tickets(category, subcategory);
-        CREATE INDEX IF NOT EXISTS idx_tickets_assignee ON tickets(assignee);
-        CREATE INDEX IF NOT EXISTS idx_tickets_status_due_at ON tickets(status, due_at);
-        CREATE INDEX IF NOT EXISTS idx_ai_results_ticket_created ON ai_results(ticket_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_trace_steps_ticket_created ON trace_steps(ticket_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_tool_call_log_ticket_created ON tool_call_log(ticket_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_ticket_operation_log_ticket_created
-            ON ticket_operation_log(ticket_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_mock_tool_history_ticket_created
-            ON mock_tool_history(ticket_id, created_at);
-    """)
-
-
-async def _seed_tickets(db: aiosqlite.Connection):
-    cursor = await db.execute("SELECT COUNT(*) FROM tickets")
-    count = (await cursor.fetchone())[0]
+    count = row["count"] if isinstance(row, dict) else row[0]
     if count != 0:
         return
 
@@ -348,22 +38,17 @@ async def _seed_tickets(db: aiosqlite.Connection):
 
 
 async def _seed_mock_domain_data(db: Any):
-    cursor = await db.execute("SELECT COUNT(*) AS count FROM mock_customers")
-    row = await cursor.fetchone()
-    count = row["count"] if isinstance(row, dict) else row[0]
-    if count:
-        return
-
-    cursor = await db.execute("SELECT * FROM tickets ORDER BY created_at")
-    tickets = [row_to_dict(row) for row in await cursor.fetchall()]
-    for ticket in tickets:
+    await db.execute("SET sql_notes = 0")
+    records = await _load_mock_seed_records(db)
+    for ticket in records:
         customer_id = ticket.get("customer_id") or ""
         if not customer_id:
             continue
         await db.execute(
             """INSERT INTO mock_customers
                (customer_id, customer_name, phone, segment, risk_level)
-               VALUES (?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE customer_id = customer_id""",
             (
                 customer_id,
                 ticket.get("customer_name", ""),
@@ -375,7 +60,8 @@ async def _seed_mock_domain_data(db: Any):
         await db.execute(
             """INSERT INTO mock_cards
                (card_id, customer_id, card_last4, product_name, card_status, credit_limit)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE card_id = card_id""",
             (
                 f"CARD-{customer_id}-{ticket.get('card_last4', '')}",
                 customer_id,
@@ -390,7 +76,8 @@ async def _seed_mock_domain_data(db: Any):
             await db.execute(
                 """INSERT INTO mock_benefits
                    (benefit_id, customer_id, benefit_code, benefit_name, remaining_count, expire_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON DUPLICATE KEY UPDATE benefit_id = benefit_id""",
                 (
                     f"BEN-{customer_id}-{benefit_code}",
                     customer_id,
@@ -403,7 +90,8 @@ async def _seed_mock_domain_data(db: Any):
         await db.execute(
             """INSERT INTO mock_applications
                (application_no, customer_id, product_name, current_node, expected_finish_at)
-               VALUES (?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE application_no = application_no""",
             (
                 _extract_application_no(ticket.get("content", "")) or f"APP{customer_id[1:]}",
                 customer_id,
@@ -415,9 +103,10 @@ async def _seed_mock_domain_data(db: Any):
         await db.execute(
             """INSERT INTO mock_transactions
                (transaction_id, customer_id, card_last4, amount, merchant, transaction_time, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE transaction_id = transaction_id""",
             (
-                f"TXN{customer_id[1:]}",
+                _extract_transaction_id(ticket.get("content", "")) or f"TXN{customer_id[1:]}",
                 customer_id,
                 ticket.get("card_last4", ""),
                 _extract_amount(ticket.get("content", "")),
@@ -439,56 +128,95 @@ async def _seed_mock_domain_data(db: Any):
         await db.execute(
             """INSERT INTO mock_permissions
                (permission_id, tool_name, risk_level, requires_human)
-               VALUES (?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE permission_id = permission_id""",
             permission,
         )
+    await db.execute("SET sql_notes = 1")
+
+
+async def _load_mock_seed_records(db: Any) -> list[dict[str, Any]]:
+    cursor = await db.execute("SELECT * FROM tickets ORDER BY created_at")
+    records = [row_to_dict(row) for row in await cursor.fetchall()]
+    transcript_path = Path(__file__).resolve().parents[1] / "data" / "call_transcripts.json"
+    if not transcript_path.exists():
+        return records
+    with open(transcript_path, "r", encoding="utf-8") as f:
+        for item in json.load(f):
+            draft = item.get("ticketDraft") or {}
+            if draft:
+                records.append(_normalize_ticket_seed_record(draft, item))
+    return records
+
+
+def _normalize_ticket_seed_record(draft: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    call_meta = item.get("callMeta") or {}
+    return {
+        "customer_id": draft.get("customer_id") or draft.get("customerId") or call_meta.get("customerId") or "",
+        "customer_name": draft.get("customer_name") or draft.get("customerName") or call_meta.get("customerName") or "",
+        "phone": draft.get("phone") or call_meta.get("phone") or "",
+        "card_last4": draft.get("card_last4") or draft.get("cardLast4") or call_meta.get("cardLast4") or "",
+        "priority": draft.get("priority", "normal"),
+        "risk_level": draft.get("risk_level") or draft.get("riskLevel") or item.get("riskLevel") or "low",
+        "content": draft.get("content") or item.get("transcript") or "",
+    }
 
 
 def _extract_business_code(content: str) -> str | None:
     match = re.search(
-        r"(DINING|COFFEE|AIRPORT|HOTEL|POINT|ROAD|FEE|MILEAGE|CASHBACK)_[A-Z0-9_]+",
+        r"(?<![A-Z0-9])([A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+)(?![A-Z0-9])",
         content or "",
     )
     if not match:
         return None
-    code = match.group(0)
+    code = match.group(1)
     return code if _is_business_code(code) else None
 
 
 def _is_business_code(code: str) -> bool:
-    return code.startswith((
-        "DINING_",
-        "COFFEE_",
-        "AIRPORT_",
-        "HOTEL_",
-        "POINT_",
-        "ROAD_",
-        "FEE_",
-        "MILEAGE_",
-        "CASHBACK_",
-    ))
+    return not code.startswith(("APP", "TXN"))
 
 
 def _extract_application_no(content: str) -> str | None:
-    match = re.search(r"\bAPP[0-9A-Z]{6,}\b", content or "")
+    match = re.search(r"(?<![A-Z0-9])APP[0-9A-Z]{6,}(?![A-Z0-9])", content or "")
+    return match.group(0) if match else None
+
+
+def _extract_transaction_id(content: str) -> str | None:
+    match = re.search(r"(?<![A-Z0-9])TXN[0-9A-Z]{5,}(?![A-Z0-9])", content or "")
     return match.group(0) if match else None
 
 
 def _extract_amount(content: str) -> float:
-    match = re.search(r"([0-9]+(?:\.[0-9]{1,2})?)", content or "")
+    text = content or ""
+    for pattern in (
+        r"金额(?:是|为)?\s*([0-9]+(?:\.[0-9]{1,2})?)",
+        r"([0-9]+(?:\.[0-9]{1,2})?)\s*元",
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return float(match.group(1))
+    match = re.search(r"([0-9]+(?:\.[0-9]{1,2})?)", text)
     return float(match.group(1)) if match else 128.0
 
 
 def _extract_merchant(content: str) -> str:
-    upper = (content or "").upper()
+    text = content or ""
+    upper = text.upper()
+    if "星河商场" in text:
+        return "星河商场"
+    for pattern in (r"商户(?:叫|名称为)?([A-Z0-9 ]{3,})", r"([A-Z][A-Z0-9 ]{2,})扣款"):
+        match = re.search(pattern, upper)
+        if match:
+            return match.group(1).strip()
     if "HOTEL" in upper:
         return "SAMPLE HOTEL"
-    if "ONLINE" in upper:
+    if "ONLINE" in upper or "GLOBAL SHOP" in upper:
         return "UNKNOWN ONLINE"
     return "SAMPLE MERCHANT"
 
 
-async def insert_ticket_row(db: aiosqlite.Connection, ticket: dict[str, Any]):
+async def insert_ticket_row(db: Any, ticket: dict[str, Any]):
     now = ticket.get("updated_at") or ticket.get("created_at", "")
     customer_id = ticket.get("customer_id") or ticket.get("customerId") or ""
     await db.execute(
@@ -550,27 +278,18 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def nullable_datetime(value: Any):
-    if DB_BACKEND in {"mysql", "tdsql"} and not value:
+    if not value:
         return None
     return value
 
 
 @asynccontextmanager
 async def get_db() -> AsyncGenerator[Any, None]:
-    if DB_BACKEND in {"mysql", "tdsql"}:
-        async with _get_mysql_connection() as db:
-            yield db
-        return
-    if DB_BACKEND not in {"sqlite", "fallback"}:
-        raise RuntimeError(f"Unsupported DB_BACKEND={DB_BACKEND!r}")
-    db = await aiosqlite.connect(DATABASE_PATH)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    try:
+    validate_database_config()
+    if DB_BACKEND not in {"mysql", "tdsql"}:
+        raise RuntimeError(f"Unsupported DB_BACKEND={DB_BACKEND!r}. Only MySQL/TDSQL is supported.")
+    async with _get_mysql_connection() as db:
         yield db
-    finally:
-        await db.close()
 
 
 async def _init_mysql_db():
@@ -601,6 +320,41 @@ async def _init_mysql_db():
         await db.commit()
 
 
+async def _ensure_mysql_database():
+    url = make_url(DATABASE_URL)
+    database_name = url.database
+    if not database_name:
+        raise RuntimeError("DATABASE_URL must include a database name.")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", database_name):
+        raise RuntimeError(f"Unsafe database name in DATABASE_URL: {database_name!r}")
+
+    server_url = URL.create(
+        url.drivername,
+        username=url.username,
+        password=url.password,
+        host=url.host,
+        port=url.port,
+        query=url.query,
+    )
+    engine = create_async_engine(
+        server_url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": DB_TIMEOUT_SECONDS},
+    )
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("SET sql_notes = 0"))
+            await connection.execute(
+                text(
+                    f"CREATE DATABASE IF NOT EXISTS `{database_name}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+            )
+            await connection.execute(text("SET sql_notes = 1"))
+    finally:
+        await engine.dispose()
+
+
 def _split_mysql_ddl(ddl: str) -> list[str]:
     statements: list[str] = []
     current: list[str] = []
@@ -624,6 +378,7 @@ def _split_mysql_ddl(ddl: str) -> list[str]:
 def _get_engine() -> AsyncEngine:
     global _async_engine
     if _async_engine is None:
+        validate_database_config()
         _async_engine = create_async_engine(
             DATABASE_URL,
             pool_size=DB_POOL_SIZE,

@@ -36,8 +36,8 @@ RESET_TABLES = (
 
 
 async def reset_demo_data():
-    if DB_BACKEND not in {"sqlite", "fallback", "mysql", "tdsql"}:
-        raise RuntimeError(f"Unsupported DB_BACKEND={DB_BACKEND!r}")
+    if DB_BACKEND not in {"mysql", "tdsql"}:
+        raise RuntimeError(f"Unsupported DB_BACKEND={DB_BACKEND!r}. Only MySQL/TDSQL is supported.")
 
     await init_db()
     with open(TICKETS_JSON, "r", encoding="utf-8") as f:
