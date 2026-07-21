@@ -1,310 +1,60 @@
-# 发现与决策：新 Agent 方案与开发取舍
+# TicketAgent 当前发现（2026-07-21）
 
-## 当前系统事实
+## 资料来源
 
-- 当前项目是信用卡工单智能处理 Demo，后端为 FastAPI，前端为 Vue 3 + Vite + TypeScript。
-- 当前代码已有 5 个技术型 Agent：`IntentAgent`、`ExtractAgent`、`VerifyAgent`、`ToolCallingAgent`、`ReplyAgent`。
-- 当前编排不是 LangGraph，而是手写 Orchestrator。
-- 当前已有 Tool Registry 和 MockExecutor，可以模拟部分外部业务系统调用。
-- 当前前端已有 Trace 和 AI 结果展示，但偏开发者视角，业务表达还不够强。
-- 当前文档和演示需要统一到更专业的业务 Agent 命名。
+- `doc/guides/项目交接说明_20260721.md`
+- `doc/requirements/修改意见7.21.txt`
+- `doc/planning/page_agent_positioning.md`
+- `doc/planning/backup/task_plan.before-new-plan-20260721.md`
+- `doc/planning/backup/progress.before-new-plan-20260721.md`
+- 当前代码：`ai-engine/config.py`、`ai-engine/models/database.py`、`ai-engine/tools/mock_executor.py`、`ai-engine/models/repositories.py`、`frontend/src/views/EnterpriseTicketShellView.vue`、`frontend/src/components/ai/PageAssistantPanel.vue`
 
-## 新 Agent 分类为什么更适合当前工单场景
+## 核心业务判断
 
-用户提出的 Agent 分类更适合答辩和产品表达，因为它从真实工单业务责任出发，而不是从代码实现细节出发。
+- 新需求要求把故事讲成完整闭环：客服电话/通话记录 -> 发单 -> 多 Agent 处理 -> PageAgent 辅助页面填单/回单 -> 人工复核结案。
+- 导师在 2026-07-21 下午将 PageAgent 调整为第一优先级，强调右侧对话框、可见动态点击/执行过程，而不是完全后台自动处理。
+- 交接文档同时提醒：MySQL-only 和 Mock Tools 收口应先保证，否则 PageAgent 演示会缺少稳定业务证据。
+- 因此计划采用“底座优先修稳 + PageAgent 展示优先并行推进”的路线：先确保 MySQL/MockTools 不拖垮演示，再把 SunPilot 升级为受控 PageAgent。
 
-| 新 Agent | 业务价值 | 答辩表达优势 |
-|----------|----------|--------------|
-| Intake Agent | 解决多渠道接入、信息提取、缺失信息追问 | 对应工单前台/接单员，业务容易理解 |
-| Classifier Agent | 解决工单类型、优先级、处理路径判断 | 对应分诊台，体现规则 + LLM 的专业性 |
-| Dispatcher Agent | 解决派给谁、派给哪个团队或 Agent | 对应调度中心，但实现难度较高，适合作为进阶 |
-| Resolution Agent | 解决真正业务动作，包括接口调用、Mock Tool、MCP、PageAgent | 是项目亮点，从“会说”升级到“会做” |
-| Notification Agent | 解决状态通知、回单、回访 | 对应行政助理，贴近实际工单闭环 |
-| Escalation Agent | 解决异常、超时、工具失败、人工兜底 | 对应安全阀，适合金融合规语境 |
+## MySQL-only 改造现状
 
-旧方案中的“意图识别、字段抽取、工具调用、话术生成”更像技术模块；新方案更像业务组织结构。对答辩、客户和领导来说，新方案更专业，也更容易讲清“系统如何替业务部门分担工作”。
+- 用户已确认不再考虑旧测评脚本；如需回归前置模块，应另写 MySQL-only 测评脚本。
+- 模块 K 执行目标调整为彻底移除 SQLite 运行路径，不保留历史兼容分支。
+- `ticket_agent` 用于开发/演示，`ticket_agent_test` 用于 I1/I2/I3 smoke，避免测试污染演示库。
+- 本地 MySQL 可使用 `root` 连接，密码来自系统环境变量 `MYSQL_ROOT_PASSWORD`，不写入仓库。
 
-## 是否需要完全重构 Agent 代码
+## Mock Tools 现状
 
-结论：当前项目规模下，不建议长期维护单独映射层；模块 B 改为受控重构。
+- `MockExecutor` 已经通过 `mock_business_repository` 查询客户、卡片、交易、权益、申请、权限和工具历史，设计方向是对的。
+- 如果所有工单都升级人工，优先怀疑：后端连到旧 SQLite、MySQL DDL/seed 未执行、演示数据没有业务域表、字段无法命中。
+- `_seed_mock_domain_data` 应从 `tickets.json` 和 `call_transcripts.json` 的 `ticketDraft` 派生 Mock 业务域数据。
+- 交易 seed 必须优先提取真实 `TXN202607...` 等流水；没有真实流水时才回退到 `TXN{customer_id}`。
 
-之前考虑过“旧 Agent + adapter/metadata/trace label 映射”的路线，但用户指出该映射层在当前 Demo 阶段偏冗余。复盘后确认：项目还没有外部插件生态、大量历史调用方或稳定第三方集成，直接把代码层统一为业务 Agent 命名，反而能降低认知成本，更利于答辩和后续开发。
+## PageAgent / SunPilot 现状
 
-新的实施路线：
+- 旧详情页已有 `frontend/src/components/ai/PageAssistantPanel.vue`，能力是按钮式动作栏：启动 AI、填回单、查看风险/缺失字段、查看工具目录、进入复核。
+- 企业壳 `frontend/src/views/EnterpriseTicketShellView.vue` 已有右侧 SunPilot 区域，并支持动作：`process`、`fill_reply`、`locate_evidence`、`locate_missing`、`open_audit`、`prepare_review`、`prepare_confirm`。
+- 当前还没有统一的 `PageContext`、`PageAction`、`PageActionRunner`、`PageActionLog`。
+- 当前前端依赖只有 Vue/Pinia/Axios 等，没有引入通用 page-agent 或动画库；MVP 可用原生 Vue/CSS 实现动作流、光标和目标高亮。
 
-1. 代码层直接采用业务 Agent 命名。
-2. 旧文件只作为短期兼容 shim，避免测试和旧导入立刻断裂。
-3. Orchestrator、Trace、SSE、前端流程条和 Agent Card 全部使用新业务 ID。
-4. 模块 B/C 稳定后，再评估删除旧 shim。
+## 通话发单现状
 
-当前重构建议：
+- `ai-engine/data/call_transcripts.json` 已存在 20 条自生成脱敏中文通话记录样本。
+- 建单接口 `POST /api/tickets` 和前端 `createTicket` 已存在。
+- 后续更稳的方式是新增发单侧 Call Intake：只把完整 transcript 转成标准 `ticketDraft`，再进入现有多 Agent 工单处理链路。
+- 不建议让后续 Classifier/Resolution/Notification 每次直接消费完整 transcript，否则 token 成本、噪声和稳定性都会变差。
+- 新定位下，通话发单不应只做成后台接口调用；发单 Agent 负责产出草稿和字段来源，PageAgent 负责以可见鼠标在页面上填单、提交和分发。因此模块 L 应与模块 M 同步开发，而不是并入已完成的模块 K。
 
-| 旧实现 | 新业务 Agent | 兼容策略 |
-|----------|---------------|----------|
-| `ExtractAgent` | `IntakeAgent` | `extract_agent.py` 短期转发到 `intake_agent.py` |
-| `IntentAgent` | `ClassifierAgent` | `intent_agent.py` 短期转发到 `classifier_agent.py` |
-| `ToolCallingAgent` + `MockExecutor` | `ResolutionAgent` | `tool_agent.py` 短期转发到 `resolution_agent.py` |
-| `ReplyAgent` | `NotificationAgent` | `reply_agent.py` 短期转发到 `notification_agent.py` |
-| `VerifyAgent` + 状态机 | `EscalationAgent` | `verify_agent.py` 短期转发到 `escalation_agent.py` |
-| 暂无 | Dispatcher Agent | 后续根据人员/团队/Agent 能力派单 |
+## 答辩口径
 
-这样做的好处是：代码、Trace 和文档的语言保持一致，减少“旧技术名”和“新业务名”之间的翻译成本；旧 shim 则保留了必要的安全垫，避免一次性破坏模块 A 已稳定的契约和测试。
+- TicketAgent 的 PageAgent 不应定位为“更通用的网页自动点击工具”，而应定位为信用卡工单场景下的受控页面执行层。
+- 相比通用 Page Agent，差异化在业务上下文、状态机、风险等级、证据编号、工具审计、人工确认、失败接管和可评测。
+- 演示上可以有动态鼠标/高亮/步骤流，但底层必须仍是白名单动作，不开放任意 DOM index 点击或任意 JavaScript 执行。
 
-模块 A 不需要重做。模块 A 的价值是 API、SSE 终态、状态机、持久化和工具审计契约；模块 B 的 Agent 命名重构只要保持这些边界不变，完成后跑回归验证即可。
+## Mock Tools / UNKNOWN 复查发现
 
-## 编排策略判断
-
-### 当前不优先引入 LangGraph
-
-原因：
-- 现有流程规模还可由手写 Orchestrator 控制。
-- Agent 类型和边界仍在调整，过早迁移框架会放大试错成本。
-- 当前更急的是接口契约、工具执行、数据集、测评和前端业务呈现。
-
-可接受的中间方案：
-- 引入轻量 `workflow_config`。
-- 让不同场景配置必填字段、推荐工具、确认策略、通知模板。
-- 当流程分支、checkpoint、replay、状态恢复成为痛点后，再迁移 LangGraph。
-
-### A2A-Lite 当前保留轻量价值
-
-保留：
-- Agent Card。
-- 能力自描述。
-- 输入输出 schema。
-- Agent 依赖关系。
-- 前端能力展示。
-
-后置：
-- 完整 A2A 协议。
-- 动态发现和热插拔。
-- 跨进程 Agent 通信。
-- Agent 间复杂协商。
-
-结论：A2A-Lite 可作为架构亮点展示，但不应占用核心开发时间。
-
-## Resolution Agent 的范围
-
-Resolution Agent 是本项目最重要的亮点之一，需要在计划中明确体现。
-
-当前核心：
-- 调用 Mock Tool 或后端接口。
-- 记录请求、响应、执行状态和证据编号。
-- 将执行结果传给 Notification Agent 生成回单。
-- 参数缺失或执行失败时交给 Escalation Agent。
-
-进阶扩展：
-- MCP：把业务能力包装为标准工具服务。
-- Page Agent：分阶段引入。第一阶段只做当前工单详情页的页面助手；第二阶段配合动态表单做发单/回单自动填充；第三阶段才考虑外部遗留系统自动化。
-- 知识库：为咨询类工单提供解决方案建议。
-
-## Page Agent 推荐引入路线
-
-Page Agent 有价值，但不能一开始就做成“自动操作外部系统”的高风险能力。更稳的路线是从本系统内部页面开始，逐步扩大权限边界。
-
-### 第一阶段：前端页面助手
-
-在 `frontend/src/views/TicketDetailView.vue` 增加“页面助手”入口，让 Page Agent 只操作当前工单详情页。
-
-建议能力：
-- 把 AI 回单草稿填入回单框。
-- 检查当前工单风险和缺失字段。
-- 打开工具面板并定位补券工具。
-- 滚动到审核区域。
-
-这一阶段的价值是低风险、易演示、能贴近用户操作，不依赖真实外部系统。
-
-### 第二阶段：发单/回单表单自动填充
-
-等动态工单表单更完整后，Page Agent 可以把 Intake Agent 或 ExtractAgent 的抽取结果转成页面填充动作，用于自动填写客户信息、业务字段、处理结果和回单内容。
-
-这一阶段适合证明“Agent 不只分析文本，也能减少页面操作和复制粘贴”。
-
-### 第三阶段：外部遗留系统自动化
-
-如果某些行内系统没有 API，才考虑 Page Agent Ext / MCP 方案，让 Agent 操作浏览器页面。
-
-该阶段属于高风险能力，必须具备：
-- 系统和页面白名单。
-- 敏感字段脱敏。
-- 操作前人工确认。
-- 操作过程审计。
-- 失败回滚或人工接管。
-
-结论：Page Agent 当前可以作为进阶亮点，但近期只建议做第一阶段“页面助手”，不要把外部系统自动点击作为核心交付。
-
-## 场景数量判断
-
-只做 3 类场景不够。3 类适合最小 Demo，但不足以证明系统能覆盖真实工单复杂性。
-
-建议分层：
-
-| 层级 | 用途 | 场景 |
-|------|------|------|
-| 核心演示 | 必须跑通，适合现场演示 | 权益/优惠券补发、申请进度查询、资料变更、交易/账单查询、活动资格核验 |
-| 评测覆盖 | 用于证明泛化和稳定性 | 分期提前结清、还款协商、挂失补卡、额度咨询、年费调整、积分争议 |
-| 进阶/兜底 | 用于体现升级和人工协同 | 盗刷疑似、交易争议、征信异议、商务卡资料变更、投诉、跨部门协办 |
-
-数据集应至少覆盖 10 个以上业务场景，每个核心场景至少 2-3 条样本。
-
-## 当前难点排序
-
-1. 后端和前端契约稳定：字段、状态、SSE、持久化。
-2. Agent 业务口径统一：新命名要贯穿文档、Trace、前端、演示。
-3. Resolution 执行链：工具/API 调用、证据编号、失败兜底。
-4. 数据集构建：通话记录、正确意图、正确工单类型、必填字段、期望工具。
-5. Agent 测评：单 Agent 指标和端到端指标。
-6. 前端业务呈现：让非技术观众看懂处理过程和效果。
-7. Dispatcher、语音、A2A、MCP、PageAgent：作为进阶，不抢主线。
-
-## 产品形态判断
-
-当前最稳产品形态：独立 Web 工作台，模拟可嵌入工单系统的智能处理侧边栏或工作流节点。
-
-汇报口径：
-- 当前 Demo：AI 工单处理工作台。
-- 近期落地：工单系统内嵌工作流/侧边栏插件。
-- 远期演进：接入真实业务接口、MCP、PageAgent、A2A 的跨系统智能处理层。
-
-## 关键取舍
-
-| 问题 | 当前结论 |
-|------|----------|
-| 是否沿用旧 Agent 代码 | 不长期沿用旧命名；模块 B 受控重构为业务 Agent |
-| 是否采用新 Agent 命名 | 采用，产品、文档、Trace、前端和代码层都统一 |
-| 风险分级是否作为核心模块 | 否，只作为 Escalation/Classifier/Resolution 的策略细节 |
-| Dispatcher 是否现在做 | 暂不做完整实现，作为进阶模块 |
-| 是否引入 LangGraph | 暂不引入，先做轻量配置化 |
-| 是否做 A2A-Lite | 保留 Agent Card 和展示，不做完整协议 |
-| 是否做 Page Agent | 分三阶段推进：先当前工单页助手，再动态表单填充，最后才是外部遗留系统自动化 |
-| 是否做真实语音 ASR | 后置，先用通话文本或预置转写 |
-| 是否扩展更多工单场景 | 是，数据集和演示都需要超过 3 类 |
-
-## 模块 B 完成后的实现事实
-
-- 代码层已经使用 `ClassifierAgent`、`IntakeAgent`、`EscalationAgent`、`ResolutionAgent`、`NotificationAgent` 五个业务 Agent。
-- 旧 Agent 文件短期保留为 shim，只转发到新业务 Agent 类。
-- Trace、SSE、Agent Card 和前端流程条均使用新业务 `agentId`。
-- `workflow_config.json` 已覆盖优惠券补发、资料修改、交易争议和 UNKNOWN 兜底场景。
-- `workflow_config` 加载具备内置 fallback；Classifier 会基于配置回填 `workflow_name` 并归一异常类型。
-- Agent 执行异常时，当前 Agent Trace 会落为 `FAILED`，再由 Orchestrator 发出统一失败终态。
-
-## 模块 C 完成后的实现事实
-
-- Mock Tool 已扩展到 5 类：`coupon.reissue`、`customer.update-address`、`transaction.query`、`benefit.query`、`application.progress-query`。
-- `ToolResult` 已统一包含 `action`、`business_result`、`evidence_id`、`next_step`、`requires_human`、`failure_reason`，前端通过 camelCase 展示。
-- Orchestrator 在工具执行前校验参数，缺参时进入 `pending_info`，并由 Intake Agent 生成客户可读补充提示。
-- 每次 Orchestrator 工具执行都会写入 `tool_call_log`；直接调试工具接口如提供 `ticketId` 也会写入审计日志。
-- 工具执行后会再次经过 Escalation Agent 复核；失败、权限不足、结果冲突或工具要求人工都会升级人工。
-- 新增 `/api/tickets/{ticket_id}/tool-calls` 只读审计接口，用于展示工具请求、响应、证据编号、耗时和失败原因。
-- 前端 `AiResultCard` 已展示工具名称、关键入参、业务结果、证据编号、下一步建议和是否需人工；详情页刷新后会恢复最新 AI 结果。
-- Page Agent 第一阶段已落为当前工单页内的“页面助手”，只支持填入回单、检查风险/缺失字段、定位工具面板和滚动审核区域，不操作外部系统。
-
-## 模块 D 完成后的实现事实
-
-- `AiProcessResult` 保留 `replyDraft` 兼容字段，并新增结构化 `notification`，覆盖标准回单、内部通知、复核摘要、结案建议和回访预留。
-- `NotificationAgent` 支持结构化 JSON 输出，并在 LLM 调用失败或输出不完整时使用规则 fallback，确保通知环节不拖垮主流程。
-- Orchestrator 已在所有关键终态生成通知：自动处理成功、待补充、待人工确认、工具失败/冲突/权限不足升级、高风险直升人工。
-- 自动闭环不直接把工单置为 `closed`；系统只输出 `closureSuggestion.canClose` 和最终回单建议，实际结案仍走人工 `/close`。
-- `ai_results` 通过兼容迁移新增 `notification_json`、`final_reply`、`closed_at`，用于通知结果和最终回单追溯。
-- 前端新增通知闭环展示区，业务人员可直接看到标准回单、内部通知、复核摘要、结案建议和回访预留。
-- 模块 D smoke 覆盖低风险成功、待补充、中风险确认、工具失败升级、高风险升级、AI 结果恢复和结案回写。
-
-## 模块 E 数据源预检
-
-- 用户下载的数据位于 `C:\Users\heyunhui\Downloads\data`，其中 `external/` 与 `generated/` 适合作为模块 E 的外部数据源与转换结果目录。
-- CFPB Consumer Complaint Database 压缩包约 1.42 GB，压缩包内 `complaints.csv` 约 9.06 GB；字段包含 `Product`、`Issue`、`Consumer complaint narrative`、`Company response to consumer`、`Timely response?`、`Complaint ID` 等，适合扩展金融投诉、交易争议、账单费用、征信异议等工单原文与分类来源。
-- CFPB 数据不是通话转写，且为英文真实投诉文本；模块 E 不能直接把它当作最终中文标注集，应先抽样、脱敏/确认无敏感信息、翻译或改写，再补齐必填字段、期望工具、期望处理结果和回单要点。
-- BANKING77 包含 13,083 条英文短文本意图样本，其中 train 10,003 条、test 3,080 条；适合做 Classifier Agent 的意图扩展、路由回归和工具选择参考，但不是完整工单，不能单独满足模块 E 的标注样本要求。
-- `Downloads\data` 根目录下的 `agent_cards.json`、`tools.json`、`tickets.json` 是旧版小配置，少于当前项目的 5-tool 和新业务 Agent 口径，因此不应覆盖 `ai-engine/data/` 下已有项目配置。
-- 已将大数据目录移动到 `ai-engine/data/external/` 和 `ai-engine/data/generated/`，并通过 `.gitignore` 忽略，避免 Git 追踪大文件数据集。
-
-## 模块 E 完成后的实现事实
-
-- `ai-engine/data/evaluation_samples.json` 已作为独立评测样本集落地，当前包含 40 条中文模拟标注样本。
-- 评测样本不混入 `ai-engine/data/tickets.json`；后者继续作为小规模 Demo 种子数据。
-- 每条样本包含工单原文、正确意图、细分工单类型、workflow、必填字段、期望字段、期望工具、期望状态、期望处理结果、回单要点和是否需要人工介入。
-- 样本前半部分优先覆盖现有 5 类工具能力：优惠券补发、资料修改、交易查询、权益查询、进度查询；后半部分覆盖分期、还款、挂失、额度、年费、积分、征信、投诉和跨部门协作等复杂扩展场景。
-- `/api/evaluation/metrics` 已改为通过 `Evaluator.compute()` 返回指标；模块 F 完成后不再使用固定演示分数，未执行完整 LLM 评测时返回基于标注样本的参考摘要。
-- `ai-engine/evaluation/smoke_module_e.py` 校验样本数量、结构、脱敏、场景覆盖、Demo/评测分离和评测入口读取，作为模块 E 的验收脚本。
-- 样本量判断已从 20 条最小集调整为 40 条左右 MVP 集；100+ 样本适合后续严肃指标、混淆矩阵和稳定性回归，不作为当前模块 E 的必达范围。
-
-## 模块 F 完成后的实现事实
-
-- `ai-engine/evaluation/evaluator.py` 已支持对真实 Agent 输出 records 计分，覆盖 Intake、Classifier、Resolution、Notification、Escalation 五类 Agent 分项指标。
-- `ai-engine/evaluation/run_module_f.py` 可在配置 LLM Key 后逐条运行 40 条评测样本的五类 Agent 链路，默认不写主数据库，适合作为回归评测入口。
-- `GET /api/evaluation/metrics` 保留 `intentAccuracy`、`fieldCompleteness`、`toolCorrectness`、`avgTimeSavedSeconds`、`totalSamples` 旧字段，同时新增 `agents`、`closedLoopSuccessRate`、`avgProcessingMs`、`evaluatedSamples`、`avgManualStepsSaved`、`source`。
-- `ai-engine/evaluation/smoke_module_f.py` 使用伪输出覆盖自动成功、待补充和升级人工三类评测路径，保证模块 F 的计分逻辑不依赖外部 LLM 服务也能回归。
-- 前端类型已扩展 `EvaluationMetrics`，模块 G 可直接基于新增字段做业务化评测摘要展示。
-
-## 模块 F+ 全量真实 LLM 测评后的发现
-
-- 完整 40 条真实 DeepSeek LLM 测评已经跑通，最终 artifact 为 `ai-engine/evaluation/module_f_full_final3_20260719.json`。
-- 初始 40 条全量测评暴露出真实链路问题：UNKNOWN 扩展场景会被 LLM 误吸入已有 workflow，`pending_human_confirm` 没有显式建模，敏感资料变更存在先执行工具再进入人工/升级的风险。
-- 子 Agent 只读审查确认上述问题属于 P0/P1，不能只把低分解释为评分误差；修复方向应同时覆盖 Agent 链路、runner 状态建模和 Evaluator 评分口径。
-- 当前已采用确定性业务规则兜底：未接入自动工具的年费、积分争议、征信、投诉、挂失停卡、还款协商、额度咨询等扩展场景稳定走 `UNKNOWN -> escalated`；带 APP 业务流水、交易争议特征或活动资格码的已支持场景不会被 UNKNOWN 误伤。
-- `pending_human_confirm` 与 `escalated` 已区分：中风险/敏感/需人工确认场景进入待人工确认；高风险、UNKNOWN、身份核验失败、工具异常进入升级人工。
-- Resolution 会规范化机器参数：`couponType`、`benefitCode`、`applicationNo` 从中文描述中抽取标准业务码，`verifyStatus` 归一到 `PASSED`/`FAILED`，避免真实工具参数被自然语言污染。
-- Evaluator 对安全升级和待确认场景不再误扣工具执行分；`pending_info` 的人工介入口径结合 intent/status 判断；Notification 回单要点覆盖从逐字匹配转向业务槽位覆盖。
-- 最终 40 条真实回归指标为 `intentAccuracy=1.0`、`fieldCompleteness=1.0`、`toolCorrectness=1.0`、`workflowConsistency=1.0`、`replyPointCoverage=0.9888`、`humanInterventionAccuracy=1.0`、`closedLoopSuccessRate=1.0`、`avgProcessingMs=6529.6`。
-- `closedLoopSuccessRate` 当前工程含义更接近“期望状态匹配率/expected outcome match”，不是客户真实结案率；模块 G 或答辩展示时应明确解释，不应把它包装成真实生产闭环率。
-
-## 模块 G+ 完成后的实现事实
-
-- 默认 `/tickets` 和 `/tickets/:id` 已切换为企业工单系统壳，旧坐席工作台保留在 `/legacy/tickets` 和 `/legacy/tickets/:id`。
-- 企业壳采用左侧细颗粒信用卡二线菜单、顶部多标签、主内容高密度表单、处理日志、证据链、回单区和底部技术审计折叠区，视觉令牌统一为品牌红 `#CD2C42`、白色、浅蓝灰分区栏和细边框。
-- `/tickets/:id` 支持内部 `id` 和可见工单编号 `no` 两种入口；使用工单编号直达时会解析到内部 id，并替换为稳定 URL，避免演示人员看到编号后手输路由掉回首页。
-- Agent Copilot 以右侧推入式插件栏接入，隐藏后主工作区恢复全宽；它只提供启动处理、填入回单草稿、定位证据、查看缺失字段、打开技术审计、进入回单复核和进入人工确认等辅助动作。
-- Copilot 不直接保存、结案、转派或覆盖主系统状态；人工确认仍通过 `/api/tickets/{ticket_id}/confirm-action`，结案仍通过主页面“复核并结案”按钮调用 `/api/tickets/{ticket_id}/close`。
-- `canClose` 已收紧为必须处于 `pending_human_review` 且存在 `notification.closureSuggestion.canClose`，不能仅凭有回单草稿或 AI 结果启用结案。
-- 前端重新发起 SSE 处理时会同步清空旧 `toolCalls`，避免处理完成前短暂展示上一轮工具证据。
-- 前端适配层新增 `TicketContext`、`ReplyDraftState`、`CopilotSuggestion`、`EvidenceItem`、`OperationLog` 等概念，后续接真实 Java/Spring 或遗留系统时可优先替换 API/数据适配层。
-- 浏览器联调确认：工单编号直达、二级菜单过滤、Copilot 展开/隐藏、打开技术审计、旧版 fallback、真实 SSE 重新生成建议、回单草稿展示和结案门禁均正常；待复核工单可结案，已结案工单不可重复结案。
-- 当前 dev 数据库已被多轮演示验证改动过，部分种子工单处于已结案、已升级或待复核状态；本轮验证未重置种子数据，后续如需录制全新演示建议增加一键重置 Demo 数据脚本。
-
-## 模块 H 三路进阶调研发现
-
-### 语音入口
-
-- 语音入口最适合先做成“通话文本/预置转写文本导入层”，而不是新增业务 Agent 或直接接真实 ASR。
-- 当前系统已经天然支持通话文本：后端 `POST /api/tickets` 创建工单，文本进入 `tickets.content`；后续 AI 处理仍走现有 `Classifier -> Intake -> Escalation -> Resolution -> Notification` 主链路。
-- MVP 应补齐前端建单 API 和通话文本导入面板；创建成功后跳转详情页，并沿用现有 SSE 处理链路。
-- Mock-first 不需要新增依赖和 API Key；真实音频上传通常会涉及 `python-multipart`、浏览器录音权限、外部 ASR Key、隐私合规和原始音频保存策略，因此后置。
-- 低置信度、空文本、关键信息缺失不需要新增工单状态，应进入现有 `pending_info` 或人工复核路径。
-
-### Dispatcher Agent
-
-- 当前没有 Dispatcher Agent 仍然运行良好，是因为系统目前是由 `Orchestrator` 控制的确定性业务流水线，不是开放式多 Agent 协商网络。
-- `workflow_config` 已承担场景到流程、必填字段、推荐工具和人工确认策略的轻量路由；`EscalationAgent` 已承担缺字段、高风险、工具失败、UNKNOWN 场景和人工确认的安全兜底。
-- Dispatcher 的真实价值不是重新分类、抽字段、选工具或生成回单，而是解决“派给谁/哪个队列/哪个团队、SLA 如何提示、下一负责人是谁”。
-- 在没有真实人员池、团队负载、排班和 SLA 历史数据前，不应引入复杂调度优化；MVP 应规则优先，并放在终态通知前作为责任分配层。
-- Dispatcher 输出可先进入 AI 结果结构和 Notification 的 `nextOwner`，不急于新增独立数据库 schema；如果未来需要查询派单历史，再做兼容迁移。
-
-### Page Agent
-
-- Page Agent 第一阶段已经以 `frontend/src/components/ai/PageAssistantPanel.vue` 的形式落地，当前能力是当前工单页内的低风险页面助手：填入回单、检查风险/缺失字段、定位工具、进入复核区。
-- 下一步不建议新增后端 `page_agent.py`，更适合把 Page Agent 定义为“页面级工作流编排层 + 前端页面助手”。
-- Page Agent 的价值是把已有 AI 结果转成坐席页面动作，不负责重新判断业务、不替代后端状态机、不污染后端 Agent Trace。
-- 第一阶段动作可记录为前端页面助手动作日志；涉及业务状态变化时仍必须调用后端 `/confirm-action`、`/close` 等权威接口。
-- 第二阶段再做动态表单自动填充，并采用“预览 -> 人工确认 -> 写入页面”；第三阶段才考虑外部遗留系统页面自动化，必须有白名单、脱敏、审计、人工确认和失败接管。
-
-### 阿里 page-agent 源码调研
-
-- `C:\Users\heyunhui\OtherProjects\page-agent-main` 是 MIT 许可的 TypeScript monorepo，定位是运行在网页内的 GUI Agent，强调 in-page JavaScript、文本化 DOM 操作、无需截图/多模态，完整生态包含 `page-agent`、`core`、`page-controller`、`llms`、`ui`、Chrome Extension、MCP 和 website。
-- 核心结构是 `PageAgent = PageAgentCore + PageController + Panel`：`PageAgentCore` 做 observe-think-act 循环并维护 history/activity/status；`PageController` 做 DOM 抽取、可交互元素编号、点击、输入、选择、滚动和可选 JS 执行；LLM 层适配 OpenAI-compatible tool calling。
-- 许可证允许二开，但完整引入仍有工程风险：根项目要求较新的 Node/npm，完整 extension 依赖 WXT/React/Radix/idb/motion，并涉及 tabs、sidePanel、storage、`<all_urls>` 等浏览器权限；MCP 还会启动本地 hub 和 WebSocket 桥接。
-- 直接二开/嵌入不适合 TicketAgent 当前阶段：项目主线是 FastAPI + Vue 坐席工作台，当前 Page Agent 只需要本页低风险动作；完整 page-agent 会引入较大依赖体量、LLM Key 配置、DOM 内容脱敏、浏览器权限、供应链和金融审计成本。
-- 值得借鉴的不是整套代码，而是架构思想：页面状态理解、动作 DSL、工具/动作白名单、观察-计划-执行-验证循环、人工确认工具、history/activity 日志、DOM 内容发送 LLM 前的脱敏 hook。
-- TicketAgent 推荐 A+B 路线：A 阶段手搓轻量 Page Assistant；B 阶段借鉴 page-agent 的 `PageContext`、`PageAction`、`PageActionRunner` 和验证日志做局部重构；C 阶段只有当外部遗留系统无 API 时，再评估直接二开 PageAgent Ext/MCP。
-- 安全边界必须比通用 page-agent 更保守：不开放任意 DOM index 点击，不默认发送完整 DOM 给 LLM，不启用任意 JavaScript 执行，不绕过 `/confirm-action` 与 `/close`，页面助手动作不能混入后端 Agent Trace 或业务证据编号。
-
-## 风险与兜底
-
-| 风险 | 兜底方式 |
-|------|----------|
-| 大规模改名导致代码不稳 | 受控重构 5 个 Agent，旧文件短期保留兼容 shim，模块 A smoke 回归必须通过 |
-| 工具调用不稳定 | 先 Mock Tool/API，真实服务后接 |
-| 数据集构建耗时 | 先做 40 条左右高质量 MVP 样本，再按评测需要逐步扩展 |
-| 前端过技术化 | 默认展示业务流程，开发 Trace 折叠 |
-| 进阶功能分散精力 | Dispatcher、A2A、MCP、PageAgent、语音全部后置 |
-| Agent 效果难证明 | 建立标注样本和评测脚本，每轮开发后回归 |
+- `当前场景未接入自动化工具，建议转人工处理` 是 `EscalationAgent` 在 `intent_type=UNKNOWN` 时的固定兜底文案，不等同于 Mock Tool 未命中。
+- 本轮发现的误判来源主要有两类：一是 Classifier 只读取 `ticket.content`，没有使用标题、场景、类目、子类目；二是 `UNSUPPORTED_SCENE_KEYWORDS` 对“积分兑换/积分争议”过早拦截，导致可按权益/积分查询处理的样本落入 UNKNOWN。
+- 稳定做法是先用确定性规则把演示库中已有五类 workflow 场景归一化，再把真正后置的分期、年费、还款协商、征信、投诉、挂失补卡等留给 UNKNOWN/人工。
+- 交易类不应直接跳过工具；更贴近演示闭环的做法是先执行只读 Mock 交易查询获取证据，再保持人工复核/不可自动结案边界。
+- Mock 交易查询必须容忍 `amount='未提供'` 等抽取值，不应在 Repository 层抛 `float` 转换异常；非数字金额应视为缺失并按客户号/商户等字段回退查询。
