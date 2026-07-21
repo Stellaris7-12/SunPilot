@@ -907,3 +907,67 @@
 - 模块 I 的执行顺序已按依赖关系固定：先数据和数据库底座，再 CRUD，再 Mock Tools，最后前端重构和演示收口。
 - 前端大重构不再放在最前，避免后端字段、CRUD 和工具接口未稳定造成返工。
 - 本次只更新规划文档，未修改前后端源码。
+
+## 会话：2026-07-21（模块 I1 数据结构与迁移底座执行）
+
+### 背景
+
+用户要求按照 `doc/planning/task_plan.md` 执行模块 I1，并提供 MySQL 账号口径：`user=root`，密码来自系统环境变量 `MYSQL_ROOT_PASSWORD`。本轮遵循“不把真实密码写入文件”的边界；新增依赖、执行 DDL 和重置演示库均通过确认流程完成。
+
+### 执行内容
+
+- 新增数据库配置入口：`DB_BACKEND`、`DATABASE_URL`、连接池、超时和 SSL 开关，`.env.example` 使用 `${MYSQL_ROOT_PASSWORD}` 占位。
+- 扩展 `tickets` 业务字段，并同步更新 `TicketResponse`、`CreateTicketRequest`、后端 `Ticket`、前端 `Ticket` 类型。
+- 将主 API、Orchestrator、Trace、工具审计写入收口到 `models/repositories.py`，避免新增业务逻辑继续散落在 SQLite SQL 调用点。
+- 重构 `models/database.py`：SQLite 兼容迁移新增 I1 字段、索引、`ticket_operation_log` 和客户/卡片/交易/权益/申请 Mock 业务域预留表。
+- 新增 MySQL/TDSQL DDL：`ai-engine/migrations/mysql/001_i1_schema.sql`，覆盖主表、审计表、评测表和 Mock 业务域表。
+- 重写 `ai-engine/data/tickets.json` 为 30 条干净中文业务工单，并保留 `coupon/address/dispute/benefit/progress` 五个旧兼容入口 id。
+- 新增受控本地演示库重置脚本：`ai-engine/scripts/reset_demo_data.py --confirm-reset-demo`。
+- 新增 I1 数据库 smoke：`ai-engine/evaluation/smoke_module_i1_database.py`。
+- 新增 I1 数据库配置与验证文档：`doc/guides/数据库配置与I1验证.md`。
+- 修复企业壳详情页客户号展示，改为读取 `ticket.customerId`，不再使用内部 `id.toUpperCase()` 兜底。
+
+### 验证结果
+
+- `.venv\Scripts\python.exe -m compileall ai-engine`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_i1_database.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_a.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_b.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_c.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_d.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_e.py`：通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_f.py`：通过。
+- `cd frontend && npm.cmd run build`：通过。
+
+### 当前结论
+
+- I1 的 schema、Repository 边界、干净种子数据、SQLite fallback smoke、MySQL/TDSQL DDL、运行态 MySQL adapter 和前端客户号展示已落地。
+- 当前环境已检测到 `MYSQL_ROOT_PASSWORD` 已设置，并已完成本机 MySQL `ticket_agent` 演示库建表与 30 条干净业务种子导入。
+- `task_plan.md` 中 I1 开发方案 checklist 已全部勾选；本地旧 SQLite 运行库如需继续作为演示库，也可用受控重置脚本清理历史测试工单。
+
+### 后续补充
+
+- 已经确认安装 `SQLAlchemy`、`asyncmy`、`Alembic`，并更新 `pyproject.toml` / `uv.lock`。
+- 已接入 `DB_BACKEND=mysql|tdsql` 的运行态 adapter，Repository 可在 MySQL/TDSQL 与 SQLite fallback 间复用。
+- 已执行 `ai-engine/migrations/mysql/001_i1_schema.sql`，在本机 MySQL 创建/更新 `ticket_agent` 演示库 schema。
+- 已执行受控演示库重置脚本，将 30 条干净业务种子导入本机 MySQL `ticket_agent`。
+- MySQL smoke 验证通过：`ticket_count=30`、`bad_count=0`、二级分类覆盖 24 个、客户号均为真实 `C2xxxx` 格式。
+- MySQL API 验证通过：`GET /api/tickets` 返回 30 条，测试污染工单为 0，前端可消费字段包含 `customerId`。
+- `task_plan.md` 中 I1 开发方案 checklist 已全部勾选。
+
+## 会话：2026-07-21（启动与使用指南 I1 口径更新）
+
+### 背景
+
+用户要求更新 `doc/guides/启动与使用指南.md`，并确认数据库账号口径为 `root`，密码来自系统环境变量 `MYSQL_ROOT_PASSWORD`。
+
+### 执行内容
+
+- 将启动指南更新为 I1 数据库底座版，主路径改为 MySQL/TDSQL，SQLite 保留为本地测试兼容或 fallback。
+- 明确前端不直接连接数据库；前端只访问 `http://localhost:8000/api`，后端通过 Repository 访问 MySQL/TDSQL 或 SQLite。
+- 补充 `DB_BACKEND`、`DATABASE_URL`、`MYSQL_ROOT_PASSWORD` 的 PowerShell 配置方式，避免把真实密码写入仓库。
+- 补充 MySQL/TDSQL DDL、受控演示库重置脚本、I1 SQLite/MySQL smoke、核心回归和前后端启动命令。
+
+### 当前结论
+
+- 启动指南已与 I1 当前实现口径对齐，可作为本地演示和联调入口文档。
