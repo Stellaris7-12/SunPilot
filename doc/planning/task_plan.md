@@ -89,13 +89,26 @@ Mock Tools / MySQL = 业务系统与证据底座
 - [ ] 禁用 `execute_javascript`；DOM 点击/输入必须经过页面范围、元素语义、业务风险和目标校验。
 - [ ] Demo 模式允许低风险高频链路全自动发单/回单/结单；中高风险链路仍演示 PageAgent 填好页面并停在确认/升级节点，除非明确使用演示全自动脚本。
 
-### M3：发单侧 PageAgent
+### M3：发单 Agent 与可见发单 PageAgent
 
-- [ ] 在企业壳增加通话发单工作区：展示通话记录、发单草稿、业务系统字段区和提交按钮。
-- [ ] 发单 Agent 负责从 `call_transcripts.json` 或输入 transcript 中识别业务场景、工单类型、客户摘要和关键字段。
-- [ ] PageAgent 接管页面操作：移动鼠标到发单入口，打开发单面板，选择通话样本，填入标题、客户号、手机号、卡尾、场景、优先级、摘要等字段。
-- [ ] PageAgent 点击“一键提交工单/分发”完成创建，并跳转到新工单详情页。
-- [ ] 发单侧日志展示“自动调取业务字段/自动生成摘要/提交工单/分发至处理队列”的步骤，不要求首版真实接 13 个外部系统，可用 Mock 数据和说明承接。
+目标：把模块 L 原“通话发单侧 MVP”并入 PageAgent 主线。发单 Agent 决定“填什么”，PageAgent 负责“怎么可见地填并提交”，两者不再拆成两个独立模块排期。
+
+- [ ] 新增 `POST /api/call-records/generate-ticket-draft`，定位为发单 Agent / Call Intake 接口，而不是第六个后端业务 Agent。
+- [ ] 发单 Agent 输入：`transcript`、可选 `callMeta`、可选 `sampleId`、可选 `operatorId`。
+- [ ] 发单 Agent 输出：`ticketDraft`、`callSummary`、`detectedScenario`、`detectedTicketType`、`keyFields`、`missingFields`、`confidence`、`sourceCallId`、`pageTaskHints`。
+- [ ] `ticketDraft` 保持兼容现有 `POST /api/tickets`：`title`、`customerId`、`customerName`、`phone`、`cardLast4`、`scene`、`category`、`subcategory`、`priority`、`channel`、`riskLabel`、`riskLevel`、`content`。
+- [ ] MVP 优先支持样本驱动：若 `sampleId` 命中 `call_transcripts.json`，直接返回样本草稿；自定义 transcript 再走规则抽取 + LLM 兜底。
+- [ ] 在企业壳新增“通话发单工作区”：通话记录列表、通话全文、自动摘要、草稿字段表单、字段来源/缺失提示和“一键提交工单”按钮。
+- [ ] 为发单表单增加稳定页面锚点和语义属性，例如客户号、卡尾、场景、摘要、提交按钮，供 PageAgent DOM 观察和定位。
+- [ ] 发单 Agent 返回 `pageTaskHints`，告诉 PageAgent 应填哪些字段、目标区域在哪里、提交后期望跳转到哪里。
+- [ ] 用户在右侧 PageAgent 控制台输入“根据这通电话帮我发单”后，PageAgent 执行完整可见流程：选择通话样本/读取当前通话 -> 调用发单 Agent 生成草稿 -> 移动鼠标到发单入口 -> 打开发单区 -> 逐项填写字段 -> 高亮缺失/风险字段 -> 点击提交/分发。
+- [ ] 提交成功后调用现有 `POST /api/tickets`，创建工单并跳转 `/tickets/:id`。
+- [ ] 跳转后自动把当前 PageAgent 任务切换为回单侧任务，提示可继续“生成处理建议并自动回单”。
+- [ ] 坐席可手动编辑草稿；PageAgent 填写前如发现字段已被人工改动，需记录并按策略决定覆盖、追加或停下提示。
+- [ ] 发单侧展示字段来源：通话文本、客户资料系统、卡片系统、活动权益系统、交易系统、历史工单系统。
+- [ ] 首版不真实接 13 个外部系统；用 Mock 业务域和页面文案表达“客户资料、卡片、交易、权益、申请、历史工单等业务数据已自动调取”。
+- [ ] 对缺失字段生成追问或人工补充提示，避免 PageAgent 在字段不足时硬提交。
+- [ ] 发单 Agent 只负责发单前摘要和草稿；创建后的标准工单仍进入现有 `ClassifierAgent -> IntakeAgent -> ResolutionAgent -> EscalationAgent -> NotificationAgent`，后续 Agent 不反复消费完整 transcript。
 
 ### M4：回单侧 PageAgent
 
@@ -128,51 +141,15 @@ Mock Tools / MySQL = 业务系统与证据底座
 - [ ] 答辩时能讲清：多 Agent 没有被边缘化，它们负责业务决策；PageAgent 负责把业务决策变成可见、可审查、可接管的页面操作。
 - [ ] 前端 `npm.cmd run build` 通过；若接入裁剪源码，保留来源说明和 MIT License 口径。
 
-## 模块 L：发单 Agent 与 PageAgent 发单链路（P0，与 M 同步）
+## 模块 L：已并入模块 M3（不再单独排期）
 
-目标：把“通话结束后发单”做成可见的端到端链路。发单 Agent 负责理解通话、生成工单草稿和业务字段；PageAgent 负责在页面上移动鼠标、打开内嵌发单区、回填字段并提交/分发工单。模块 L 不替代模块 M，而是模块 M3 发单侧 PageAgent 的业务输入与接口契约。
+模块 L 原“通话记录发单侧 MVP”已整合进模块 M3：发单 Agent 与可见发单 PageAgent。后续不再单独维护 L1/L2/L3/L4，避免与 M3 重复。
 
-与 K/M 的关系：
+保留模块 L 作为索引说明：
 
-- 模块 K 已完成 MySQL-only 与 Mock Tools 数据底座，不再把 L 合并进 K。
-- L 依赖 K 的 `call_transcripts.json`、MySQL 演示库和 Mock 业务域 seed，确保发单后工单能继续命中后续 Mock Tools。
-- L 与 M 同步实现：L 产出 `ticketDraft`、字段解释和发单任务；M 用可见 GUI PageAgent 执行填单、提交和跳转。
-
-### L1：发单 Agent / Call Intake 契约
-
-- [ ] 新增 `POST /api/call-records/generate-ticket-draft`，定位为发单 Agent 接口，而不是第六个后端业务 Agent。
-- [ ] 输入：`transcript`、可选 `callMeta`、可选 `sampleId`、可选 `operatorId`。
-- [ ] 输出：`ticketDraft`、`callSummary`、`detectedScenario`、`detectedTicketType`、`keyFields`、`missingFields`、`confidence`、`sourceCallId`、`pageTaskHints`。
-- [ ] `ticketDraft` 保持兼容现有 `POST /api/tickets`：`title`、`customerId`、`customerName`、`phone`、`cardLast4`、`scene`、`category`、`subcategory`、`priority`、`channel`、`riskLabel`、`riskLevel`、`content`。
-- [ ] MVP 优先支持样本驱动：若 `sampleId` 命中 `call_transcripts.json`，直接返回样本草稿；自定义 transcript 再走规则抽取 + LLM 兜底。
-- [ ] 发单 Agent 只负责发单前摘要和草稿，不参与后续回单侧多 Agent 编排；创建后的标准工单仍进入现有 `ClassifierAgent -> IntakeAgent -> ResolutionAgent -> EscalationAgent -> NotificationAgent`。
-
-### L2：发单页面与 PageAgent 交接
-
-- [ ] 在企业壳中新增“通话发单工作区”，包含通话记录列表、通话全文、自动摘要、草稿字段表单、字段来源/缺失提示和“一键提交工单”按钮。
-- [ ] 为发单表单增加稳定页面锚点和语义属性，例如客户号、卡尾、场景、摘要、提交按钮，供 PageAgent DOM 观察和定位。
-- [ ] 发单 Agent 返回 `pageTaskHints`，告诉 PageAgent 应填哪些字段、目标区域在哪里、提交后期望跳转到哪里。
-- [ ] 坐席可手动编辑草稿；PageAgent 填写前如发现字段已被人工改动，需记录并按策略决定覆盖、追加或停下提示。
-
-### L3：PageAgent 可见发单执行
-
-- [ ] 用户在右侧 PageAgent 控制台输入“根据这通电话帮我发单”后，PageAgent 执行完整可见流程。
-- [ ] PageAgent 步骤：选择通话样本/读取当前通话 -> 调用发单 Agent 生成草稿 -> 移动鼠标到发单入口 -> 打开发单区 -> 逐项填写字段 -> 高亮缺失/风险字段 -> 点击提交/分发。
-- [ ] 提交成功后调用现有 `POST /api/tickets`，创建工单并跳转 `/tickets/:id`。
-- [ ] 跳转后自动把当前 PageAgent 任务切换为回单侧任务，提示可继续“生成处理建议并自动回单”。
-
-### L4：演示中的“13 个业务系统”表达
-
-- [ ] 首版不真实接 13 个外部系统；用 Mock 业务域和页面文案表达“客户资料、卡片、交易、权益、申请、历史工单等业务数据已自动调取”。
-- [ ] 发单侧展示字段来源：通话文本、客户资料系统、卡片系统、活动权益系统、交易系统、历史工单系统。
-- [ ] 对缺失字段生成追问或人工补充提示，避免 PageAgent 在字段不足时硬提交。
-
-### L 验收
-
-- [ ] 从 `call_transcripts.json` 选择一条低风险通话，PageAgent 能可见地生成草稿、填表、提交并跳转新工单。
-- [ ] 新工单继续进入原有多 Agent 回单侧处理链路，后续 Agent 不反复消费完整 transcript。
-- [ ] 发单页面展示自动摘要、字段来源、缺失字段和分发结果。
-- [ ] 答辩能讲清：发单 Agent 决定“填什么”，PageAgent 展示“怎么填并提交”，多 Agent 继续决定“如何处理和回单”。
+- K 仍是已完成的数据与 Mock Tools 底座，不与 L 合并。
+- L 的接口契约、发单页面、PageAgent 可见填单、13 个业务系统演示表达和验收标准均落在 M3。
+- 后续实施时直接按 M0/M2/M5 建 PageAgent 执行壳，再做 M3 发单链路，最后做 M4 回单链路。
 
 ## 模块 N：演示与答辩材料（P1）
 
@@ -188,7 +165,7 @@ Mock Tools / MySQL = 业务系统与证据底座
 
 1. 2026-07-21：完成 K1/K2/K3 的诊断和最小修复，确保 MySQL + Mock Tools 可演示。
 2. 2026-07-21 至 2026-07-22：实现 M0/M2/M5 的 PageAgent 基础执行壳、可见鼠标和右侧控制台。
-3. 2026-07-22：同步实现 L1/L2/L3，让 PageAgent 完成发单侧可见填单提交。
+3. 2026-07-22：实现 M3，让发单 Agent 产出草稿与页面任务，并由 PageAgent 完成发单侧可见填单提交。
 4. 2026-07-22 至 2026-07-23：实现 M4 回单侧可见处理链路，打通自动处理、填回单和低风险结单。
 5. 2026-07-23：跑后端 smoke、前端 build，整理 Demo 脚本和 PPT 要点。
 

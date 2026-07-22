@@ -43,7 +43,7 @@
 - 建单接口 `POST /api/tickets` 和前端 `createTicket` 已存在。
 - 后续更稳的方式是新增发单侧 Call Intake：只把完整 transcript 转成标准 `ticketDraft`，再进入现有多 Agent 工单处理链路。
 - 不建议让后续 Classifier/Resolution/Notification 每次直接消费完整 transcript，否则 token 成本、噪声和稳定性都会变差。
-- 新定位下，通话发单不应只做成后台接口调用；发单 Agent 负责产出草稿和字段来源，PageAgent 负责以可见鼠标在页面上填单、提交和分发。因此模块 L 应与模块 M 同步开发，而不是并入已完成的模块 K。
+- 新定位下，通话发单不应只做成后台接口调用；发单 Agent 负责产出草稿和字段来源，PageAgent 负责以可见鼠标在页面上填单、提交和分发。因此模块 L 应并入模块 M3，作为“发单 Agent 与可见发单 PageAgent”的业务输入、页面契约和发单执行子链路；模块 K 只保留为已完成的数据与 Mock Tools 底座。
 
 ## 答辩口径
 
