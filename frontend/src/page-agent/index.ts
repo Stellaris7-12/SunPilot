@@ -1,6 +1,16 @@
 export { PageActionRunner } from './core/PageActionRunner';
 export { SimulatorMask } from './controller/SimulatorMask';
-export { createCallIntakePlan, createEvidencePlan, createPageTaskPlan, createReplyPlan } from './policy/PolicyLayer';
+export {
+  createCallIntakePlan,
+  createClosePlan,
+  createEvidencePlan,
+  createPageTaskPlan,
+  createProcessPlan,
+  createReplyPlan,
+  createSaveDraftPlan,
+  resolvePageAgentIntent,
+} from './policy/PolicyLayer';
+export type { PageAgentIntent, PageAgentIntentResult } from './policy/PolicyLayer';
 export type {
   PageAction,
   PageActionLogEntry,

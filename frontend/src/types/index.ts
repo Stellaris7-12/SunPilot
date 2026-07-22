@@ -367,6 +367,7 @@ export interface PageBusinessContext {
   callSummary?: string;
   ticketDraft?: CreateTicketPayload | null;
   aiResult?: AiProcessResult | null;
+  replyDraft?: string;
   toolEvidenceIds?: string[];
   riskLevel?: RiskLevel;
   ticketStatus?: TicketStatus | string;

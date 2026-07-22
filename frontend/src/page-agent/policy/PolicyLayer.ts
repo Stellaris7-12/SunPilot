@@ -1,5 +1,21 @@
 import type { PageAction, PageActionType, PageBusinessContext, PageTaskPlan, RiskLevel } from '../../types';
 
+export type PageAgentIntent =
+  | 'call_intake'
+  | 'process_ticket'
+  | 'auto_reply'
+  | 'locate_evidence'
+  | 'save_draft'
+  | 'close_ticket'
+  | 'stop'
+  | 'unknown';
+
+export interface PageAgentIntentResult {
+  intent: PageAgentIntent;
+  label: string;
+  reason: string;
+}
+
 const allowedTools: PageActionType[] = ['observe', 'scroll', 'highlight', 'input', 'click', 'wait', 'verify', 'stop'];
 
 const writableDraftFields = [
@@ -23,6 +39,35 @@ function step(id: string, type: PageActionType, target: string, label: string, v
 
 function contextRisk(context: PageBusinessContext): RiskLevel {
   return context.riskLevel || context.ticketDraft?.riskLevel || 'low';
+}
+
+export function resolvePageAgentIntent(instruction: string, context: PageBusinessContext): PageAgentIntentResult {
+  const text = instruction.trim();
+  if (!text) {
+    return { intent: 'unknown', label: '未识别任务', reason: 'empty_instruction' };
+  }
+  if (/停止|接管|暂停|中止|别动|不要继续/.test(text)) {
+    return { intent: 'stop', label: '停止/接管', reason: 'matched_stop' };
+  }
+  if (/证据|审计|工具|流水|编号|定位/.test(text)) {
+    return { intent: 'locate_evidence', label: '定位证据', reason: 'matched_evidence' };
+  }
+  if (/结案|关闭|提交复核|复核/.test(text)) {
+    return { intent: 'close_ticket', label: '复核/结案', reason: 'matched_close' };
+  }
+  if (/保存草稿|保存回单|存草稿/.test(text)) {
+    return { intent: 'save_draft', label: '保存草稿', reason: 'matched_save_draft' };
+  }
+  if (/自动回单|填好|填写回单|填回单|回复|客户回单|回单/.test(text)) {
+    return { intent: 'auto_reply', label: '自动回单', reason: 'matched_reply' };
+  }
+  if (/处理建议|生成建议|分析|处理当前|启动处理|多 Agent|多Agent|建议/.test(text)) {
+    return { intent: 'process_ticket', label: '生成处理建议', reason: 'matched_process' };
+  }
+  if (context.scene === 'call-intake' || /发单|通话|电话|草稿|提交工单|创建工单|分发/.test(text)) {
+    return { intent: 'call_intake', label: '通话发单', reason: 'matched_call_intake' };
+  }
+  return { intent: 'unknown', label: '未识别任务', reason: 'no_rule_matched' };
 }
 
 export function createCallIntakePlan(context: PageBusinessContext): PageTaskPlan {
@@ -119,6 +164,97 @@ export function createReplyPlan(context: PageBusinessContext): PageTaskPlan {
   };
 }
 
+export function createProcessPlan(context: PageBusinessContext): PageTaskPlan {
+  const riskLevel = contextRisk(context);
+  const steps: PageAction[] = [
+    step('observe-ticket', 'observe', 'enterprise-ticket-detail', '观察当前工单页面', '', riskLevel),
+  ];
+
+  if (!context.availableActions.includes('process_ticket')) {
+    steps.push({
+      ...step('stop-no-process', 'stop', 'page-agent-process', '当前页面不能生成处理建议', '', riskLevel),
+      stopReason: 'process_not_available',
+    });
+  } else {
+    steps.push(step('start-process', 'click', 'page-agent-process', '触发多 Agent 生成处理建议', '', riskLevel));
+    steps.push(step('wait-process', 'wait', 'sunpilot-flow', '等待后端 Agent Trace 与处理结果', '', riskLevel));
+    steps.push({
+      ...step('stop-wait-ai', 'stop', 'sunpilot-flow', '处理建议已触发，等待结果返回', '', riskLevel),
+      stopReason: 'waiting_for_ai_result',
+    });
+  }
+
+  return {
+    id: `process-${Date.now()}`,
+    goal: '生成当前工单处理建议',
+    riskLevel,
+    allowDemoAutoSubmit: false,
+    allowedTools,
+    expectedResult: '多 Agent 处理链路已启动，结果返回后在对话流中展示。',
+    steps,
+  };
+}
+
+export function createSaveDraftPlan(context: PageBusinessContext): PageTaskPlan {
+  const riskLevel = contextRisk(context);
+  const replyDraft = context.replyDraft || context.aiResult?.notification?.standardReply?.body || context.aiResult?.replyDraft || '';
+  const steps: PageAction[] = [
+    step('observe-ticket', 'observe', 'enterprise-ticket-detail', '观察当前工单页面', '', riskLevel),
+  ];
+
+  if (!replyDraft.trim()) {
+    steps.push({
+      ...step('stop-no-reply', 'stop', 'enterprise-reply', '当前没有可保存的回单草稿', '', riskLevel),
+      stopReason: 'missing_reply_draft',
+    });
+  } else {
+    steps.push(step('fill-reply', 'input', 'page-agent-reply-draft', '填入当前回单草稿', replyDraft, riskLevel));
+    steps.push(step('save-draft', 'click', 'page-agent-save-draft', '保存回单草稿', '', riskLevel));
+    steps.push({
+      ...step('stop-review', 'stop', 'enterprise-reply', '草稿已保存，等待人工复核', '', riskLevel),
+      stopReason: 'manual_review_required',
+    });
+  }
+
+  return {
+    id: `save-draft-${Date.now()}`,
+    goal: '保存当前回单草稿',
+    riskLevel,
+    allowDemoAutoSubmit: false,
+    allowedTools,
+    expectedResult: '回单草稿保存后停在人工复核节点。',
+    steps,
+  };
+}
+
+export function createClosePlan(context: PageBusinessContext): PageTaskPlan {
+  const riskLevel = contextRisk(context);
+  const canClose = context.availableActions.includes('close_ticket');
+  const steps: PageAction[] = [
+    step('observe-ticket', 'observe', 'enterprise-ticket-detail', '观察复核与结案区', '', riskLevel),
+  ];
+
+  if (canClose && riskLevel === 'low' && context.demoAutoClose) {
+    steps.push(step('close-ticket', 'click', 'page-agent-close-ticket', '提交复核并结案', '', riskLevel));
+    steps.push(step('verify-closed', 'verify', 'enterprise-ticket-detail', '验证结案请求已提交', '', riskLevel));
+  } else {
+    steps.push({
+      ...step('stop-review', 'stop', 'enterprise-reply', '结案需要人工复核确认', '', riskLevel),
+      stopReason: canClose ? 'manual_review_required' : 'close_not_available',
+    });
+  }
+
+  return {
+    id: `close-${Date.now()}`,
+    goal: '准备复核与结案',
+    riskLevel,
+    allowDemoAutoSubmit: canClose && riskLevel === 'low' && Boolean(context.demoAutoClose),
+    allowedTools,
+    expectedResult: '满足演示安全条件时提交结案，否则停在人工复核节点。',
+    steps,
+  };
+}
+
 export function createEvidencePlan(context: PageBusinessContext): PageTaskPlan {
   const riskLevel = contextRisk(context);
   return {
@@ -137,9 +273,30 @@ export function createEvidencePlan(context: PageBusinessContext): PageTaskPlan {
   };
 }
 
-export function createPageTaskPlan(context: PageBusinessContext): PageTaskPlan {
-  const text = context.instruction.trim();
-  if (context.scene === 'call-intake' || /发单|电话|通话/.test(text)) return createCallIntakePlan(context);
-  if (/证据|审计|工具/.test(text)) return createEvidencePlan(context);
-  return createReplyPlan(context);
+export function createUnknownPlan(context: PageBusinessContext): PageTaskPlan {
+  const riskLevel = contextRisk(context);
+  return {
+    id: `unknown-${Date.now()}`,
+    goal: '等待明确的 PageAgent 任务',
+    riskLevel,
+    allowDemoAutoSubmit: false,
+    allowedTools,
+    expectedResult: '未执行页面动作。',
+    steps: [
+      {
+        ...step('stop-unknown', 'stop', context.scene === 'call-intake' ? 'call-intake-workspace' : 'enterprise-ticket-detail', '未识别到可执行任务', '', riskLevel),
+        stopReason: 'unknown_instruction',
+      },
+    ],
+  };
+}
+
+export function createPageTaskPlan(context: PageBusinessContext, intent: PageAgentIntent = resolvePageAgentIntent(context.instruction, context).intent): PageTaskPlan {
+  if (intent === 'call_intake') return createCallIntakePlan(context);
+  if (intent === 'process_ticket') return createProcessPlan(context);
+  if (intent === 'auto_reply') return createReplyPlan(context);
+  if (intent === 'locate_evidence') return createEvidencePlan(context);
+  if (intent === 'save_draft') return createSaveDraftPlan(context);
+  if (intent === 'close_ticket') return createClosePlan(context);
+  return createUnknownPlan(context);
 }
