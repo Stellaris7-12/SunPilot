@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import { evalApi } from '../api'
-import { PageActionRunner, createPageTaskPlan } from '../page-agent'
+import { PageActionRunner, createPageTaskPlan, resolvePageAgentIntent, type PageAgentIntent } from '../page-agent'
 import { useTicketStore } from '../stores/ticket'
-import type { CallRecordSample, CreateTicketPayload, EvaluationMetrics, PageBusinessContext, Ticket } from '../types'
+import type { CallRecordSample, CreateTicketPayload, EvaluationMetrics, PageActionLogEntry, PageBusinessContext, Ticket, TraceStep } from '../types'
 import {
-  businessSteps,
   bucketMatches,
   type CopilotSuggestion,
   copilotSuggestion,
@@ -16,7 +15,6 @@ import {
   fieldVerificationItems,
   formatMs,
   formatPercent,
-  operationLogs,
   replyWorkspaceSections,
   riskMeta,
   scenarioFamily,
@@ -25,6 +23,29 @@ import {
   workBuckets,
 } from '../utils/business'
 
+type PageAgentMessageKind = 'task' | 'assistant' | 'agent-step' | 'page-step' | 'result'
+type PageAgentMessageTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
+
+interface PageAgentChatMessage {
+  id: string
+  kind: PageAgentMessageKind
+  role: 'user' | 'assistant'
+  title: string
+  body: string
+  tone: PageAgentMessageTone
+  chips?: string[]
+  lines?: string[]
+}
+
+interface PageAgentQuickAction {
+  id: string
+  label: string
+  command: string
+  intent: PageAgentIntent
+  disabled?: boolean
+  reason?: string
+}
+
 const route = useRoute()
 const router = useRouter()
 const store = useTicketStore()
@@ -32,7 +53,6 @@ const store = useTicketStore()
 const activeMenu = ref('all')
 const activeBucket = ref('all')
 const copilotOpen = ref(true)
-const auditOpen = ref(false)
 const confirmVisible = ref(false)
 const operationError = ref('')
 const metrics = ref<EvaluationMetrics | null>(null)
@@ -53,6 +73,12 @@ const draftForm = ref<CreateTicketPayload>(emptyTicketDraft())
 const draftFieldTouched = ref<Record<string, boolean>>({})
 const draftGenerationStatus = ref('')
 const pageInstruction = ref('根据这通电话帮我发单')
+const pageAgentInput = ref('')
+const pageAgentThread = ref<HTMLElement | null>(null)
+const pageAgentMessages = ref<PageAgentChatMessage[]>([])
+const pageAgentStepIndex = ref(0)
+const pageAgentProcessPending = ref(false)
+const pageAgentLastTraceSignature = ref('')
 const pageAgentRunner = new PageActionRunner()
 const pageAgentShouldStop = ref(false)
 const pendingAutoReply = ref(false)
@@ -67,8 +93,6 @@ const family = computed(() => ticket.value ? scenarioFamily(ticket.value, store.
 const status = computed(() => ticket.value ? statusMeta(ticket.value.status) : null)
 const risk = computed(() => ticket.value ? riskMeta(ticket.value.riskLevel, ticket.value.riskLabel) : null)
 const evidence = computed(() => evidenceItems(store.aiResult, store.toolCalls))
-const logs = computed(() => operationLogs(ticket.value, store.aiResult, store.traceSteps, store.toolCalls, store.operationLogs))
-const flowSteps = computed(() => businessSteps(store.traceSteps, store.aiResult, store.isProcessing))
 const verificationItems = computed(() => fieldVerificationItems(store.aiResult))
 const replySections = computed(() => replyWorkspaceSections(store.aiResult, ticket.value))
 const suggestion = computed<CopilotSuggestion>(() => copilotSuggestion(ticket.value, store.aiResult, store.isProcessing))
@@ -171,8 +195,14 @@ const draftRequiredMissing = computed(() => {
   return required.filter(([key]) => !String(draftForm.value[key] || '').trim()).map(([, label]) => label)
 })
 const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
-const pageAgentLogs = computed(() => store.pageActionLogs.slice(0, 10))
 const pageAgentBusy = computed(() => ['thinking', 'executing', 'retrying'].includes(store.pageAgentStatus))
+const pageAgentModeLabel = computed(() => routeHasTicket.value ? '工单回单' : '通话发单')
+const pageAgentStatusTone = computed(() => {
+  if (store.pageAgentStatus === 'error') return 'danger'
+  if (store.pageAgentStatus === 'stopped') return 'warning'
+  if (pageAgentBusy.value) return 'running'
+  return 'ready'
+})
 const pageAgentStatusLabel = computed(() => {
   const labels = {
     thinking: '思考中',
@@ -184,6 +214,35 @@ const pageAgentStatusLabel = computed(() => {
     stopped: '已接管',
   }
   return labels[store.pageAgentStatus]
+})
+const pageAgentPlaceholder = computed(() =>
+  routeHasTicket.value
+    ? '描述你的任务，例如：帮我定位证据'
+    : '描述你的任务，例如：根据这通电话帮我发单'
+)
+const pageAgentQuickActions = computed<PageAgentQuickAction[]>(() => {
+  if (!routeHasTicket.value) {
+    return [
+      { id: 'call-intake', label: '通话发单', command: '根据这通电话帮我发单', intent: 'call_intake', disabled: pageAgentBusy.value },
+      { id: 'draft', label: '生成草稿', command: '生成发单草稿', intent: 'call_intake', disabled: pageAgentBusy.value },
+      {
+        id: 'submit',
+        label: '提交工单',
+        command: '提交工单',
+        intent: 'call_intake',
+        disabled: pageAgentBusy.value || !canSubmitDraft.value,
+        reason: canSubmitDraft.value ? '' : `待补充：${draftRequiredMissing.value.join('、')}`,
+      },
+      { id: 'stop', label: '接管', command: '停止接管', intent: 'stop', disabled: !pageAgentBusy.value },
+    ]
+  }
+  return [
+    { id: 'process', label: '生成建议', command: '生成处理建议', intent: 'process_ticket', disabled: pageAgentBusy.value || store.isProcessing },
+    { id: 'reply', label: '自动回单', command: '处理当前工单并自动回单', intent: 'auto_reply', disabled: pageAgentBusy.value || store.isProcessing },
+    { id: 'evidence', label: '定位证据', command: '定位证据和审计', intent: 'locate_evidence', disabled: pageAgentBusy.value || !store.aiResult },
+    { id: 'save', label: '保存草稿', command: '保存回单草稿', intent: 'save_draft', disabled: pageAgentBusy.value || !store.replyDraft },
+    { id: 'stop', label: '接管', command: '停止接管', intent: 'stop', disabled: !pageAgentBusy.value },
+  ]
 })
 
 onMounted(async () => {
@@ -213,10 +272,27 @@ watch(selectedCall, current => {
 }, { immediate: true })
 
 watch([() => store.aiResult, pageAgentBusy], ([result, busy]) => {
+  if (result && pageAgentProcessPending.value) {
+    appendAgentTraceMessages(store.traceSteps, ticket.value?.status || (store.workflowPaused ? 'pending_human_review' : 'done'))
+    appendResultMessage(
+      store.workflowPaused ? '已进入人工复核' : result.failureReason ? '处理失败' : '处理完成',
+      result.failureReason || result.notification?.closureSuggestion?.reason || result.replyDraft || '后台结果已返回。',
+      result.failureReason ? 'danger' : store.workflowPaused ? 'warning' : 'success',
+      [
+        result.missingFields?.length ? `待补字段：${result.missingFields.join('、')}` : '字段已补齐',
+        ticket.value?.status ? `当前状态：${ticket.value.status}` : '状态已更新',
+      ],
+    )
+    pageAgentProcessPending.value = false
+  }
   if (!result || !pendingAutoReply.value || busy) return
   pendingAutoReply.value = false
-  runPageAgentTask('继续根据处理建议自动回单')
+  void runPageAgentTask('继续根据处理建议自动回单', 'auto_reply')
 })
+
+watch([ticketId, selectedCallId], () => {
+  resetPageAgentConversation()
+}, { immediate: true })
 
 watch(ticket, current => {
   editableTitle.value = current?.title || ''
@@ -233,6 +309,90 @@ watch([() => store.aiResult, ticket], () => {
   followUpDraft.value = sections.find(section => section.id === 'followUp')?.body || ''
   replyTouched.value = false
 }, { immediate: true })
+
+function messageId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+function resetPageAgentConversation() {
+  pageAgentStepIndex.value = 0
+  pageAgentProcessPending.value = false
+  pageAgentLastTraceSignature.value = ''
+  pageAgentMessages.value = [{
+    id: messageId('welcome'),
+    kind: 'assistant',
+    role: 'assistant',
+    title: 'PageAgent ready',
+    body: routeHasTicket.value
+      ? '输入一句话，或使用下方快捷操作处理当前工单。'
+      : '选择通话样本后，可以让我生成草稿、可见填单并提交。'
+    ,
+    tone: 'neutral',
+    chips: routeHasTicket.value ? ['生成建议', '自动回单', '定位证据'] : ['通话发单', '生成草稿', '提交工单'],
+  }]
+}
+
+function appendPageAgentMessage(message: Omit<PageAgentChatMessage, 'id'>) {
+  pageAgentMessages.value = [
+    ...pageAgentMessages.value,
+    { ...message, id: messageId(message.kind) },
+  ].slice(-48)
+  void nextTick(() => {
+    if (pageAgentThread.value) {
+      pageAgentThread.value.scrollTop = pageAgentThread.value.scrollHeight
+    }
+  })
+}
+
+function appendAssistantMessage(title: string, body: string, tone: PageAgentMessageTone = 'neutral', chips: string[] = []) {
+  appendPageAgentMessage({ kind: 'assistant', role: 'assistant', title, body, tone, chips })
+}
+
+function appendResultMessage(title: string, body: string, tone: PageAgentMessageTone = 'success', lines: string[] = []) {
+  appendPageAgentMessage({ kind: 'result', role: 'assistant', title, body, tone, lines })
+}
+
+function appendPageActionMessage(entry: PageActionLogEntry) {
+  pageAgentStepIndex.value += 1
+  const tone: PageAgentMessageTone = entry.status === 'error'
+    ? 'danger'
+    : entry.status === 'stopped'
+      ? 'warning'
+      : 'neutral'
+  appendPageAgentMessage({
+    kind: 'page-step',
+    role: 'assistant',
+    title: `Step #${pageAgentStepIndex.value} · ${entry.tool}`,
+    body: entry.result,
+    tone,
+    chips: [entry.target, entry.status, `${entry.durationMs}ms`],
+    lines: entry.inputSummary ? [`输入：${entry.inputSummary}`] : [],
+  })
+}
+
+function appendAgentTraceMessages(steps: TraceStep[], finalStatus: string) {
+  const signature = steps.map(step => `${step.agentId}:${step.status}:${step.summary}:${step.duration}`).join('|')
+  if (!signature || signature === pageAgentLastTraceSignature.value) return
+  pageAgentLastTraceSignature.value = signature
+  appendPageAgentMessage({
+    kind: 'agent-step',
+    role: 'assistant',
+    title: 'Agent 信息流转',
+    body: '后端多 Agent 已完成本轮业务判断。',
+    tone: 'accent',
+    chips: finalStatus ? [`状态：${finalStatus}`] : [],
+    lines: steps.map(step => `${step.agent} · ${step.status} · ${step.summary}`),
+  })
+}
+
+function unknownCommandHelp() {
+  appendAssistantMessage(
+    '我还不能执行这类请求',
+    '可以让我发单、生成处理建议、自动回单、定位证据、保存草稿、准备复核或停止接管。',
+    'warning',
+    ['发单', '生成建议', '定位证据', '自动回单'],
+  )
+}
 
 function emptyTicketDraft(): CreateTicketPayload {
   return {
@@ -312,6 +472,7 @@ function buildPageBusinessContext(instruction: string): PageBusinessContext {
     callSummary: store.ticketDraftResult?.callSummary,
     ticketDraft: onHome ? draftForm.value : null,
     aiResult: store.aiResult,
+    replyDraft: store.replyDraft,
     toolEvidenceIds: evidence.value.map(item => item.id),
     riskLevel: onHome ? draftForm.value.riskLevel : (ticket.value?.riskLevel || 'low'),
     ticketStatus: ticket.value?.status,
@@ -326,6 +487,11 @@ function buildPageBusinessContext(instruction: string): PageBusinessContext {
       'ticket-draft-form',
       'enterprise-ticket-detail',
       'enterprise-reply',
+      'page-agent-thread',
+      'page-agent-composer',
+      'page-agent-process',
+      'page-agent-save-draft',
+      'page-agent-close-ticket',
       'sunpilot-fields',
       'sunpilot-evidence',
       'sunpilot-audit',
@@ -355,34 +521,83 @@ function recordDraftOverwritePolicy(editedFields: string[]) {
   })
 }
 
-async function runPageAgentTask(command = pageInstruction.value) {
-  const instruction = command.trim() || '处理当前页面任务'
+async function runPageAgentTask(command = pageAgentInput.value || pageInstruction.value, forcedIntent?: PageAgentIntent) {
+  const instruction = command.trim() || (routeHasTicket.value ? '处理当前工单' : '根据这通电话帮我发单')
+  const context = buildPageBusinessContext(instruction)
+  const resolved = resolvePageAgentIntent(instruction, context)
+  const intent = forcedIntent || resolved.intent
+
   pageInstruction.value = instruction
   pageAgentShouldStop.value = false
   operationError.value = ''
+
+  appendPageAgentMessage({
+    kind: 'task',
+    role: 'user',
+    title: '坐席任务',
+    body: instruction,
+    tone: 'neutral',
+    chips: [resolved.label, routeHasTicket.value ? '工单页' : '发单页'],
+  })
+
+  if (intent === 'unknown') {
+    unknownCommandHelp()
+    pageAgentInput.value = ''
+    return
+  }
+
+  if (intent === 'stop') {
+    stopPageAgent()
+    appendResultMessage('已接管', '当前 PageAgent 任务已停止。', 'warning')
+    pageAgentInput.value = ''
+    return
+  }
+
   try {
-    if (!routeHasTicket.value && /发单|电话|通话/.test(instruction) && !store.ticketDraftResult) {
+    if (intent === 'call_intake' && !routeHasTicket.value && !store.ticketDraftResult) {
       store.setPageAgentStatus('executing', '调用发单 Agent 生成草稿')
       await generateDraftFromCall()
     }
-    if (!routeHasTicket.value && /发单|电话|通话/.test(instruction) && store.ticketDraftResult) {
+    if (intent === 'call_intake' && !routeHasTicket.value && store.ticketDraftResult) {
       recordDraftOverwritePolicy(Object.keys(draftFieldTouched.value).filter(key => draftFieldTouched.value[key]))
       draftForm.value = { ...emptyTicketDraft(), ...store.ticketDraftResult.ticketDraft }
     }
-    if (routeHasTicket.value && !store.aiResult && /处理|回单|结单/.test(instruction)) {
+
+    const nextContext = buildPageBusinessContext(instruction)
+    const plan = createPageTaskPlan(nextContext, intent)
+    const shouldWaitForProcess = (intent === 'process_ticket' || intent === 'auto_reply') && !store.aiResult
+    pageAgentProcessPending.value = shouldWaitForProcess
+    if (intent === 'auto_reply' && !store.aiResult) {
       pendingAutoReply.value = true
     }
 
-    const context = buildPageBusinessContext(instruction)
-    const plan = createPageTaskPlan(context)
-    await pageAgentRunner.run(plan, context, {
-      onLog: entry => store.appendPageActionLog(entry),
+    await pageAgentRunner.run(plan, nextContext, {
+      onLog: entry => {
+        store.appendPageActionLog(entry)
+        appendPageActionMessage(entry)
+      },
       onStatus: (status, goal) => store.setPageAgentStatus(status, goal),
       shouldStop: () => pageAgentShouldStop.value,
     })
+
+    const latestLog = store.pageActionLogs[0]
+    const tone: PageAgentMessageTone = latestLog?.status === 'error'
+      ? 'danger'
+      : latestLog?.status === 'stopped'
+        ? 'warning'
+        : 'success'
+
+    if (pageAgentProcessPending.value) {
+      appendAssistantMessage('处理中', '多 Agent 已经触发，结果会继续写入对话流。', 'accent', ['等待后端结果'])
+    } else {
+      appendResultMessage('执行完成', plan.expectedResult, tone, plan.steps.map(step => `${step.type} · ${step.label}`))
+    }
   } catch {
     store.setPageAgentStatus('error', instruction)
+    appendResultMessage('执行失败', 'PageAgent 执行失败，请查看动作轨迹并人工接管。', 'danger')
     operationError.value = 'PageAgent 执行失败，请查看动作轨迹并人工接管。'
+  } finally {
+    pageAgentInput.value = ''
   }
 }
 
@@ -390,6 +605,31 @@ function stopPageAgent() {
   pageAgentShouldStop.value = true
   pageAgentRunner.stop()
   store.setPageAgentStatus('stopped', '坐席已接管')
+}
+
+function submitPageAgentInput() {
+  const command = pageAgentInput.value.trim()
+  if (!command || pageAgentBusy.value) return
+  void runPageAgentTask(command)
+}
+
+function handlePageAgentKeydown(event: KeyboardEvent) {
+  if (event.isComposing) return
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    submitPageAgentInput()
+  }
+}
+
+function runPageAgentQuickAction(action: PageAgentQuickAction) {
+  if (action.disabled) return
+  pageAgentInput.value = action.command
+  void runPageAgentTask(action.command, action.intent)
+}
+
+function handleProcess() {
+  operationError.value = ''
+  if (ticket.value) store.startAiProcess(ticket.value.id)
 }
 
 function selectTicket(id: string) {
@@ -425,11 +665,6 @@ function selectMenu(id: string) {
   } else {
     activeBucket.value = 'all'
   }
-}
-
-function handleProcess() {
-  operationError.value = ''
-  if (ticket.value) store.startAiProcess(ticket.value.id)
 }
 
 async function handleClose() {
@@ -598,24 +833,6 @@ function insertReplyLine(line: string) {
 
 function markReplyEdited() {
   replyTouched.value = true
-}
-
-function runCopilotAction(action: CopilotSuggestion['actions'][number]['id']) {
-  if (action === 'process') handleProcess()
-  if (action === 'fill_reply') fillReplyDraft()
-  if (action === 'locate_evidence') scrollToId('sunpilot-evidence')
-  if (action === 'locate_missing') scrollToId('sunpilot-fields')
-  if (action === 'open_audit') {
-    auditOpen.value = true
-    scrollToId('sunpilot-audit')
-  }
-  if (action === 'prepare_review') scrollToId('enterprise-reply')
-  if (action === 'prepare_confirm') openHumanConfirm()
-}
-
-function syncAuditOpen(event: Event) {
-  const target = event.target
-  auditOpen.value = target instanceof HTMLDetailsElement ? target.open : auditOpen.value
 }
 
 function statusClass(tone?: string) {
@@ -1113,165 +1330,79 @@ function ticketSourceLabel(item?: Ticket | null) {
       </main>
 
       <button class="copilot-toggle" type="button" @click="copilotOpen = !copilotOpen">
-        SunPilot {{ copilotOpen ? '隐藏' : '展开' }}
+        PageAgent {{ copilotOpen ? '隐藏' : '展开' }}
       </button>
 
-      <aside v-if="copilotOpen" class="copilot">
-        <div class="copilot-head"><strong>SunPilot PageAgent</strong><span>受控 GUI 执行层</span></div>
-        <details class="copilot-section page-agent-console" open>
-          <summary><span>PageAgent 控制台</span><strong>{{ pageAgentStatusLabel }}</strong></summary>
-          <div class="copilot-body">
-            <label class="agent-command">
-              <span>自然语言任务</span>
-              <textarea v-model="pageInstruction" data-page-agent-target="page-agent-command" />
-            </label>
-            <div class="page-agent-state">
-              <span>当前目标</span>
-              <strong>{{ store.pageAgentGoal || '等待任务' }}</strong>
-              <small>工具白名单：observe / scroll / highlight / input / click / wait / verify / stop</small>
-            </div>
-            <div class="copilot-actions">
-              <button class="btn-primary" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask()">执行任务</button>
-              <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask('根据这通电话帮我发单')">通话发单</button>
-              <button id="page-agent-process" class="btn-plain" data-page-agent-target="page-agent-process" type="button" :disabled="store.isProcessing || !ticket" @click="handleProcess">生成处理建议</button>
-              <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask('处理当前工单并自动回单')">自动回单</button>
-              <button class="btn-plain danger" type="button" :disabled="!pageAgentBusy" @click="stopPageAgent">停止/接管</button>
-            </div>
-            <ol class="page-action-log">
-              <li v-for="entry in pageAgentLogs" :key="entry.id" :class="entry.status">
-                <span>{{ entry.createdAt }} · {{ entry.status }} · {{ entry.tool }}</span>
-                <strong>{{ entry.target }}</strong>
-                <p>{{ entry.result }}</p>
-                <small>{{ entry.contextSummary }} / {{ entry.stopReason || 'ok' }} / {{ entry.durationMs }}ms</small>
-              </li>
-              <li v-if="!pageAgentLogs.length" class="empty-log">
-                <span>EMPTY</span>
-                <strong>执行 PageAgent 任务后展示页面动作轨迹。</strong>
-              </li>
-            </ol>
-          </div>
-        </details>
-
-        <details class="copilot-section" open>
-          <summary><span>当前建议</span><strong>{{ suggestion.title }}</strong></summary>
-          <div class="copilot-body">
-            <div class="suggestion">
-              <strong>{{ suggestion.title }}</strong>
-              <p>{{ suggestion.summary }}</p>
-            </div>
-            <div class="copilot-actions">
-              <button
-                v-for="action in suggestion.actions"
-                :key="action.id"
-                type="button"
-                :class="{ 'btn-primary': action.id === 'process' }"
-                :disabled="action.disabled"
-                :title="action.reason"
-                @click="runCopilotAction(action.id)"
-              >
-                {{ action.label }}
-              </button>
+      <aside v-if="copilotOpen" class="copilot page-agent-chat">
+        <header class="page-agent-chat-head">
+          <div class="page-agent-brand">
+            <span class="page-agent-mark">PA</span>
+            <div>
+              <strong>PageAgent</strong>
+              <small>{{ pageAgentModeLabel }}</small>
             </div>
           </div>
-        </details>
-
-        <details id="sunpilot-flow" class="copilot-section" data-page-agent-target="sunpilot-flow" open>
-          <summary><span>状态流转</span><strong>{{ flowSteps.filter(step => step.status === 'done').length }}/{{ flowSteps.length }}</strong></summary>
-          <div class="copilot-body">
-            <ol class="flow-list">
-              <li
-                v-for="step in flowSteps"
-                :key="step.id"
-                :class="`flow-step ${step.status}`"
-                @click="step.id === 'execute' ? scrollToId('sunpilot-evidence') : step.id === 'reply' ? scrollToId('enterprise-reply') : scrollToId('sunpilot-fields')"
-              >
-                <span>{{ step.label }}</span>
-                <strong>{{ step.status === 'done' ? '已完成' : step.status === 'running' ? '处理中' : step.status === 'blocked' ? '已拦截' : '等待' }}</strong>
-                <small>{{ step.description }}</small>
-              </li>
-            </ol>
+          <div class="page-agent-head-actions">
+            <span :class="`page-agent-status-dot ${pageAgentStatusTone}`"></span>
+            <span>{{ pageAgentStatusLabel }}</span>
+            <button class="page-agent-mini-btn" type="button" :disabled="!pageAgentBusy" @click="stopPageAgent">接管</button>
           </div>
-        </details>
+        </header>
 
-        <details id="sunpilot-fields" class="copilot-section">
-          <summary><span>字段补全/信息核验</span><strong>{{ verificationItems.length || 0 }} 项</strong></summary>
-          <div class="copilot-body">
-            <table class="compact-table">
-              <thead><tr><th>项目</th><th>结果</th><th>来源</th><th>证据</th></tr></thead>
-              <tbody>
-                <tr v-for="item in verificationItems" :key="item.id">
-                  <td>{{ item.label }}</td>
-                  <td><span :class="`status ${item.status === 'missing' || item.status === 'conflict' ? 'amber' : item.status === 'review' ? 'red' : 'green'}`">{{ item.value }}</span></td>
-                  <td>{{ item.source }}</td>
-                  <td class="mono">{{ item.evidenceId }}</td>
-                </tr>
-                <tr v-if="!verificationItems.length">
-                  <td colspan="4" class="empty-cell">尚未生成核验结果。</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </details>
+        <section ref="pageAgentThread" class="page-agent-thread" aria-label="PageAgent 对话流">
+          <article
+            v-for="message in pageAgentMessages"
+            :key="message.id"
+            class="page-agent-message"
+            :class="[message.kind, message.role, message.tone]"
+          >
+            <div class="page-agent-message-head">
+              <strong>{{ message.title }}</strong>
+              <span>{{ message.kind }}</span>
+            </div>
+            <p>{{ message.body }}</p>
+            <div v-if="message.chips?.length" class="page-agent-chip-row">
+              <span v-for="chip in message.chips" :key="chip">{{ chip }}</span>
+            </div>
+            <ul v-if="message.lines?.length" class="page-agent-line-list">
+              <li v-for="line in message.lines" :key="line">{{ line }}</li>
+            </ul>
+          </article>
+        </section>
 
-        <details id="sunpilot-evidence" class="copilot-section">
-          <summary><span>证据链</span><strong>{{ evidence.length || 0 }} 条</strong></summary>
-          <div class="copilot-body">
-            <table class="compact-table">
-              <thead><tr><th>证据编号</th><th>来源</th><th>摘要</th></tr></thead>
-              <tbody>
-                <tr v-for="item in evidence" :key="item.id" @click="insertEvidenceIntoReply">
-                  <td class="mono">{{ item.id }}</td>
-                  <td>{{ item.source }}</td>
-                  <td>{{ item.summary }}</td>
-                </tr>
-                <tr v-if="!evidence.length">
-                  <td colspan="3" class="empty-cell">暂无证据编号。</td>
-                </tr>
-              </tbody>
-            </table>
+        <footer class="page-agent-composer">
+          <div class="page-agent-quick-row">
+            <button
+              v-for="action in pageAgentQuickActions"
+              :key="action.id"
+              type="button"
+              class="page-agent-pill"
+              :disabled="action.disabled"
+              :title="action.reason"
+              @click="runPageAgentQuickAction(action)"
+            >
+              {{ action.label }}
+            </button>
           </div>
-        </details>
+          <label class="page-agent-input-shell">
+            <textarea
+              v-model="pageAgentInput"
+              class="page-agent-input"
+              :placeholder="pageAgentPlaceholder"
+              data-page-agent-target="page-agent-command"
+              @keydown="handlePageAgentKeydown"
+            />
+            <button class="page-agent-send" type="button" :disabled="!pageAgentInput.trim() || pageAgentBusy" @click="submitPageAgentInput">发送</button>
+          </label>
+        </footer>
 
-        <details class="copilot-section">
-          <summary><span>处理日志</span><strong>{{ logs.length }} 条</strong></summary>
-          <div class="copilot-body">
-            <ol class="log-list">
-              <li v-for="log in logs" :key="log.id">
-                <span>{{ log.time }} · {{ log.operator }}</span>
-                <strong>{{ log.actionType }}</strong>
-                <p>{{ log.content }}</p>
-                <small class="mono">{{ log.transition || '状态未变更' }} / {{ log.evidenceId }} / {{ log.nextOwner }}</small>
-              </li>
-            </ol>
-          </div>
-        </details>
-
-        <details id="sunpilot-audit" class="copilot-section" :open="auditOpen" @toggle="syncAuditOpen">
-          <summary><span>系统审计/技术明细</span><strong>{{ store.traceSteps.length }} 步</strong></summary>
-          <div class="copilot-body">
-            <table class="compact-table audit-table">
-              <tbody>
-                <tr><th>链路</th><td>REST / SSE</td></tr>
-                <tr><th>工具</th><td class="mono">{{ store.aiResult?.toolName || '暂无' }}</td></tr>
-                <tr><th>请求摘要</th><td class="mono">{{ store.aiResult?.toolRequest ? JSON.stringify(store.aiResult.toolRequest) : '暂无' }}</td></tr>
-              </tbody>
-            </table>
-            <ol class="timeline">
-              <li v-for="(step, index) in store.traceSteps" :key="`${step.agentId}-${index}`">
-                <span class="mono">{{ step.agentId }}</span>
-                <strong>{{ step.summary }} / {{ step.status }} / {{ step.duration }}</strong>
-              </li>
-              <li v-if="!store.traceSteps.length"><span class="mono">EMPTY</span><strong>启动智能处理后记录底层执行明细。</strong></li>
-            </ol>
-          </div>
-        </details>
-
-        <details class="copilot-section">
-          <summary><span>生产约束</span><strong>只辅助</strong></summary>
-          <div class="copilot-body">
-            <p class="case-text compact">SunPilot 只辅助定位、填草稿和解释原因，不直接保存、结案、转派或覆盖主系统状态。敏感资料变更、交易争议和投诉升级必须人工确认或接管。</p>
-          </div>
-        </details>
+        <div class="page-agent-hidden-targets" aria-hidden="true">
+          <button id="page-agent-process" class="page-agent-hidden-target" data-page-agent-target="page-agent-process" type="button" @click="handleProcess">生成处理建议</button>
+          <div id="sunpilot-flow" data-page-agent-target="sunpilot-flow"></div>
+          <div id="sunpilot-fields" data-page-agent-target="sunpilot-fields"></div>
+          <div id="sunpilot-evidence" data-page-agent-target="sunpilot-evidence"></div>
+          <div id="sunpilot-audit" data-page-agent-target="sunpilot-audit"></div>
+        </div>
       </aside>
     </div>
 
@@ -2028,12 +2159,14 @@ function ticketSourceLabel(item?: Ticket | null) {
   top: 50px;
   right: 18px;
   z-index: 5;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--brand);
-  background: var(--brand);
-  color: #fff;
-  font-size: 13px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line-dark);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 8px 18px rgba(31, 41, 51, 0.1);
+  font-size: 12px;
   font-weight: 900;
 }
 .copilot {
@@ -2043,140 +2176,275 @@ function ticketSourceLabel(item?: Ticket | null) {
   align-self: start;
   width: 356px;
   height: calc(100vh - 42px);
-  overflow: auto;
-  border-left: 1px solid rgba(205, 44, 66, 0.32);
+  overflow: hidden;
+  border-left: 1px solid #dfe5ec;
   background: #fff;
-  box-shadow: -12px 0 28px rgba(31, 41, 51, 0.08);
+  box-shadow: -10px 0 24px rgba(31, 41, 51, 0.08);
 }
-.copilot-head {
-  min-height: 42px;
+.page-agent-chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.page-agent-chat-head {
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--brand);
-  color: #fff;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e6ebf1;
+  background: #fff;
 }
-.copilot-head span {
-  color: rgba(255, 255, 255, 0.82);
+.page-agent-brand,
+.page-agent-head-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.page-agent-brand > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.page-agent-brand strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+.page-agent-brand small,
+.page-agent-head-actions {
+  color: var(--ink-soft);
   font-size: 12px;
 }
-.copilot-section {
-  border-bottom: 1px solid var(--line);
-}
-.copilot-section summary {
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--section);
-  cursor: pointer;
-  font-size: 13px;
+.page-agent-mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d4dce6;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #26394d;
+  font-family: var(--mono);
+  font-size: 12px;
   font-weight: 900;
 }
-.copilot-section summary strong {
-  color: var(--ink-soft);
-  font-size: 12px;
-  text-align: right;
+.page-agent-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #9aa7b5;
 }
-.copilot-body {
-  padding: 10px;
+.page-agent-status-dot.ready {
+  background: #22a06b;
 }
-.suggestion {
-  margin-bottom: 8px;
-  border: 1px solid var(--line);
+.page-agent-status-dot.running {
+  background: #2f6fed;
+  box-shadow: 0 0 0 4px rgba(47, 111, 237, 0.12);
+}
+.page-agent-status-dot.warning {
+  background: #c8861a;
+}
+.page-agent-status-dot.danger {
+  background: #d64545;
+}
+.page-agent-mini-btn {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid #d7dde5;
+  border-radius: 7px;
   background: #fff;
-}
-.suggestion strong {
-  display: block;
-  padding: 8px 9px;
-  border-left: 4px solid var(--brand);
-  font-size: 13px;
-}
-.suggestion p {
-  margin: 0;
-  padding: 0 9px 8px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.copilot-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.copilot-actions button {
-  padding: 6px 8px;
+  color: var(--ink);
   font-size: 12px;
   font-weight: 800;
 }
-.agent-command {
-  display: grid;
-  gap: 5px;
+.page-agent-mini-btn:disabled {
+  color: #a3adba;
+  cursor: not-allowed;
 }
-.agent-command textarea {
-  min-height: 62px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+.page-agent-thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 18px 14px;
+  background: #f7f9fb;
 }
-.page-agent-state {
-  display: grid;
-  gap: 5px;
-  margin-top: 8px;
-  padding: 9px;
-  border: 1px solid var(--line);
-  background: #fff;
-}
-.page-agent-state span,
-.page-agent-state small {
-  color: var(--ink-soft);
-  font-size: 11px;
-}
-.page-action-log {
+.page-agent-message {
+  max-width: 100%;
   display: grid;
   gap: 7px;
-  max-height: 260px;
-  overflow: auto;
-  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid #e1e7ee;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.page-agent-message.user {
+  width: fit-content;
+  max-width: 88%;
+  margin-left: auto;
+  border-color: #bfd4ef;
+  background: #eef6ff;
+}
+.page-agent-message.accent {
+  border-color: #c9d8ee;
+  background: #f4f8ff;
+}
+.page-agent-message.success {
+  border-color: #b8dfc3;
+  background: #f2fbf5;
+}
+.page-agent-message.warning {
+  border-color: #ead5a8;
+  background: #fff9ed;
+}
+.page-agent-message.danger {
+  border-color: #efc2c2;
+  background: #fff5f5;
+}
+.page-agent-message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.page-agent-message-head strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+.page-agent-message-head span {
+  flex: 0 0 auto;
+  color: #7d8896;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.page-agent-message p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.page-agent-chip-row,
+.page-agent-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.page-agent-chip-row span {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid #dbe2ea;
+  border-radius: 999px;
+  background: #fff;
+  color: #536071;
+  font-size: 11px;
+  font-weight: 800;
+}
+.page-agent-line-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
-.page-action-log li {
+.page-agent-line-list li {
+  padding: 6px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #465365;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.page-agent-composer {
+  flex: 0 0 auto;
   display: grid;
-  gap: 4px;
-  padding: 8px;
-  border-left: 3px solid var(--line-dark);
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid #e4e9ef;
   background: #fff;
 }
-.page-action-log li.executed,
-.page-action-log li.done {
-  border-left-color: var(--green);
-}
-.page-action-log li.error {
-  border-left-color: #c4263c;
-}
-.page-action-log li.stopped {
-  border-left-color: #c48622;
-}
-.page-action-log span,
-.page-action-log small {
-  color: var(--ink-soft);
-  font-size: 11px;
-}
-.page-action-log strong {
-  font-family: var(--mono);
+.page-agent-pill {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid #d8e0e8;
+  border-radius: 999px;
+  background: #fff;
+  color: #344154;
   font-size: 12px;
+  font-weight: 800;
 }
-.page-action-log p {
-  color: var(--ink-2);
-  font-size: 12px;
-  line-height: 1.45;
+.page-agent-pill:hover:not(:disabled) {
+  border-color: #9bb6d6;
+  background: #f3f7fb;
 }
-.empty-log {
-  opacity: 0.72;
+.page-agent-pill:disabled {
+  color: #a3adba;
+  background: #f7f8fa;
+  cursor: not-allowed;
+}
+.page-agent-input-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 8px;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #fff;
+}
+.page-agent-input {
+  min-height: 58px;
+  max-height: 120px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.page-agent-input::placeholder {
+  color: #99a4b2;
+}
+.page-agent-send {
+  min-width: 56px;
+  min-height: 34px;
+  border: 1px solid #26394d;
+  border-radius: 8px;
+  background: #26394d;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+.page-agent-send:disabled {
+  border-color: #d4dbe4;
+  background: #eef1f5;
+  color: #9aa6b4;
+  cursor: not-allowed;
+}
+.page-agent-hidden-targets {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.page-agent-hidden-target {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
 }
 .flow-list,
 .log-list {
