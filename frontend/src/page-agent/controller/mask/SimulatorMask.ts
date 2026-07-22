@@ -116,13 +116,19 @@ export class SimulatorMask extends EventTarget {
 	}
 
 	#syncBusinessBounds() {
-		const panel = document.querySelector('[data-sunpilot-panel]')
+		const panel = document.querySelector('.copilot[data-sunpilot-panel]')
 		if (!(panel instanceof HTMLElement)) {
 			this.wrapper.style.right = '0px'
 			return
 		}
 
 		const rect = panel.getBoundingClientRect()
+		const isRightRail = rect.left > window.innerWidth * 0.45 && rect.top < window.innerHeight
+		if (!isRightRail) {
+			this.wrapper.style.right = '0px'
+			return
+		}
+
 		const rightInset = Math.max(0, window.innerWidth - rect.left)
 		this.wrapper.style.right = `${rightInset}px`
 	}

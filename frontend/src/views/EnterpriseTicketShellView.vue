@@ -166,7 +166,16 @@ const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
 const pageAgentBusy = computed(() => ['thinking', 'executing', 'retrying'].includes(store.pageAgentStatus))
 
 onMounted(async () => {
-  await Promise.all([store.fetchTickets(), store.fetchCallRecords()])
+  operationError.value = ''
+  const loadErrors: string[] = []
+
+  const [ticketsResult, callRecordsResult] = await Promise.allSettled([
+    store.fetchTickets(),
+    store.fetchCallRecords(),
+  ])
+  if (ticketsResult.status === 'rejected') loadErrors.push('工单列表')
+  if (callRecordsResult.status === 'rejected') loadErrors.push('通话记录')
+
   if (!selectedCallId.value && store.callRecords[0]) {
     selectCallRecord(store.callRecords[0].id)
   }
@@ -175,6 +184,11 @@ onMounted(async () => {
     metrics.value = await evalApi.metrics()
   } catch {
     metrics.value = null
+    loadErrors.push('测评指标')
+  }
+
+  if (loadErrors.length) {
+    operationError.value = `数据加载失败：${loadErrors.join('、')}。请确认后端 /api 服务可访问，或刷新页面重试。`
   }
 })
 
@@ -1057,12 +1071,14 @@ function ticketSourceLabel(item?: Ticket | null) {
   min-height: calc(100vh - 42px);
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr) 0;
+  grid-template-areas: "nav workspace copilot";
   transition: grid-template-columns 180ms ease;
 }
 .layout-core.copilot-expanded {
   grid-template-columns: 264px minmax(0, 1fr) 356px;
 }
 .nav-tree {
+  grid-area: nav;
   min-width: 0;
   border-right: 1px solid var(--line-dark);
   background: #fbfcfd;
@@ -1118,6 +1134,7 @@ function ticketSourceLabel(item?: Ticket | null) {
   font-weight: 900;
 }
 .workspace {
+  grid-area: workspace;
   min-width: 0;
   overflow: auto;
   background: var(--page);
@@ -1778,6 +1795,7 @@ function ticketSourceLabel(item?: Ticket | null) {
   color: #0e7490;
 }
 .copilot {
+  grid-area: copilot;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -2141,15 +2159,24 @@ function ticketSourceLabel(item?: Ticket | null) {
   .layout-core,
   .layout-core.copilot-expanded {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "workspace"
+      "copilot"
+      "nav";
   }
   .nav-tree,
   .copilot {
     position: static;
     width: auto;
     height: auto;
-    max-height: 340px;
     border-right: 0;
     border-bottom: 1px solid var(--line-dark);
+  }
+  .nav-tree {
+    max-height: 220px;
+  }
+  .copilot {
+    max-height: 360px;
   }
   .case-grid,
   .home-grid {
@@ -2177,8 +2204,8 @@ function ticketSourceLabel(item?: Ticket | null) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .copilot-toggle {
-    position: static;
-    margin: 8px;
+    position: fixed;
+    margin: 0;
   }
 }
 @media (max-width: 720px) {

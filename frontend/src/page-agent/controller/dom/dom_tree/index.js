@@ -57,8 +57,8 @@ export default (
 		extraData.set(element, { ...extraData.get(element), ...data })
 	}
 
-	const PAGE_AGENT_IGNORE_SELECTOR =
-		'[data-page-agent-not-interactive="true"], [data-sunpilot-panel="true"], [data-page-agent-ignore="true"], [data-browser-use-ignore="true"]'
+	const PAGE_AGENT_IGNORE_SUBTREE_SELECTOR =
+		'[data-sunpilot-panel="true"], [data-page-agent-ignore="true"], [data-browser-use-ignore="true"]'
 
 	function isPageAgentIgnoredNode(node) {
 		if (!node) return false
@@ -68,9 +68,8 @@ export default (
 		return (
 			element.dataset?.browserUseIgnore === 'true' ||
 			element.dataset?.pageAgentIgnore === 'true' ||
-			element.dataset?.pageAgentNotInteractive === 'true' ||
 			element.dataset?.sunpilotPanel === 'true' ||
-			Boolean(element.closest?.(PAGE_AGENT_IGNORE_SELECTOR))
+			Boolean(element.closest?.(PAGE_AGENT_IGNORE_SUBTREE_SELECTOR))
 		)
 	}
 
@@ -716,7 +715,11 @@ export default (
 		/**
 		 * @edit add interactiveBlacklist interactiveWhitelist
 		 */
-		if (interactiveBlacklist.includes(element) || isPageAgentIgnoredNode(element)) {
+		if (
+			interactiveBlacklist.includes(element) ||
+			element.dataset?.pageAgentNotInteractive === 'true' ||
+			isPageAgentIgnoredNode(element)
+		) {
 			return false // Skip blacklisted elements
 		}
 		if (interactiveWhitelist.includes(element)) {

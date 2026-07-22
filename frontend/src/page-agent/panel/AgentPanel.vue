@@ -336,7 +336,6 @@ onMounted(() => {
     title: 'SunPilot ready',
     body: route.params.id ? '输入任务后，我会观察当前工单页面并执行回单、证据定位或复核准备。' : '选择通话样本后，可以让我生成草稿、填表并提交标准工单。',
     tone: 'neutral',
-    meta: [modeLabel.value],
   }]
 
   agent.addEventListener('activity', event => appendActivity((event as CustomEvent<AgentActivity>).detail))
