@@ -1,16 +1,24 @@
 # TicketAgent PageAgent
 
-This module is the TicketAgent-specific GUI execution layer.
+This module embeds a local fork of Ali page-agent for the TicketAgent demo.
 
 Source note:
 
-- It follows the architecture investigated in `C:\Users\heyunhui\OtherProjects\page-agent-main`: execution loop, page controller, visible simulator mask, activity/history, and tool whitelist.
-- The upstream project is MIT licensed: copyright (c) 2026 SimonLuvRamen and Alibaba Group Holding Limited.
-- This first version does not import the upstream monorepo, Chrome extension, MCP server, website, or generic JavaScript execution tool. It keeps a local, business-scoped implementation for the current TicketAgent Vue page.
+- Upstream source: `C:\Users\heyunhui\OtherProjects\page-agent-main`
+- Upstream license: MIT, copyright (c) 2025 Alibaba Group Holding Limited and copyright (c) 2026 SimonLuvRamen.
+- Forked runtime pieces live under `core/`, `controller/`, `llm/`, and `tools/`.
+- TicketAgent-specific glue lives in `index.ts`, `bridge.ts`, and `panel/AgentPanel.vue`.
 
-Safety policy:
+MVP boundary:
 
-- Natural-language instructions are converted to `PageTaskPlan` before execution.
-- The runner accepts only whitelisted page tools: observe, scroll, highlight, input, click, wait, verify, and stop.
-- No arbitrary DOM-index click or `execute_javascript` capability is exposed.
-- Medium/high-risk flows stop at human confirmation or review nodes.
+- PageAgentCore owns the ReAct loop and chooses DOM-index tools directly.
+- `PolicyLayer` and the previous `PageActionRunner` implementation are intentionally removed.
+- `execute_javascript` is kept in the forked tools but disabled by default through `experimentalScriptExecutionTool: false`.
+- Backend business agents remain the business brain; PageAgent is only the visible page executor.
+- Store/SSE results are converted to natural-language observations through `bridge.ts`.
+
+LLM proxy:
+
+- Browser requests go through `http://localhost:8000/api/llm/proxy/chat/completions`.
+- The proxy uses `ALI_API_KEY` and defaults to `qwen3.7-plus`.
+- The frontend never receives the provider API key.

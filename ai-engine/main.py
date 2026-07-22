@@ -9,12 +9,22 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
 
 from agents.agent_registry import agent_registry
-from config import CALL_TRANSCRIPTS_JSON, CORS_ORIGINS, HOST, PORT
+from config import (
+    CALL_TRANSCRIPTS_JSON,
+    CORS_ORIGINS,
+    HOST,
+    PAGE_AGENT_LLM_API_KEY,
+    PAGE_AGENT_LLM_BASE_URL,
+    PAGE_AGENT_LLM_MODEL,
+    PAGE_AGENT_LLM_TIMEOUT,
+    PORT,
+)
 from evaluation.evaluator import evaluator
 from models.ai_result import AiProcessResult
 from models.api_schemas import (
@@ -54,6 +64,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+llm_proxy_client = AsyncOpenAI(
+    base_url=PAGE_AGENT_LLM_BASE_URL,
+    api_key=PAGE_AGENT_LLM_API_KEY or "missing-ali-api-key",
+)
 
 
 @asynccontextmanager
@@ -89,6 +103,50 @@ app.add_middleware(
 )
 
 app.include_router(tool_router)
+
+
+async def _proxy_llm_chat_completion(request: Request) -> dict:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    payload = dict(payload)
+    payload["model"] = PAGE_AGENT_LLM_MODEL
+    extra_body = dict(payload.pop("extra_body", {}) or {})
+    for provider_field in ("enable_thinking",):
+        if provider_field in payload:
+            extra_body[provider_field] = payload.pop(provider_field)
+    if extra_body:
+        payload["extra_body"] = extra_body
+
+    try:
+        response = await llm_proxy_client.chat.completions.create(
+            **payload,
+            timeout=PAGE_AGENT_LLM_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.exception("PageAgent LLM proxy request failed")
+        upstream_message = getattr(getattr(exc, "response", None), "text", "") or str(exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM proxy request failed: {type(exc).__name__}: {upstream_message[:500]}",
+        ) from exc
+
+    return response.model_dump(mode="json", exclude_none=True)
+
+
+@app.post("/api/llm/proxy/chat/completions")
+async def proxy_llm_chat_completion(request: Request):
+    return await _proxy_llm_chat_completion(request)
+
+
+@app.post("/api/llm/proxy")
+async def proxy_llm_chat_completion_compat(request: Request):
+    return await _proxy_llm_chat_completion(request)
 
 
 def _ticket_response(row) -> dict:
@@ -186,9 +244,9 @@ def _detect_call_scenario(text: str) -> tuple[str, str, str, str]:
     if re.search(r"申请进度|申请单|APP\d+", text, re.I):
         return "申请进度查询", "申请与账务", "信用卡申请", "APPLICATION_PROGRESS_QUERY"
     if re.search(r"地址|手机|资料|联系人|变更", text, re.I):
-        return "资料变更", "客户资料", "资料变更", "CUSTOMER_INFO_UPDATE"
+        return "资料变更", "客户资料", "资料变更", "CUSTOMER_ADDRESS_UPDATE"
     if re.search(r"交易|流水|入账|盗刷|非本人|TXN\d+", text, re.I):
-        return "交易查询", "交易与风险", "交易核查", "TRANSACTION_QUERY"
+        return "交易查询", "交易与风险", "交易核查", "TRANSACTION_DISPUTE"
     return "人工客服发单", "综合服务", "待分类", "CALL_INTAKE"
 
 

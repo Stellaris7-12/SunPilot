@@ -63,7 +63,7 @@ def main():
         custom_payload = custom.json()
         assert custom_payload["ticketDraft"]["customerId"] == "C20009"
         assert custom_payload["ticketDraft"]["cardLast4"] == "3409"
-        assert custom_payload["detectedTicketType"] == "TRANSACTION_QUERY"
+        assert custom_payload["detectedTicketType"] == "TRANSACTION_DISPUTE"
 
     assert "ticket_agent_test" in database_url
     print("module M call-intake smoke passed")

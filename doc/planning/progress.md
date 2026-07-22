@@ -205,3 +205,93 @@
 - 通话发单端：生成草稿成功填入 `C20001 / 张明 / 活动达标未收到餐饮优惠券`，PageAgent 可见填表、点击提交并跳转到新工单详情页。
 - 回单侧：PageAgent 自动触发多 Agent，等待 Trace 完成后定位证据区、填写客户回单、保存草稿，并停在人工复核/可结案节点。
 - `frontend` 中 `npm.cmd run build` 通过。
+
+## 会话：2026-07-22（计划回写与 O 模块新增）
+
+已完成：
+
+- 将 `doc/issue/架构与数据流问题分析报告_20260722.md` 的 3.1、3.2 和 4 归纳为新的 P0 优先模块 O，并写回 `doc/planning/task_plan.md`。
+- 模块 O 覆盖：ResolutionAgent 原生 Tool Calling、工具 schema 与参数统一、Mock Tools 根因兜底、发单场景枚举对齐、PageAgent 内置 LLM Planner。
+- 已在主计划中明确：PageAgent 的 LLM 不能直接暴露在浏览器端，必须通过后端规划接口实现，避免 API Key 下发到前端。
+- （待优化）当前聊天式 PageAgent 侧栏仍保留隐藏 `page-agent-process` / `sunpilot-*` target 兼容既有 Runner，且自定义输入先走前端规则路由；后续 O4 需要用后端 LLM Planner + Policy Guard 收口，并对缺失字段或缺失 target 给出明确可审计提示。
+
+后续：
+
+- 下一步优先处理模块 O1/O2/O3，然后再补 O4。
+
+## 会话：2026-07-22（模块 M ReAct fork 收口）
+
+用户要求执行 `doc/issue/PageAgent_ReAct改造方案_7.22.md`，并对照 `doc/planning/task_plan.md` 模块 M 清单完成验收；随后补充要求 PageAgent 不再使用 `DEEPSEEK_API_KEY`，改用本地 `ALI_API_KEY`，模型使用 `qwen3.7-plus`。
+
+已完成：
+
+- 将 `frontend/src/page-agent/` 从旧 `PageActionRunner + PolicyLayer` 路线替换为 Ali page-agent fork：`PageAgentCore`、`PageController`、DOM 脱水、W3C actions、SimulatorMask、LLM client、内置 tools。
+- 删除旧 `PolicyLayer`、`PageActionRunner`、旧 PageAgent types 和旧简化 `SimulatorMask`，保留 `execute_javascript` 工具但通过 `experimentalScriptExecutionTool: false` 默认关闭。
+- 新增 `createTicketPageAgent()`，模型改为 `qwen3.7-plus`，baseURL 指向本地 `/api/llm/proxy`，language=`zh-CN`，maxSteps=15，stepDelay=0.8。
+- 新增 `bridge.ts`：监听 `ticketDraftResult`、`aiResult`、`traceSteps`、`isProcessing`、`workflowPaused`，转成自然语言 observation 注入 `PageAgentCore.pushObservation()`。
+- 新增 `panel/AgentPanel.vue`：右侧 PageAgent Panel 可输入任务、停止接管、展示 activity/status/history/observation 步骤流，并在发单草稿或 AI 结果到达后自动续跑。
+- 企业壳改为挂载新 `AgentPanel`，保留发单表单、回单编辑器、`page-agent-process`、`sunpilot-*` 等业务锚点。
+- 后端新增 PageAgent 专用 LLM proxy：`POST /api/llm/proxy/chat/completions` 与兼容 `POST /api/llm/proxy`，使用 `ALI_API_KEY`、`PAGE_AGENT_LLM_MODEL=qwen3.7-plus`、DashScope OpenAI-compatible base URL。
+- 修复 Qwen/DashScope tool calling 兼容：前端删除 `parallel_tool_calls`，保留 `tool_choice='required'`；后端将 `enable_thinking=false` 通过 OpenAI SDK `extra_body` 透传。
+- `createTicketPageAgent()` 支持 `VITE_PAGE_AGENT_LLM_BASE_URL` 覆盖，便于本地临时把 PageAgent LLM proxy 指向非 8000 端口验证。
+- 更新 `frontend/src/page-agent/README.md`、`doc/issue/PageAgent_ReAct改造方案_7.22.md`、`doc/planning/task_plan.md` 到 fork/ReAct/Qwen 口径。
+
+验证：
+
+- `frontend` 下 `npm.cmd run build` 通过。
+- `.venv\Scripts\python.exe -m compileall ai-engine` 通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_m_call_intake.py` 通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_i3_mock_tools.py` 通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_k_workflow_routing.py` 通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_o_tool_calling.py` 通过。
+- FastAPI TestClient 直连 `/api/llm/proxy/chat/completions`，使用 `ALI_API_KEY + qwen3.7-plus + tool_choice=required + enable_thinking=false` 返回 200 且包含 `tool_calls`。
+- 浏览器检查 `http://127.0.0.1:5173/tickets`：企业壳、通话发单工作区、右侧 PageAgent Panel 渲染；点击“生成发单草稿”后，草稿字段出现 `C20001 / 张明 / 活动达标未收到餐饮优惠券`，bridge observation 出现在 Panel 中，并触发 PageAgent 自动续跑任务。
+
+剩余边界：
+
+- 浏览器动态验证过程中，旧临时 8000 服务无法被当前权限清理；尝试使用 8002 + 5174 做隔离验证时 5174 启动成功但 8002 后端未成功监听。最终 Qwen proxy 修复通过 TestClient 验证，未在同一浏览器会话中重新跑完整 ReAct 自动提交/回单链路。
+- MVP 仍不实现 PolicyLayer、风险分级拦截和 PageActionLog 持久化；这些作为后续安全层与审计优化项说明。
+
+## 会话：2026-07-22（模块 M Qwen 运行态复验）
+
+运行态：
+
+- 用户手动启动后端 `uv run python -m uvicorn main:app --app-dir ai-engine --reload --port 8000`，前端 `npm.cmd run dev -- --host 127.0.0.1 --port 5173`。
+- `http://127.0.0.1:5173/tickets` 与 `http://127.0.0.1:8000/api/tickets` 均返回 200。
+- PageAgent LLM proxy 已进入新版 Ali/Qwen 链路，不再出现旧版 `enable_thinking` 直接传给 OpenAI SDK 的错误。
+
+验收发现：
+
+- 直连 `POST /api/llm/proxy/chat/completions`，请求 `tool_choice=required`、`enable_thinking=false`，当前运行态返回 Ali `invalid_api_key`：`Incorrect API key provided`。说明代码路径已切换到 DashScope/OpenAI-compatible 代理，但后端进程中的 `ALI_API_KEY` 无效或不是当前会话可用的 DashScope key。
+- 复查本机环境变量：当前工具进程与 Machine 级均能读到 `ALI_API_KEY`（长度 35、前缀 `sk-`，未暴露明文），User 级未设置；再次请求 PageAgent proxy 仍返回 Ali `invalid_api_key`。结论收敛为 key 值本身无效/过期/无 DashScope 权限，而非变量名未读取。
+- 浏览器打开 `/tickets` 后，企业壳、通话发单工作区、右侧 PageAgent Panel 正常渲染。
+- 点击“生成发单草稿”后，发单草稿字段已填入 `C20001 / 张明 / 活动达标未收到餐饮优惠券`，包含手机 `138****2001`、卡尾号 `1234`、场景 `优惠券补发`、风险 `低风险`、正文等字段。
+- `bridge.ts` observation 已进入 Panel：`发单Agent已生成工单草稿...请打开发单表单并填入以上字段，字段完整后点击一键提交工单。`
+- PageAgent 自动续跑任务已触发，但 LLM 调用因后端 502 `Bad Gateway` 中断；浏览器控制台显示 `OpenAIClient.invoke -> PageAgentCore.execute -> AgentPanel.runTask` 调用链。
+
+当前阻塞：
+
+- 模块 M 的静态实现、UI 集成、发单草稿和 bridge observation 已复验通过。
+- 完整 ReAct 可见鼠标提交/回单链路仍需有效 `ALI_API_KEY` 后才能最终验收；当前阻塞点是外部 Ali key 认证，不是前端 Panel、bridge 或后端 proxy 代码路径。
+
+## 会话：2026-07-22（模块 M Qwen 动态验收通过）
+
+运行态：
+
+- 用户以系统级环境变量重启后端后，`127.0.0.1:8000` 与 `127.0.0.1:5173` 均正常监听。
+- 直连 `POST /api/llm/proxy/chat/completions`，请求 `model` 由后端强制为 `qwen3.7-plus`，`tool_choice=required`，`enable_thinking=false`，返回 200 且包含 `done` tool call。说明 PageAgent 专用 Ali/Qwen proxy 验证通过。
+
+浏览器动态验收：
+
+- 打开 `http://127.0.0.1:5173/tickets`，确认企业壳、通话发单工作区、右侧 PageAgent Panel 均正常渲染。
+- 点击“生成发单草稿”后，bridge observation 注入 Panel：`发单Agent已生成工单草稿...请打开发单表单并填入以上字段，字段完整后点击一键提交工单。`
+- PageAgent 真实调用 Qwen ReAct 循环，Panel 记录多步 `input_text`，依次填入标题、客户号、客户姓名、手机号、卡尾号等字段。
+- 发单侧提交成功，工单列表新增 `T20260722445615 / C20001 / 张明 / 餐饮券 / 待处理`，并进入详情区。
+- 回单侧 PageAgent 在详情页点击 `启动 AI 处理`，bridge 实时注入 Classifier、Intake、Escalation、Resolution、Notification 等后端 Agent 进度。
+- 后端多 Agent 完成后，bridge 注入低风险可结案 observation 与回单草稿；PageAgent 继续执行，点击“填入 SunPilot 建议”，定位证据编号按钮，并将客户回单写入 `page-agent-reply-draft`。
+- 回单编辑器最终内容长度 133，包含客户回单正文和 `处理依据/证据编号：BEN20260722C8C4B9EE`。
+
+结论：
+
+- 模块 M 计划验收项已具备运行态证据：PageAgent 可见发单、可见回单、Panel 实时步骤流、后端 Agent 结果自动 bridge observation 注入、多 Agent/PageAgent/SSE bridge 三者职责口径均可演示说明。
+- 保留 MVP 边界：仍不实现 PolicyLayer、风险分级拦截和 PageActionLog 持久化；这些按计划作为后续安全与审计优化项。

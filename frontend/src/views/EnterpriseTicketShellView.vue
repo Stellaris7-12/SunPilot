@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import { evalApi } from '../api'
-import { PageActionRunner, createPageTaskPlan, resolvePageAgentIntent, type PageAgentIntent } from '../page-agent'
+import AgentPanel from '../page-agent/panel/AgentPanel.vue'
 import { useTicketStore } from '../stores/ticket'
-import type { CallRecordSample, CreateTicketPayload, EvaluationMetrics, PageActionLogEntry, PageBusinessContext, Ticket, TraceStep } from '../types'
+import type { CallRecordSample, CreateTicketPayload, EvaluationMetrics, Ticket } from '../types'
 import {
   bucketMatches,
   type CopilotSuggestion,
@@ -22,29 +22,6 @@ import {
   suggestedAction,
   workBuckets,
 } from '../utils/business'
-
-type PageAgentMessageKind = 'task' | 'assistant' | 'agent-step' | 'page-step' | 'result'
-type PageAgentMessageTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
-
-interface PageAgentChatMessage {
-  id: string
-  kind: PageAgentMessageKind
-  role: 'user' | 'assistant'
-  title: string
-  body: string
-  tone: PageAgentMessageTone
-  chips?: string[]
-  lines?: string[]
-}
-
-interface PageAgentQuickAction {
-  id: string
-  label: string
-  command: string
-  intent: PageAgentIntent
-  disabled?: boolean
-  reason?: string
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -72,16 +49,7 @@ const customTranscript = ref('')
 const draftForm = ref<CreateTicketPayload>(emptyTicketDraft())
 const draftFieldTouched = ref<Record<string, boolean>>({})
 const draftGenerationStatus = ref('')
-const pageInstruction = ref('根据这通电话帮我发单')
-const pageAgentInput = ref('')
-const pageAgentThread = ref<HTMLElement | null>(null)
-const pageAgentMessages = ref<PageAgentChatMessage[]>([])
-const pageAgentStepIndex = ref(0)
-const pageAgentProcessPending = ref(false)
-const pageAgentLastTraceSignature = ref('')
-const pageAgentRunner = new PageActionRunner()
-const pageAgentShouldStop = ref(false)
-const pendingAutoReply = ref(false)
+const pageAgentPanel = ref<InstanceType<typeof AgentPanel> | null>(null)
 
 const ticketId = computed(() => route.params.id as string | undefined)
 const ticket = computed(() => store.selectedTicket)
@@ -196,54 +164,6 @@ const draftRequiredMissing = computed(() => {
 })
 const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
 const pageAgentBusy = computed(() => ['thinking', 'executing', 'retrying'].includes(store.pageAgentStatus))
-const pageAgentModeLabel = computed(() => routeHasTicket.value ? '工单回单' : '通话发单')
-const pageAgentStatusTone = computed(() => {
-  if (store.pageAgentStatus === 'error') return 'danger'
-  if (store.pageAgentStatus === 'stopped') return 'warning'
-  if (pageAgentBusy.value) return 'running'
-  return 'ready'
-})
-const pageAgentStatusLabel = computed(() => {
-  const labels = {
-    thinking: '思考中',
-    executing: '执行中',
-    executed: '已执行',
-    retrying: '重试中',
-    error: '异常',
-    done: '完成',
-    stopped: '已接管',
-  }
-  return labels[store.pageAgentStatus]
-})
-const pageAgentPlaceholder = computed(() =>
-  routeHasTicket.value
-    ? '描述你的任务，例如：帮我定位证据'
-    : '描述你的任务，例如：根据这通电话帮我发单'
-)
-const pageAgentQuickActions = computed<PageAgentQuickAction[]>(() => {
-  if (!routeHasTicket.value) {
-    return [
-      { id: 'call-intake', label: '通话发单', command: '根据这通电话帮我发单', intent: 'call_intake', disabled: pageAgentBusy.value },
-      { id: 'draft', label: '生成草稿', command: '生成发单草稿', intent: 'call_intake', disabled: pageAgentBusy.value },
-      {
-        id: 'submit',
-        label: '提交工单',
-        command: '提交工单',
-        intent: 'call_intake',
-        disabled: pageAgentBusy.value || !canSubmitDraft.value,
-        reason: canSubmitDraft.value ? '' : `待补充：${draftRequiredMissing.value.join('、')}`,
-      },
-      { id: 'stop', label: '接管', command: '停止接管', intent: 'stop', disabled: !pageAgentBusy.value },
-    ]
-  }
-  return [
-    { id: 'process', label: '生成建议', command: '生成处理建议', intent: 'process_ticket', disabled: pageAgentBusy.value || store.isProcessing },
-    { id: 'reply', label: '自动回单', command: '处理当前工单并自动回单', intent: 'auto_reply', disabled: pageAgentBusy.value || store.isProcessing },
-    { id: 'evidence', label: '定位证据', command: '定位证据和审计', intent: 'locate_evidence', disabled: pageAgentBusy.value || !store.aiResult },
-    { id: 'save', label: '保存草稿', command: '保存回单草稿', intent: 'save_draft', disabled: pageAgentBusy.value || !store.replyDraft },
-    { id: 'stop', label: '接管', command: '停止接管', intent: 'stop', disabled: !pageAgentBusy.value },
-  ]
-})
 
 onMounted(async () => {
   await Promise.all([store.fetchTickets(), store.fetchCallRecords()])
@@ -258,10 +178,6 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => {
-  pageAgentRunner.stop()
-})
-
 watch(ticketId, async id => {
   await loadRouteTicket(id)
 })
@@ -269,29 +185,6 @@ watch(ticketId, async id => {
 watch(selectedCall, current => {
   if (!current) return
   customTranscript.value = current.transcript
-}, { immediate: true })
-
-watch([() => store.aiResult, pageAgentBusy], ([result, busy]) => {
-  if (result && pageAgentProcessPending.value) {
-    appendAgentTraceMessages(store.traceSteps, ticket.value?.status || (store.workflowPaused ? 'pending_human_review' : 'done'))
-    appendResultMessage(
-      store.workflowPaused ? '已进入人工复核' : result.failureReason ? '处理失败' : '处理完成',
-      result.failureReason || result.notification?.closureSuggestion?.reason || result.replyDraft || '后台结果已返回。',
-      result.failureReason ? 'danger' : store.workflowPaused ? 'warning' : 'success',
-      [
-        result.missingFields?.length ? `待补字段：${result.missingFields.join('、')}` : '字段已补齐',
-        ticket.value?.status ? `当前状态：${ticket.value.status}` : '状态已更新',
-      ],
-    )
-    pageAgentProcessPending.value = false
-  }
-  if (!result || !pendingAutoReply.value || busy) return
-  pendingAutoReply.value = false
-  void runPageAgentTask('继续根据处理建议自动回单', 'auto_reply')
-})
-
-watch([ticketId, selectedCallId], () => {
-  resetPageAgentConversation()
 }, { immediate: true })
 
 watch(ticket, current => {
@@ -309,90 +202,6 @@ watch([() => store.aiResult, ticket], () => {
   followUpDraft.value = sections.find(section => section.id === 'followUp')?.body || ''
   replyTouched.value = false
 }, { immediate: true })
-
-function messageId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
-}
-
-function resetPageAgentConversation() {
-  pageAgentStepIndex.value = 0
-  pageAgentProcessPending.value = false
-  pageAgentLastTraceSignature.value = ''
-  pageAgentMessages.value = [{
-    id: messageId('welcome'),
-    kind: 'assistant',
-    role: 'assistant',
-    title: 'PageAgent ready',
-    body: routeHasTicket.value
-      ? '输入一句话，或使用下方快捷操作处理当前工单。'
-      : '选择通话样本后，可以让我生成草稿、可见填单并提交。'
-    ,
-    tone: 'neutral',
-    chips: routeHasTicket.value ? ['生成建议', '自动回单', '定位证据'] : ['通话发单', '生成草稿', '提交工单'],
-  }]
-}
-
-function appendPageAgentMessage(message: Omit<PageAgentChatMessage, 'id'>) {
-  pageAgentMessages.value = [
-    ...pageAgentMessages.value,
-    { ...message, id: messageId(message.kind) },
-  ].slice(-48)
-  void nextTick(() => {
-    if (pageAgentThread.value) {
-      pageAgentThread.value.scrollTop = pageAgentThread.value.scrollHeight
-    }
-  })
-}
-
-function appendAssistantMessage(title: string, body: string, tone: PageAgentMessageTone = 'neutral', chips: string[] = []) {
-  appendPageAgentMessage({ kind: 'assistant', role: 'assistant', title, body, tone, chips })
-}
-
-function appendResultMessage(title: string, body: string, tone: PageAgentMessageTone = 'success', lines: string[] = []) {
-  appendPageAgentMessage({ kind: 'result', role: 'assistant', title, body, tone, lines })
-}
-
-function appendPageActionMessage(entry: PageActionLogEntry) {
-  pageAgentStepIndex.value += 1
-  const tone: PageAgentMessageTone = entry.status === 'error'
-    ? 'danger'
-    : entry.status === 'stopped'
-      ? 'warning'
-      : 'neutral'
-  appendPageAgentMessage({
-    kind: 'page-step',
-    role: 'assistant',
-    title: `Step #${pageAgentStepIndex.value} · ${entry.tool}`,
-    body: entry.result,
-    tone,
-    chips: [entry.target, entry.status, `${entry.durationMs}ms`],
-    lines: entry.inputSummary ? [`输入：${entry.inputSummary}`] : [],
-  })
-}
-
-function appendAgentTraceMessages(steps: TraceStep[], finalStatus: string) {
-  const signature = steps.map(step => `${step.agentId}:${step.status}:${step.summary}:${step.duration}`).join('|')
-  if (!signature || signature === pageAgentLastTraceSignature.value) return
-  pageAgentLastTraceSignature.value = signature
-  appendPageAgentMessage({
-    kind: 'agent-step',
-    role: 'assistant',
-    title: 'Agent 信息流转',
-    body: '后端多 Agent 已完成本轮业务判断。',
-    tone: 'accent',
-    chips: finalStatus ? [`状态：${finalStatus}`] : [],
-    lines: steps.map(step => `${step.agent} · ${step.status} · ${step.summary}`),
-  })
-}
-
-function unknownCommandHelp() {
-  appendAssistantMessage(
-    '我还不能执行这类请求',
-    '可以让我发单、生成处理建议、自动回单、定位证据、保存草稿、准备复核或停止接管。',
-    'warning',
-    ['发单', '生成建议', '定位证据', '自动回单'],
-  )
-}
 
 function emptyTicketDraft(): CreateTicketPayload {
   return {
@@ -435,7 +244,6 @@ async function generateDraftFromCall() {
     draftForm.value = { ...emptyTicketDraft(), ...result.ticketDraft }
     draftFieldTouched.value = {}
     draftGenerationStatus.value = `已生成草稿：${result.detectedTicketType} / 置信度 ${(result.confidence * 100).toFixed(0)}%`
-    pageInstruction.value = '根据这通电话帮我发单'
     return result
   } catch {
     draftGenerationStatus.value = '发单 Agent 调用失败，请检查后端 /api/call-records/generate-ticket-draft。'
@@ -457,179 +265,18 @@ async function handleSubmitDraft() {
       no: `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${Date.now().toString().slice(-6)}`,
     })
     await router.push(`/tickets/${created.id}`)
-    pendingAutoReply.value = true
-    pageInstruction.value = '生成处理建议并自动回单'
   } catch {
     operationError.value = '提交发单失败，请确认工单字段和编号是否有效。'
   }
 }
 
-function buildPageBusinessContext(instruction: string): PageBusinessContext {
-  const onHome = !routeHasTicket.value
-  return {
-    scene: onHome ? 'call-intake' : 'ticket-reply',
-    instruction,
-    callSummary: store.ticketDraftResult?.callSummary,
-    ticketDraft: onHome ? draftForm.value : null,
-    aiResult: store.aiResult,
-    replyDraft: store.replyDraft,
-    toolEvidenceIds: evidence.value.map(item => item.id),
-    riskLevel: onHome ? draftForm.value.riskLevel : (ticket.value?.riskLevel || 'low'),
-    ticketStatus: ticket.value?.status,
-    availableActions: [
-      canSubmitDraft.value ? 'submit_ticket' : '',
-      ticket.value && !store.aiResult ? 'process_ticket' : '',
-      store.replyDraft && canCancel.value ? 'save_draft' : '',
-      canClose.value ? 'close_ticket' : '',
-    ].filter(Boolean),
-    currentAnchors: [
-      'call-intake-workspace',
-      'ticket-draft-form',
-      'enterprise-ticket-detail',
-      'enterprise-reply',
-      'page-agent-thread',
-      'page-agent-composer',
-      'page-agent-process',
-      'page-agent-save-draft',
-      'page-agent-close-ticket',
-      'sunpilot-fields',
-      'sunpilot-evidence',
-      'sunpilot-audit',
-    ],
-    demoAutoClose: /直接结单|自动结案|自动回单|处理当前/.test(instruction),
-  }
-}
-
-function recordDraftOverwritePolicy(editedFields: string[]) {
-  if (!editedFields.length) return
-  store.appendPageActionLog({
-    id: `draft-policy-${Date.now()}`,
-    planId: 'call-intake-policy',
-    instruction: pageInstruction.value,
-    contextSummary: `通话发单 / 人工已编辑:${editedFields.join(',')}`,
-    tool: 'verify',
-    target: 'ticket-draft-form',
-    inputSummary: editedFields.join(', '),
-    status: 'executed',
-    result: draftForm.value.riskLevel === 'low'
-      ? '检测到人工改动字段；低风险演示策略允许用发单 Agent 草稿覆盖并留下审计。'
-      : '检测到人工改动字段；中高风险策略填好页面后停止在人工确认节点。',
-    durationMs: 0,
-    riskLevel: draftForm.value.riskLevel || 'low',
-    stopReason: '',
-    createdAt: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-  })
-}
-
-async function runPageAgentTask(command = pageAgentInput.value || pageInstruction.value, forcedIntent?: PageAgentIntent) {
-  const instruction = command.trim() || (routeHasTicket.value ? '处理当前工单' : '根据这通电话帮我发单')
-  const context = buildPageBusinessContext(instruction)
-  const resolved = resolvePageAgentIntent(instruction, context)
-  const intent = forcedIntent || resolved.intent
-
-  pageInstruction.value = instruction
-  pageAgentShouldStop.value = false
-  operationError.value = ''
-
-  appendPageAgentMessage({
-    kind: 'task',
-    role: 'user',
-    title: '坐席任务',
-    body: instruction,
-    tone: 'neutral',
-    chips: [resolved.label, routeHasTicket.value ? '工单页' : '发单页'],
-  })
-
-  if (intent === 'unknown') {
-    unknownCommandHelp()
-    pageAgentInput.value = ''
-    return
-  }
-
-  if (intent === 'stop') {
-    stopPageAgent()
-    appendResultMessage('已接管', '当前 PageAgent 任务已停止。', 'warning')
-    pageAgentInput.value = ''
-    return
-  }
-
-  try {
-    if (intent === 'call_intake' && !routeHasTicket.value && !store.ticketDraftResult) {
-      store.setPageAgentStatus('executing', '调用发单 Agent 生成草稿')
-      await generateDraftFromCall()
-    }
-    if (intent === 'call_intake' && !routeHasTicket.value && store.ticketDraftResult) {
-      recordDraftOverwritePolicy(Object.keys(draftFieldTouched.value).filter(key => draftFieldTouched.value[key]))
-      draftForm.value = { ...emptyTicketDraft(), ...store.ticketDraftResult.ticketDraft }
-    }
-
-    const nextContext = buildPageBusinessContext(instruction)
-    const plan = createPageTaskPlan(nextContext, intent)
-    const shouldWaitForProcess = (intent === 'process_ticket' || intent === 'auto_reply') && !store.aiResult
-    pageAgentProcessPending.value = shouldWaitForProcess
-    if (intent === 'auto_reply' && !store.aiResult) {
-      pendingAutoReply.value = true
-    }
-
-    await pageAgentRunner.run(plan, nextContext, {
-      onLog: entry => {
-        store.appendPageActionLog(entry)
-        appendPageActionMessage(entry)
-      },
-      onStatus: (status, goal) => store.setPageAgentStatus(status, goal),
-      shouldStop: () => pageAgentShouldStop.value,
-    })
-
-    const latestLog = store.pageActionLogs[0]
-    const tone: PageAgentMessageTone = latestLog?.status === 'error'
-      ? 'danger'
-      : latestLog?.status === 'stopped'
-        ? 'warning'
-        : 'success'
-
-    if (pageAgentProcessPending.value) {
-      appendAssistantMessage('处理中', '多 Agent 已经触发，结果会继续写入对话流。', 'accent', ['等待后端结果'])
-    } else {
-      appendResultMessage('执行完成', plan.expectedResult, tone, plan.steps.map(step => `${step.type} · ${step.label}`))
-    }
-  } catch {
-    store.setPageAgentStatus('error', instruction)
-    appendResultMessage('执行失败', 'PageAgent 执行失败，请查看动作轨迹并人工接管。', 'danger')
-    operationError.value = 'PageAgent 执行失败，请查看动作轨迹并人工接管。'
-  } finally {
-    pageAgentInput.value = ''
-  }
-}
-
-function stopPageAgent() {
-  pageAgentShouldStop.value = true
-  pageAgentRunner.stop()
-  store.setPageAgentStatus('stopped', '坐席已接管')
-}
-
-function submitPageAgentInput() {
-  const command = pageAgentInput.value.trim()
-  if (!command || pageAgentBusy.value) return
-  void runPageAgentTask(command)
-}
-
-function handlePageAgentKeydown(event: KeyboardEvent) {
-  if (event.isComposing) return
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    submitPageAgentInput()
-  }
-}
-
-function runPageAgentQuickAction(action: PageAgentQuickAction) {
-  if (action.disabled) return
-  pageAgentInput.value = action.command
-  void runPageAgentTask(action.command, action.intent)
-}
-
 function handleProcess() {
   operationError.value = ''
   if (ticket.value) store.startAiProcess(ticket.value.id)
+}
+
+function requestPageAgentTask(command: string) {
+  pageAgentPanel.value?.runTask(command)
 }
 
 function selectTicket(id: string) {
@@ -940,7 +587,7 @@ function ticketSourceLabel(item?: Ticket | null) {
                 <textarea v-model="customTranscript" class="transcript-box" data-page-agent-target="call-transcript" />
                 <div class="call-actions">
                   <button class="btn-primary" type="button" :disabled="!customTranscript.trim()" @click="generateDraftFromCall">生成发单草稿</button>
-                  <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask('根据这通电话帮我发单')">PageAgent 可见发单</button>
+                  <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="requestPageAgentTask('根据这通电话帮我发单')">PageAgent 可见发单</button>
                 </div>
                 <p class="system-note">{{ draftGenerationStatus || store.ticketDraftResult?.callSummary || '选择通话后可生成摘要、字段来源和标准工单草稿。' }}</p>
               </section>
@@ -1143,6 +790,9 @@ function ticketSourceLabel(item?: Ticket | null) {
               </div>
             </div>
             <div class="toolbar-actions">
+              <button id="page-agent-process" class="btn-primary" data-page-agent-target="page-agent-process" type="button" :disabled="store.isProcessing || Boolean(store.aiResult)" @click="handleProcess">
+                {{ store.isProcessing ? 'AI处理中' : store.aiResult ? '处理完成' : '启动 AI 处理' }}
+              </button>
               <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="scrollToId('enterprise-reply')">查看草稿</button>
               <button class="btn-plain" type="button" :disabled="!store.aiResult?.missingFields?.length" @click="scrollToId('sunpilot-fields')">查看补充项</button>
               <button class="btn-primary" type="button" v-if="needsHumanConfirm" @click="openHumanConfirm">进入人工确认</button>
@@ -1333,71 +983,9 @@ function ticketSourceLabel(item?: Ticket | null) {
         PageAgent {{ copilotOpen ? '隐藏' : '展开' }}
       </button>
 
-      <aside v-if="copilotOpen" class="copilot page-agent-chat">
-        <header class="page-agent-chat-head">
-          <div class="page-agent-brand">
-            <span class="page-agent-mark">PA</span>
-            <div>
-              <strong>PageAgent</strong>
-              <small>{{ pageAgentModeLabel }}</small>
-            </div>
-          </div>
-          <div class="page-agent-head-actions">
-            <span :class="`page-agent-status-dot ${pageAgentStatusTone}`"></span>
-            <span>{{ pageAgentStatusLabel }}</span>
-            <button class="page-agent-mini-btn" type="button" :disabled="!pageAgentBusy" @click="stopPageAgent">接管</button>
-          </div>
-        </header>
-
-        <section ref="pageAgentThread" class="page-agent-thread" aria-label="PageAgent 对话流">
-          <article
-            v-for="message in pageAgentMessages"
-            :key="message.id"
-            class="page-agent-message"
-            :class="[message.kind, message.role, message.tone]"
-          >
-            <div class="page-agent-message-head">
-              <strong>{{ message.title }}</strong>
-              <span>{{ message.kind }}</span>
-            </div>
-            <p>{{ message.body }}</p>
-            <div v-if="message.chips?.length" class="page-agent-chip-row">
-              <span v-for="chip in message.chips" :key="chip">{{ chip }}</span>
-            </div>
-            <ul v-if="message.lines?.length" class="page-agent-line-list">
-              <li v-for="line in message.lines" :key="line">{{ line }}</li>
-            </ul>
-          </article>
-        </section>
-
-        <footer class="page-agent-composer">
-          <div class="page-agent-quick-row">
-            <button
-              v-for="action in pageAgentQuickActions"
-              :key="action.id"
-              type="button"
-              class="page-agent-pill"
-              :disabled="action.disabled"
-              :title="action.reason"
-              @click="runPageAgentQuickAction(action)"
-            >
-              {{ action.label }}
-            </button>
-          </div>
-          <label class="page-agent-input-shell">
-            <textarea
-              v-model="pageAgentInput"
-              class="page-agent-input"
-              :placeholder="pageAgentPlaceholder"
-              data-page-agent-target="page-agent-command"
-              @keydown="handlePageAgentKeydown"
-            />
-            <button class="page-agent-send" type="button" :disabled="!pageAgentInput.trim() || pageAgentBusy" @click="submitPageAgentInput">发送</button>
-          </label>
-        </footer>
-
+      <aside v-if="copilotOpen" class="copilot">
+        <AgentPanel ref="pageAgentPanel" />
         <div class="page-agent-hidden-targets" aria-hidden="true">
-          <button id="page-agent-process" class="page-agent-hidden-target" data-page-agent-target="page-agent-process" type="button" @click="handleProcess">生成处理建议</button>
           <div id="sunpilot-flow" data-page-agent-target="sunpilot-flow"></div>
           <div id="sunpilot-fields" data-page-agent-target="sunpilot-fields"></div>
           <div id="sunpilot-evidence" data-page-agent-target="sunpilot-evidence"></div>

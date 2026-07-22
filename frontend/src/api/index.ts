@@ -1,7 +1,9 @@
 import axios from 'axios';
 import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload, CallRecordSample, GenerateTicketDraftPayload, TicketDraftResult } from '../types';
 
-const api = axios.create({ baseURL: 'http://localhost:8000/api' });
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+
+const api = axios.create({ baseURL: API_BASE_URL });
 
 export const ticketApi = {
   list: (filters?: TicketListFilters) => api.get<Ticket[]>('/tickets', { params: filters }).then(r => r.data),
@@ -13,7 +15,7 @@ export const ticketApi = {
   reopen: (id: string, reason = '', operator = 'operator') => api.post<Ticket>(`/tickets/${id}/reopen`, { reason, operator }).then(r => r.data),
   saveDraft: (id: string, draft: string, operator = 'operator') => api.post<{ticketId: string; status: string}>(`/tickets/${id}/reply-draft`, { draft, operator }).then(r => r.data),
   aiProcess: (id: string) => api.post<ProcessTicketResponse>(`/tickets/${id}/ai-process`).then(r => r.data),
-  getStreamUrl: (id: string) => `http://localhost:8000/api/tickets/${id}/ai-process-stream`,
+  getStreamUrl: (id: string) => `${API_BASE_URL}/tickets/${id}/ai-process-stream`,
   confirmAction: (id: string, approved: boolean) => api.post<ProcessTicketResponse | {ticketId: string; status: string}>(`/tickets/${id}/confirm-action`, { ticketId: id, approved }).then(r => r.data),
   close: (id: string, finalReply: string) => api.post<{ticketId: string; status: string}>(`/tickets/${id}/close`, { ticketId: id, finalReply }).then(r => r.data),
   getTrace: (id: string) => api.get<TraceStep[]>(`/tickets/${id}/trace`).then(r => r.data),

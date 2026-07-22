@@ -12,8 +12,18 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-your-api-key-here")
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "30"))
-LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
+
+# PageAgent ReAct LLM proxy. Kept separate from backend business agents so
+# browser automation can use Ali/Qwen while business agents keep LLM_*.
+PAGE_AGENT_LLM_BASE_URL = os.getenv(
+    "PAGE_AGENT_LLM_BASE_URL",
+    os.getenv("ALI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+)
+PAGE_AGENT_LLM_API_KEY = os.getenv("ALI_API_KEY", "")
+PAGE_AGENT_LLM_MODEL = os.getenv("PAGE_AGENT_LLM_MODEL", "qwen3.7-plus")
+PAGE_AGENT_LLM_TIMEOUT = int(os.getenv("PAGE_AGENT_LLM_TIMEOUT", str(LLM_TIMEOUT)))
 
 # Database
 SUPPORTED_DB_BACKENDS = {"mysql", "tdsql"}

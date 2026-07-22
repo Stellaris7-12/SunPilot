@@ -16,6 +16,7 @@
 - 旧 SQLite 运行口径会干扰演示，应推进到 MySQL-only：默认 MySQL、smoke 使用 `ticket_agent_test`、文档去掉 SQLite 路径。
 - Mock Tools 大面积升级人工时，优先排查数据库连接、演示数据重置、业务域 seed 和 `workflow_config.json`，不要先假设 ResolutionAgent 坏了。
 - 通话记录数据集已准备好，发单侧应做成“发单 Agent 生成草稿 + PageAgent 可见填单提交”的同步链路，不再只是后台接口生成 `ticketDraft`。
+- 2026-07-22 复查后，决定采用 **fork 源码** 路线替代从零实现：直接复制 Ali page-agent 的 PageAgentCore + PageController + SimulatorMask，不加安全层（MVP 放弃 PolicyLayer 和审计），用 SSE bridge（pushObservation）让 PageAgent 接收后端 Agent 输出。PageAgent 专用 LLM 代理已切换为 `ALI_API_KEY` + `qwen3.7-plus`。详细方案见 `doc/issue/PageAgent_ReAct改造方案_7.22.md`。
 - 完整业务背景位于 `doc/requirements/项目详细背景.md`
 
 ## 模块 K：MySQL-only 与 Mock Tools 收口（P0）
@@ -52,94 +53,94 @@
 - [x] 高风险/敏感样本进入人工确认或升级，不被自动结案。
 - [x] 文档中的旧 SQLite 口径已清理；旧测评如需回归另写 MySQL-only 脚本。
 
-## 模块 M：贯穿全流程的 GUI PageAgent（P0 第一优先级）
+## 模块 M：贯穿全流程的 GUI PageAgent（P0 第一优先级，已验收）
 
-目标：把 PageAgent 从“右侧辅助按钮”升级为贯穿发单与回单的可见 GUI 执行 Agent。多 Agent 仍是业务大脑，负责识别、判断、工具调用、风险和回单内容；PageAgent 是页面执行员，负责观察页面、移动鼠标、点击按钮、填写表单、展示执行过程，并把发单 Agent 与回单侧多 Agent 的结果转成可审查的页面操作。
+目标：fork Ali page-agent 源码，复制 PageAgentCore + PageController + SimulatorMask，用 SSE bridge（pushObservation）连接后端 Agent 输出，让 PageAgent 贯穿发单和回单全流程。MVP 放弃安全层，给予 PageAgent 最大自主性。
+
+验收状态：2026-07-22 已完成运行态验收。PageAgent 专用 LLM proxy 使用系统级 `ALI_API_KEY` 调用 DashScope OpenAI-compatible 接口，模型强制为 `qwen3.7-plus`；浏览器在 `127.0.0.1:5173` + 后端 `127.0.0.1:8000` 下完成发单、AI 处理、回单草稿写入和证据定位。
 
 核心定位：
 
 ```text
-发单Agent / 回单侧多Agent = 业务大脑
-PageAgent = GUI 执行员 + 演示前台 + 可审查操作轨迹
-TicketAgent Policy Layer = 业务策略、风险边界、动作白名单、审计接管
+发单Agent / 回单侧多Agent = 业务大脑（管 what）
+PageAgent = 页面执行员（管 how）+ 可视化演示前台
+SSE Bridge = 两个大脑之间的通信通道（observation 机制）
 Mock Tools / MySQL = 业务系统与证据底座
-坐席/处理人员 = Demo 中可接管的最终责任人
 ```
 
-### M0：接入路线与源码改造
+### M0：fork 源码（替代从零重写的 PageActionRunner）
 
-- [x] 采用“裁剪源码接入”路线，参考并迁移 `C:\Users\heyunhui\OtherProjects\page-agent-main` 中的核心能力，而不是只仿制按钮面板。
-- [x] 优先复用/裁剪 Ali PageAgent 的 `PageAgentCore` 执行循环、`PageController` DOM 索引/点击/输入能力、`SimulatorMask` 可见鼠标和目标高亮能力。
-- [x] 不直接接入完整 monorepo、Chrome Extension、MCP 和 website；首版只服务 TicketAgent 当前前端页面。
-- [x] 将裁剪代码放入前端独立模块，例如 `frontend/src/page-agent/`，外层包一层 TicketAgent 业务策略，不直接暴露原始通用执行能力。
-- [x] 若引入依赖，优先控制在 `zod`、`ai-motion`、必要的源码内联/本地模块；安装依赖前单独确认。
+- [x] 确定 fork 路线：直接复制上游 PageAgentCore、PageController、SimulatorMask、LLM 客户端、DOM 脱水引擎和 W3C 动作实现。不再从零重写。
+- [x] 从 `C:\Users\heyunhui\OtherProjects\page-agent-main\packages` 复制核心源文件到 `frontend/src/page-agent/`，整理导入路径。
+- [x] 不引入上游的 React Panel、Chrome Extension、MCP、website。
+- [x] 保留原 `tools/index.ts` 全部内置工具（包括 execute_javascript 作为兜底逃生舱，默认禁用）。
+- [x] 保留上游 MIT License 声明。
 
-### M1：PageAgent 在业务流程中的地位
+### M1：工厂函数与集成
 
-- [x] 在产品与代码口径中明确：PageAgent 不替代 `ClassifierAgent`、`IntakeAgent`、`ResolutionAgent`、`EscalationAgent`、`NotificationAgent`。
-- [x] PageAgent 贯穿两段流程：发单侧辅助坐席从通话记录生成并提交工单；回单侧辅助处理人员完成方案推荐、证据定位、回复填充和高频结单。
-- [x] PageAgent 的任务来源分两类：用户在右侧对话框输入自然语言；多 Agent/发单 Agent 输出结构化页面任务。
-- [x] PageAgent 每一步都要可见：观察页面、规划动作、移动鼠标、点击/输入、验证结果、记录日志。
+- [x] PageAgent 不替代五个业务 Agent。
+- [x] PageAgent 的任务来源分两类：用户在 Panel 输入自然语言指令；SSE bridge 通过 pushObservation 注入后端 Agent 输出。
+- [x] 实现极简 `createTicketPageAgent()` 工厂函数（~30 行）：实例化 PageController（enableMask=true）+ PageAgentCore（baseURL 指向 `/api/llm/proxy`、language=zh-CN、maxSteps=15、stepDelay=0.8、model=`qwen3.7-plus`）。
+- [x] 原 `page-agent/src/PageAgent.ts`（聚合 Core + Controller + React Panel）不引入，聚合逻辑在工厂函数中完成。
 
-### M2：TicketAgent Policy Layer
+### M2：MVP 不实现 PolicyLayer
 
-- [x] 新增 PageAgent 业务策略层，把自然语言或业务结果先解析成 TicketAgent 允许的页面任务，再交给 PageAgent 执行。
-- [x] 策略层输入包含 `PageBusinessContext`：当前场景、通话摘要、工单草稿、AI 处理结果、工具证据、风险等级、工单状态、可用业务按钮、当前页面锚点。
-- [x] 策略层输出包含 `PageTaskPlan`：目标、步骤、允许使用的 DOM 工具、预期结果、风险等级、是否允许 Demo 自动提交。
-- [x] 禁用 `execute_javascript`；DOM 点击/输入必须经过页面范围、元素语义、业务风险和目标校验。
-- [x] Demo 模式允许低风险高频链路全自动发单/回单/结单；中高风险链路仍演示 PageAgent 填好页面并停在确认/升级节点，除非明确使用演示全自动脚本。
+- [x] 明确 MVP 放弃：白名单校验、风险分级、确认门控、PageActionLog 持久化。
+- [x] PageAgent 拥有最大自主性——LLM 输出的任何 action（click/input/scroll/execute_javascript）都直接执行，不经过额外拦截。
+- [x] execute_javascript 默认关闭（experimentalScriptExecutionTool: false），demo 调试时如标准工具反复失败可临时开启作为兜底。
+- [x] 安全层和审计能力作为答辩时主动说明的”已知待优化项”。
 
-### M3：发单 Agent 与可见发单 PageAgent
+### M3：SSE Bridge（PageAgent 接收后端 Agent 输出的关键）
 
-目标：把模块 L 原“通话发单侧 MVP”并入 PageAgent 主线。发单 Agent 决定“填什么”，PageAgent 负责“怎么可见地填并提交”，两者不再拆成两个独立模块排期。
+- [x] SSE bridge 是连接后台业务 Agent 和前端 PageAgent 的唯一通道。
+- [x] 实现 `bridge.ts`：`watch(store.aiResult)` + `watch(store.traceSteps)` + `watch(store.isProcessing)` + `watch(store.ticketDraftResult)` → `pushObservation()`。
+- [x] bridge 的核心工作：将 `AiProcessResult` 结构字段转为 LLM 友好的自然语言描述文本（而非 JSON），注入 PageAgent 的 observation 流。
+- [x] 发单侧：watch `store.ticketDraftResult` → observation 含草稿各字段值，提示”请打开发单表单并填入以上字段”。
+- [x] 回单侧：watch `store.aiResult` → observation 含场景、风险、回单草稿、证据编号、可结案状态，提示”请填入回单编辑器并定位证据”。
+- [x] 后端 Agent 执行进度：watch `store.traceSteps` → observation 含每一步的 agent 名称和 summary，Panel 实时展示。
 
-- [x] 新增 `POST /api/call-records/generate-ticket-draft`，定位为发单 Agent / Call Intake 接口，而不是第六个后端业务 Agent。
-- [x] 发单 Agent 输入：`transcript`、可选 `callMeta`、可选 `sampleId`、可选 `operatorId`。
-- [x] 发单 Agent 输出：`ticketDraft`、`callSummary`、`detectedScenario`、`detectedTicketType`、`keyFields`、`missingFields`、`confidence`、`sourceCallId`、`pageTaskHints`。
-- [x] `ticketDraft` 保持兼容现有 `POST /api/tickets`：`title`、`customerId`、`customerName`、`phone`、`cardLast4`、`scene`、`category`、`subcategory`、`priority`、`channel`、`riskLabel`、`riskLevel`、`content`。
-- [x] MVP 优先支持样本驱动：若 `sampleId` 命中 `call_transcripts.json`，直接返回样本草稿；自定义 transcript 再走规则抽取 + LLM 兜底。
-- [x] 在企业壳新增“通话发单工作区”：通话记录列表、通话全文、自动摘要、草稿字段表单、字段来源/缺失提示和“一键提交工单”按钮。
-- [x] 为发单表单增加稳定页面锚点和语义属性，例如客户号、卡尾、场景、摘要、提交按钮，供 PageAgent DOM 观察和定位。
-- [x] 发单 Agent 返回 `pageTaskHints`，告诉 PageAgent 应填哪些字段、目标区域在哪里、提交后期望跳转到哪里。
-- [x] 用户在右侧 PageAgent 控制台输入“根据这通电话帮我发单”后，PageAgent 执行完整可见流程：选择通话样本/读取当前通话 -> 调用发单 Agent 生成草稿 -> 移动鼠标到发单入口 -> 打开发单区 -> 逐项填写字段 -> 高亮缺失/风险字段 -> 点击提交/分发。
-- [x] 提交成功后调用现有 `POST /api/tickets`，创建工单并跳转 `/tickets/:id`。
-- [x] 跳转后自动把当前 PageAgent 任务切换为回单侧任务，提示可继续“生成处理建议并自动回单”。
-- [x] 坐席可手动编辑草稿；PageAgent 填写前如发现字段已被人工改动，需记录并按策略决定覆盖、追加或停下提示。
-- [x] 发单侧展示字段来源：通话文本、客户资料系统、卡片系统、活动权益系统、交易系统、历史工单系统。
-- [x] 首版不真实接 13 个外部系统；用 Mock 业务域和页面文案表达“客户资料、卡片、交易、权益、申请、历史工单等业务数据已自动调取”。
-- [x] 对缺失字段生成追问或人工补充提示，避免 PageAgent 在字段不足时硬提交。
-- [x] 发单 Agent 只负责发单前摘要和草稿；创建后的标准工单仍进入现有 `ClassifierAgent -> IntakeAgent -> ResolutionAgent -> EscalationAgent -> NotificationAgent`，后续 Agent 不反复消费完整 transcript。
+### M4：Vue Panel（替代 React Panel）
 
-### M4：回单侧 PageAgent
+- [x] Panel 挂载在工单详情页右侧栏，嵌入页面布局。
+- [x] 实现 `panel/AgentPanel.vue`：输入框 + 发送按钮 + 停止按钮 + 步骤流展示。
+- [x] 监听 PageAgentCore 事件驱动更新：`activity: thinking` → 思考态、`activity: executing` → 动作描述、`activity: executed` → 结果+耗时、`activity: error` → 红色错误卡、`statuschange: completed/stopped` → 最终状态。
+- [x] CSS 复用上游 Teal(#0f766e)+Amber(#f59e0b) 色系，和 SimulatorMask 保持视觉一致。
+- [x] 和 SimulatorMask 的同步感：Panel 展示执行中/已执行步骤，PageController/SimulatorMask 负责鼠标移动和点击动画。
 
-- [x] 处理人员打开工单后，PageAgent 可点击“生成处理建议”触发原有多 Agent 链路。
-- [x] 多 Agent 完成分类、字段补全、Mock Tools 调用、知识/历史案例匹配、回单建议和结案建议后，PageAgent 读取结果并执行页面动作。
-- [x] PageAgent 可见地定位证据链、打开系统审计、填入客户回单、插入证据编号、填内部处理意见和复核摘要。
-- [x] 高频低风险工单 Demo 中允许 PageAgent 点击保存草稿、提交复核并结案，形成“自动处理重复工单”的惊艳演示。
-- [x] 高风险或异常工单演示 PageAgent 自动预警、定位升级原因、填好处理意见并停在人工确认/升级区。
+### M5：后端 LLM 代理
 
-### M5：右侧对话框、鼠标和动作轨迹
+- [x] 新增 `POST /api/llm/proxy/chat/completions` 与兼容 `POST /api/llm/proxy`：前端 PageAgentCore 的 OpenAIClient 通过此端点调 LLM，不暴露 API Key。PageAgent proxy 使用 `ALI_API_KEY` + `qwen3.7-plus`。
+- [x] 运行态验收：`POST /api/llm/proxy/chat/completions` 由后端强制使用 `qwen3.7-plus`，请求 `tool_choice=required`、`enable_thinking=false` 返回 200，且包含 `done` tool call。
 
-- [x] 将右侧 SunPilot 升级为 PageAgent 控制台：自然语言输入、当前目标、执行中工具、历史步骤、停止/接管按钮。
-- [x] 接入 Ali PageAgent 的 `activity` / `history` 思路，展示 thinking、executing、executed、retrying、error、done。
-- [x] 接入或复刻 `SimulatorMask`，在页面上显示可见鼠标、移动轨迹、点击波纹、目标高亮和遮罩。
-- [x] 页面操作必须有节奏感：滚动、定位、悬停、点击、输入、等待结果、验证成功，避免瞬间后台完成。
-- [x] 允许用户对 PageAgent 下达指令，例如“根据这通电话帮我发单”“处理当前工单并自动回单”“定位工具证据”“高频低风险直接结单”。
+### M6：发单与回单 Demo 链路
 
-### M6：审计、失败接管与演示脚本
-
-- [x] 新增 `PageActionLog`：用户指令、业务上下文摘要、DOM 工具、目标元素、输入值摘要、执行结果、耗时、风险等级、停止原因。
-- [x] PageActionLog 与后端 Agent Trace 分开展示：Trace 证明业务大脑，PageActionLog 证明页面执行过程。
-- [x] 失败规则：目标元素找不到、模型选择不确定、状态不匹配、工具失败、超过最大步数、重复失败时停止并提示人工接管。
-- [x] 准备两条必跑 Demo：低风险“通话发单 -> 自动处理 -> 自动回单结单”；高风险“通话发单 -> 多 Agent 识别风险 -> PageAgent 填写并停在人工升级”。
+- [x] 已实现：发单 Agent（`POST /api/call-records/generate-ticket-draft`）、企业壳通话发单工作区、发单表单语义标记。
+- [x] Demo 链路 1（低风险全自动）已接入：坐席说”根据这通电话帮我发单” → PageAgent/bridge 接收发单草稿 → 表单字段可填可提交 → 工单创建 → 跳转详情页 → 坐席点”AI处理” → Panel 实时展示多Agent进度 → 处理完成 → bridge 注入 observation → PageAgent 可继续填回单与定位证据。
+- [x] Demo 链路 2（高风险）已接入：多Agent 识别高风险/人工确认后，bridge 注入风险原因 observation，PageAgent 任务停在人工确认/风险定位口径，不直接结案。
+- [x] 运行态验收：点击“生成发单草稿”后，bridge observation 自动注入 Panel；PageAgent 真实调用 Qwen ReAct 循环，Panel 记录多步 `input_text`，填入标题、客户号、客户姓名、手机号、卡尾号等字段。
+- [x] 运行态验收：发单侧提交成功，工单列表新增 `T20260722445615 / C20001 / 张明 / 餐饮券 / 待处理`，并进入详情区。
+- [x] 运行态验收：回单侧 PageAgent 在详情页点击 `启动 AI 处理`，bridge 实时注入 Classifier、Intake、Escalation、Resolution、Notification 等后端 Agent 进度。
+- [x] 运行态验收：后端多 Agent 完成后，bridge 注入低风险可结案 observation 与回单草稿；PageAgent 点击“填入 SunPilot 建议”、定位证据编号，并写入 `page-agent-reply-draft`。最终回单内容包含 `处理依据/证据编号：BEN20260722C8C4B9EE`。
 
 ### M 验收
 
-- [x] PageAgent 能以可见鼠标完成一条发单链路：打开发单区、填表、提交、跳转工单详情。
-- [x] PageAgent 能以可见鼠标完成一条回单链路：触发多 Agent、查看证据、填回单、保存/结案。
-- [x] 右侧控制台可输入任务并展示执行步骤、工具调用、失败/完成状态。
-- [x] 答辩时能讲清：多 Agent 没有被边缘化，它们负责业务决策；PageAgent 负责把业务决策变成可见、可审查、可接管的页面操作。
-- [x] 前端 `npm.cmd run build` 通过；若接入裁剪源码，保留来源说明和 MIT License 口径。
+- [x] PageAgent 能以可见鼠标完成发单：打开发单表单、填表、提交。
+- [x] PageAgent 能以可见鼠标完成回单：填入回单、定位证据、滚动到复核区。
+- [x] 右侧 Panel 可输入任务并展示实时步骤流。
+- [x] 后端 Agent 结果通过 bridge 自动注入 PageAgent，无需人工复制粘贴。
+- [x] 答辩时能讲清：多 Agent 是业务大脑，PageAgent 是页面执行员，SSE bridge 是两者之间的语言通道。
+
+验收证据：
+
+- `frontend` 下 `npm.cmd run build` 通过。
+- `.venv\Scripts\python.exe -m compileall ai-engine` 通过。
+- Qwen proxy 直连探针通过：`qwen3.7-plus` + `tool_choice=required` + `enable_thinking=false` 返回 tool call。
+- 浏览器动态验收通过：PageAgent 可见发单、提交新增工单、启动多 Agent、填入客户回单、定位证据编号。
+
+保留边界：
+
+- MVP 仍不实现 PolicyLayer、风险分级拦截和 PageActionLog 持久化。
+- 自动流程不直接结案；仍停在人工复核/结案节点。
 
 ## 模块 L：已并入模块 M3（不再单独排期）
 
@@ -150,6 +151,51 @@ Mock Tools / MySQL = 业务系统与证据底座
 - K 仍是已完成的数据与 Mock Tools 底座，不与 L 合并。
 - L 的接口契约、发单页面、PageAgent 可见填单、13 个业务系统演示表达和验收标准均落在 M3。
 - 后续实施时直接按 M0/M2/M5 建 PageAgent 执行壳，再做 M3 发单链路，最后做 M4 回单链路。
+
+## 模块 O：Tool Calling 与 PageAgent 内置 LLM 收口（P0 新增）
+
+目标：优先处理 `doc/issue/架构与数据流问题分析报告_20260722.md` 的 3.1、3.2 和 4，修复“没有合适 Tools 可供调用”的根因。PageAgent 规划口径已被模块 M fork ReAct 方案替代，不再维护“后端 Planner + Policy Guard”路线。
+
+### O1：LLM 原生 Tool Calling 主链路
+
+- [x] 在 `ai-engine/agents/base.py` 扩展 `call_llm()`，保留现有 JSON 模式，并新增 `tools`、`tool_choice` 支持。
+- [x] 当传入 tools 时，使用 OpenAI/DeepSeek 兼容的 `chat.completions` tool calling；返回值统一解析为 `tool_calls[]`，文本 JSON 仅作为兼容 fallback。
+- [x] `ResolutionAgent` 不再把 22 个工具 Markdown 全量塞入 prompt；改为把当前 intent 相关工具转换为 tools schema。
+- [x] `ResolutionAgent` 输入补充 `ticket_content` 和结构化 `ticket`，避免只依赖 Intake 抽取字段。
+- [x] `Orchestrator` 调用 ResolutionAgent 时传入完整 ticket context、结构化 ticket、当前 intent 相关工具名列表和 workflow 配置。
+- [x] 保留现有人工门禁：中高风险、工具要求人工、字段缺失、工具失败均不能因为 tool calling 改造而自动结案。
+
+### O2：工具注册表与数据格式统一
+
+- [x] 在 `ToolRegistry` 增加 OpenAI tools schema 生成能力，解决 `coupon.reissue`、`customer.update-address` 这类工具名与 function name 的映射问题。
+- [x] 增加 `list_for_intent(intent_type, workflow_config)`，只向 LLM 暴露当前场景相关候选工具。
+- [x] 增加工具参数归一化：工具边界继续使用 camelCase canonical 参数，同时兼容 snake_case、类型字符串和常见 LLM 包装文本。
+- [x] 将 `definitions.py` 中 17 个 I3 硬编码工具迁移到 `ai-engine/data/tools.json`，统一维护 22 个工具定义。
+- [x] 为所有 I3 工具参数补齐中文业务描述和 example，禁止 `description` 仅重复参数名。
+- [x] `LLM_MAX_TOKENS` 默认从 2000 提升到 4096；不修改 `.env`。
+
+### O3：ResolutionAgent 兜底、校验和 Mock Tools 根因修复
+
+- [x] `_INTENT_TOOL_MAP` 从单工具扩展为场景候选工具列表，覆盖 I3 工具。
+- [x] LLM 未返回 tool call、返回未知工具名或工具名轻微漂移时，只允许在当前候选工具集合内校正；无法校正则走 workflow `recommended_tool` 或进入 `pending_info`/人工。
+- [x] MockExecutor 执行前统一做工具存在性、必填参数、参数类型和风险等级校验；未知工具不能进入 `mock_executor.execute()`。
+- [x] 修复发单 Agent 场景枚举不一致：资料变更输出 `CUSTOMER_ADDRESS_UPDATE`，交易争议/交易核查输出 `TRANSACTION_DISPUTE`，与 `workflow_config.json` 对齐。
+- [x] 保留 `transaction.query` 的只读取证口径：交易类可先查流水生成证据，但后续仍走人工复核边界。
+- [x] 更新 `agent_cards.json` 中 ResolutionAgent 的 input schema：`available_tool_names` 为主，`available_tools` 仅保留兼容旧评测。
+
+### O4：已废弃（被 M0 fork 方案替代）
+
+原来的 “PageAgent 内置 LLM Planner + 后端规划接口” 方案已废弃。fork Ali page-agent 源码后，LLM 决策由 PageAgentCore 的 ReAct 循环原生提供，不需要额外的后端 Planner。PageAgent 通过 `POST /api/llm/proxy` 直接调用 LLM（和 OpenAIClient 已有的机制一致）。
+
+### O 验收
+
+- [x] `ResolutionAgent` 在 mock `tool_calls` 响应下能输出真实工具名和 canonical 参数。
+- [x] 工具名幻觉、无 tool call、snake_case 参数、缺必填参数均有确定性兜底或人工/待补充分支。
+- [x] Registry 加载 22 个工具，且 I3 参数描述与 example 可读。
+- [x] 发单场景检测返回的 ticket type 能被回单侧 workflow 正确路由。
+- [x] PageAgent 输入“根据这通电话帮我发单”“处理当前工单并自动回单”“定位证据”时走 PageAgentCore ReAct 循环，不再输出白名单 `PageTaskPlan`。
+- [x] MVP 不启用 Policy Guard；非法动作/高风险直接结案拦截作为后续安全层和审计优化项。
+- [x] 验证命令：`.venv\Scripts\python.exe -m compileall ai-engine`、`smoke_module_i3_mock_tools.py`、`smoke_module_k_workflow_routing.py`、新增 tool-calling smoke、前端 `npm.cmd run build`。
 
 ## 模块 N：演示与答辩材料（P1）
 
@@ -163,17 +209,15 @@ Mock Tools / MySQL = 业务系统与证据底座
 
 ## 推荐执行顺序
 
-1. 2026-07-21：完成 K1/K2/K3 的诊断和最小修复，确保 MySQL + Mock Tools 可演示。
-2. 2026-07-21 至 2026-07-22：实现 M0/M2/M5 的 PageAgent 基础执行壳、可见鼠标和右侧控制台。
-3. 2026-07-22：实现 M3，让发单 Agent 产出草稿与页面任务，并由 PageAgent 完成发单侧可见填单提交。
-4. 2026-07-22 至 2026-07-23：实现 M4 回单侧可见处理链路，打通自动处理、填回单和低风险结单。
-5. 2026-07-23：跑后端 smoke、前端 build，整理 Demo 脚本和 PPT 要点。
+1. 已完成：K1/K2/K3，确保 MySQL + Mock Tools 可演示。
+2. 已完成：O1/O2/O3，ResolutionAgent 原生 Tool Calling、工具 schema、参数归一化和 Mock Tools 根因修复。
+3. 立即执行（7.22-7.23）：**M0**（复制源码 + 整理导入）→ **M5**（LLM proxy）→ **M1**（工厂函数）→ **M3**（SSE bridge）→ **M4**（Vue Panel）→ **M6**（发单回单 Demo 链路调试）。
+4. M 完成后：跑后端 smoke、前端 build，再进入 N，整理 Demo 脚本和 PPT 要点。
 
 ## 非目标
 
 - 不做真实银行生产系统直连。
 - 不做真实 ASR 语音识别主线；可作为后续路线或演示素材。
-- 不直接集成完整通用 page-agent 工程。
+- MVP 不做 PolicyLayer（安全白名单、风险分级、确认门控、PageActionLog 持久化）；答辩时作为"已知待优化项"主动说明。
 - 不把 PageAgent 放入后端五 Agent 编排中。
-- 不允许 PageAgent 任意点击、任意 JS 执行或绕过人工确认/结案接口。
-
+- MVP 允许浏览器通过 `/api/llm/proxy` 间接调用 LLM（PageAgentCore 的 OpenAIClient 机制需要）。
