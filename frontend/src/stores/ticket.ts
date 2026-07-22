@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, CreateTicketPayload, Ticket, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload } from '../types';
+import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionStatus, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload } from '../types';
 import { ticketApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
@@ -11,6 +11,11 @@ export const useTicketStore = defineStore('ticket', () => {
   const traceSteps = ref<TraceStep[]>([]);
   const toolCalls = ref<ToolCallLog[]>([]);
   const operationLogs = ref<TicketOperationLog[]>([]);
+  const callRecords = ref<CallRecordSample[]>([]);
+  const ticketDraftResult = ref<TicketDraftResult | null>(null);
+  const pageActionLogs = ref<PageActionLogEntry[]>([]);
+  const pageAgentStatus = ref<PageActionStatus>('done');
+  const pageAgentGoal = ref('');
   const replyDraft = ref('');
   const workflowPaused = ref(false);
 
@@ -22,6 +27,29 @@ export const useTicketStore = defineStore('ticket', () => {
 
   async function fetchTickets(filters?: TicketListFilters) {
     tickets.value = await ticketApi.list(filters);
+  }
+
+  async function fetchCallRecords() {
+    callRecords.value = await ticketApi.listCallRecords();
+  }
+
+  async function generateTicketDraft(payload: GenerateTicketDraftPayload) {
+    ticketDraftResult.value = await ticketApi.generateTicketDraft(payload);
+    return ticketDraftResult.value;
+  }
+
+  function setPageAgentStatus(status: PageActionStatus, goal = pageAgentGoal.value) {
+    pageAgentStatus.value = status;
+    pageAgentGoal.value = goal;
+  }
+
+  function appendPageActionLog(entry: PageActionLogEntry) {
+    pageActionLogs.value.unshift(entry);
+    pageActionLogs.value = pageActionLogs.value.slice(0, 60);
+  }
+
+  function clearPageActionLogs() {
+    pageActionLogs.value = [];
   }
 
   function selectTicket(id: string) {
@@ -207,12 +235,22 @@ export const useTicketStore = defineStore('ticket', () => {
     traceSteps,
     toolCalls,
     operationLogs,
+    callRecords,
+    ticketDraftResult,
+    pageActionLogs,
+    pageAgentStatus,
+    pageAgentGoal,
     replyDraft,
     workflowPaused,
     selectedTicket,
     openCount,
     closedCount,
     fetchTickets,
+    fetchCallRecords,
+    generateTicketDraft,
+    setPageAgentStatus,
+    appendPageActionLog,
+    clearPageActionLogs,
     selectTicket,
     loadTicketContext,
     startAiProcess,

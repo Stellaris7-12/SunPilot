@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import { evalApi } from '../api'
+import { PageActionRunner, createPageTaskPlan } from '../page-agent'
 import { useTicketStore } from '../stores/ticket'
-import type { EvaluationMetrics, Ticket } from '../types'
+import type { CallRecordSample, CreateTicketPayload, EvaluationMetrics, PageBusinessContext, Ticket } from '../types'
 import {
   businessSteps,
   bucketMatches,
@@ -46,6 +47,15 @@ const reviewSummaryDraft = ref('')
 const customerQuestionDraft = ref('')
 const followUpDraft = ref('')
 const replyTouched = ref(false)
+const selectedCallId = ref('')
+const customTranscript = ref('')
+const draftForm = ref<CreateTicketPayload>(emptyTicketDraft())
+const draftFieldTouched = ref<Record<string, boolean>>({})
+const draftGenerationStatus = ref('')
+const pageInstruction = ref('根据这通电话帮我发单')
+const pageAgentRunner = new PageActionRunner()
+const pageAgentShouldStop = ref(false)
+const pendingAutoReply = ref(false)
 
 const ticketId = computed(() => route.params.id as string | undefined)
 const ticket = computed(() => store.selectedTicket)
@@ -146,9 +156,41 @@ const tabTickets = computed(() => {
   const others = store.tickets.filter(item => item.id !== ticket.value?.id).slice(0, 2)
   return [...selected, ...others]
 })
+const selectedCall = computed<CallRecordSample | null>(() =>
+  store.callRecords.find(item => item.id === selectedCallId.value) || store.callRecords[0] || null
+)
+const draftRequiredMissing = computed(() => {
+  const required: Array<[keyof CreateTicketPayload, string]> = [
+    ['title', '标题'],
+    ['customerName', '客户姓名'],
+    ['phone', '预留手机'],
+    ['cardLast4', '卡尾号'],
+    ['scene', '业务场景'],
+    ['content', '发单内容'],
+  ]
+  return required.filter(([key]) => !String(draftForm.value[key] || '').trim()).map(([, label]) => label)
+})
+const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
+const pageAgentLogs = computed(() => store.pageActionLogs.slice(0, 10))
+const pageAgentBusy = computed(() => ['thinking', 'executing', 'retrying'].includes(store.pageAgentStatus))
+const pageAgentStatusLabel = computed(() => {
+  const labels = {
+    thinking: '思考中',
+    executing: '执行中',
+    executed: '已执行',
+    retrying: '重试中',
+    error: '异常',
+    done: '完成',
+    stopped: '已接管',
+  }
+  return labels[store.pageAgentStatus]
+})
 
 onMounted(async () => {
-  await store.fetchTickets()
+  await Promise.all([store.fetchTickets(), store.fetchCallRecords()])
+  if (!selectedCallId.value && store.callRecords[0]) {
+    selectCallRecord(store.callRecords[0].id)
+  }
   await loadRouteTicket(ticketId.value)
   try {
     metrics.value = await evalApi.metrics()
@@ -157,8 +199,23 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  pageAgentRunner.stop()
+})
+
 watch(ticketId, async id => {
   await loadRouteTicket(id)
+})
+
+watch(selectedCall, current => {
+  if (!current) return
+  customTranscript.value = current.transcript
+}, { immediate: true })
+
+watch([() => store.aiResult, pageAgentBusy], ([result, busy]) => {
+  if (!result || !pendingAutoReply.value || busy) return
+  pendingAutoReply.value = false
+  runPageAgentTask('继续根据处理建议自动回单')
 })
 
 watch(ticket, current => {
@@ -176,6 +233,164 @@ watch([() => store.aiResult, ticket], () => {
   followUpDraft.value = sections.find(section => section.id === 'followUp')?.body || ''
   replyTouched.value = false
 }, { immediate: true })
+
+function emptyTicketDraft(): CreateTicketPayload {
+  return {
+    title: '',
+    customerId: '',
+    customerName: '',
+    phone: '',
+    cardLast4: '',
+    scene: '',
+    category: '',
+    subcategory: '',
+    priority: 'normal',
+    channel: '客服热线发单',
+    assignee: '坐席 A1027',
+    department: '信用卡运营组',
+    riskLabel: '低风险',
+    riskLevel: 'low',
+    content: '',
+  }
+}
+
+function selectCallRecord(id: string) {
+  selectedCallId.value = id
+  const record = store.callRecords.find(item => item.id === id)
+  if (record) customTranscript.value = record.transcript
+}
+
+function markDraftFieldEdited(field: keyof CreateTicketPayload) {
+  draftFieldTouched.value[field] = true
+}
+
+async function generateDraftFromCall() {
+  operationError.value = ''
+  draftGenerationStatus.value = '正在调用发单 Agent...'
+  try {
+    const payload = selectedCall.value && selectedCall.value.transcript === customTranscript.value
+      ? { sampleId: selectedCall.value.id, operatorId: 'desk-a1027' }
+      : { transcript: customTranscript.value, callMeta: selectedCall.value?.callMeta, operatorId: 'desk-a1027' }
+    const result = await store.generateTicketDraft(payload)
+    draftForm.value = { ...emptyTicketDraft(), ...result.ticketDraft }
+    draftFieldTouched.value = {}
+    draftGenerationStatus.value = `已生成草稿：${result.detectedTicketType} / 置信度 ${(result.confidence * 100).toFixed(0)}%`
+    pageInstruction.value = '根据这通电话帮我发单'
+    return result
+  } catch {
+    draftGenerationStatus.value = '发单 Agent 调用失败，请检查后端 /api/call-records/generate-ticket-draft。'
+    operationError.value = draftGenerationStatus.value
+    throw new Error(draftGenerationStatus.value)
+  }
+}
+
+async function handleSubmitDraft() {
+  if (!canSubmitDraft.value) {
+    operationError.value = `发单字段不完整：${draftRequiredMissing.value.join('、')}`
+    return
+  }
+  operationError.value = ''
+  try {
+    const created = await store.createTicket({
+      ...draftForm.value,
+      id: `call_${Date.now().toString().slice(-8)}`,
+      no: `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${Date.now().toString().slice(-6)}`,
+    })
+    await router.push(`/tickets/${created.id}`)
+    pendingAutoReply.value = true
+    pageInstruction.value = '生成处理建议并自动回单'
+  } catch {
+    operationError.value = '提交发单失败，请确认工单字段和编号是否有效。'
+  }
+}
+
+function buildPageBusinessContext(instruction: string): PageBusinessContext {
+  const onHome = !routeHasTicket.value
+  return {
+    scene: onHome ? 'call-intake' : 'ticket-reply',
+    instruction,
+    callSummary: store.ticketDraftResult?.callSummary,
+    ticketDraft: onHome ? draftForm.value : null,
+    aiResult: store.aiResult,
+    toolEvidenceIds: evidence.value.map(item => item.id),
+    riskLevel: onHome ? draftForm.value.riskLevel : (ticket.value?.riskLevel || 'low'),
+    ticketStatus: ticket.value?.status,
+    availableActions: [
+      canSubmitDraft.value ? 'submit_ticket' : '',
+      ticket.value && !store.aiResult ? 'process_ticket' : '',
+      store.replyDraft && canCancel.value ? 'save_draft' : '',
+      canClose.value ? 'close_ticket' : '',
+    ].filter(Boolean),
+    currentAnchors: [
+      'call-intake-workspace',
+      'ticket-draft-form',
+      'enterprise-ticket-detail',
+      'enterprise-reply',
+      'sunpilot-fields',
+      'sunpilot-evidence',
+      'sunpilot-audit',
+    ],
+    demoAutoClose: /直接结单|自动结案|自动回单|处理当前/.test(instruction),
+  }
+}
+
+function recordDraftOverwritePolicy(editedFields: string[]) {
+  if (!editedFields.length) return
+  store.appendPageActionLog({
+    id: `draft-policy-${Date.now()}`,
+    planId: 'call-intake-policy',
+    instruction: pageInstruction.value,
+    contextSummary: `通话发单 / 人工已编辑:${editedFields.join(',')}`,
+    tool: 'verify',
+    target: 'ticket-draft-form',
+    inputSummary: editedFields.join(', '),
+    status: 'executed',
+    result: draftForm.value.riskLevel === 'low'
+      ? '检测到人工改动字段；低风险演示策略允许用发单 Agent 草稿覆盖并留下审计。'
+      : '检测到人工改动字段；中高风险策略填好页面后停止在人工确认节点。',
+    durationMs: 0,
+    riskLevel: draftForm.value.riskLevel || 'low',
+    stopReason: '',
+    createdAt: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+  })
+}
+
+async function runPageAgentTask(command = pageInstruction.value) {
+  const instruction = command.trim() || '处理当前页面任务'
+  pageInstruction.value = instruction
+  pageAgentShouldStop.value = false
+  operationError.value = ''
+  try {
+    if (!routeHasTicket.value && /发单|电话|通话/.test(instruction) && !store.ticketDraftResult) {
+      store.setPageAgentStatus('executing', '调用发单 Agent 生成草稿')
+      await generateDraftFromCall()
+    }
+    if (!routeHasTicket.value && /发单|电话|通话/.test(instruction) && store.ticketDraftResult) {
+      recordDraftOverwritePolicy(Object.keys(draftFieldTouched.value).filter(key => draftFieldTouched.value[key]))
+      draftForm.value = { ...emptyTicketDraft(), ...store.ticketDraftResult.ticketDraft }
+    }
+    if (routeHasTicket.value && !store.aiResult && /处理|回单|结单/.test(instruction)) {
+      pendingAutoReply.value = true
+    }
+
+    const context = buildPageBusinessContext(instruction)
+    const plan = createPageTaskPlan(context)
+    await pageAgentRunner.run(plan, context, {
+      onLog: entry => store.appendPageActionLog(entry),
+      onStatus: (status, goal) => store.setPageAgentStatus(status, goal),
+      shouldStop: () => pageAgentShouldStop.value,
+    })
+  } catch {
+    store.setPageAgentStatus('error', instruction)
+    operationError.value = 'PageAgent 执行失败，请查看动作轨迹并人工接管。'
+  }
+}
+
+function stopPageAgent() {
+  pageAgentShouldStop.value = true
+  pageAgentRunner.stop()
+  store.setPageAgentStatus('stopped', '坐席已接管')
+}
 
 function selectTicket(id: string) {
   store.selectTicket(id)
@@ -469,6 +684,7 @@ function ticketSourceLabel(item?: Ticket | null) {
                 <span>来源：人工客服发单后续处理</span>
                 <span>Agent：低耦合辅助接入</span>
                 <span class="status blue">智能服务已连接</span>
+                <span v-if="operationError" class="status red">{{ operationError }}</span>
               </div>
             </div>
             <button class="btn-primary" type="button" :disabled="!queueTickets.length" @click="queueTickets[0] && selectTicket(queueTickets[0].id)">
@@ -476,6 +692,119 @@ function ticketSourceLabel(item?: Ticket | null) {
             </button>
             <button class="btn-plain" type="button" @click="handleCreateTicket">新建工单</button>
           </div>
+
+          <section id="call-intake-workspace" class="sys-panel call-intake-workspace" data-page-agent-target="call-intake-workspace">
+            <div class="sys-title">通话发单工作区 <small>发单 Agent 生成草稿，PageAgent 可见填单提交</small></div>
+            <div class="call-intake-grid">
+              <section class="call-list-pane">
+                <header>
+                  <strong>通话记录</strong>
+                  <span>{{ store.callRecords.length }} 条样本</span>
+                </header>
+                <button
+                  v-for="record in store.callRecords.slice(0, 8)"
+                  :key="record.id"
+                  class="call-record-item"
+                  :class="{ active: selectedCallId === record.id }"
+                  type="button"
+                  @click="selectCallRecord(record.id)"
+                >
+                  <span class="mono">{{ record.id }}</span>
+                  <strong>{{ record.callMeta.customerName || '未知客户' }} / {{ record.scenario }}</strong>
+                  <small>{{ record.callMeta.customerId }} · {{ record.riskLevel }}</small>
+                </button>
+              </section>
+
+              <section id="call-transcript-panel" class="call-transcript-pane" data-page-agent-target="call-transcript-panel">
+                <header>
+                  <strong>通话全文</strong>
+                  <span>{{ selectedCall?.callMeta.agent || '坐席 A1027' }}</span>
+                </header>
+                <textarea v-model="customTranscript" class="transcript-box" data-page-agent-target="call-transcript" />
+                <div class="call-actions">
+                  <button class="btn-primary" type="button" :disabled="!customTranscript.trim()" @click="generateDraftFromCall">生成发单草稿</button>
+                  <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask('根据这通电话帮我发单')">PageAgent 可见发单</button>
+                </div>
+                <p class="system-note">{{ draftGenerationStatus || store.ticketDraftResult?.callSummary || '选择通话后可生成摘要、字段来源和标准工单草稿。' }}</p>
+              </section>
+
+              <section id="ticket-draft-form" class="ticket-draft-form" data-page-agent-target="ticket-draft-form">
+                <header>
+                  <strong>标准工单草稿</strong>
+                  <span :class="statusClass(draftRequiredMissing.length ? 'amber' : 'green')">{{ draftRequiredMissing.length ? `缺 ${draftRequiredMissing.length} 项` : '可提交' }}</span>
+                </header>
+                <div class="draft-form-grid">
+                  <label>
+                    <span>标题</span>
+                    <input v-model="draftForm.title" data-page-agent-target="draft-title" type="text" @input="markDraftFieldEdited('title')" />
+                  </label>
+                  <label>
+                    <span>客户号</span>
+                    <input v-model="draftForm.customerId" data-page-agent-target="draft-customerId" type="text" @input="markDraftFieldEdited('customerId')" />
+                  </label>
+                  <label>
+                    <span>客户姓名</span>
+                    <input v-model="draftForm.customerName" data-page-agent-target="draft-customerName" type="text" @input="markDraftFieldEdited('customerName')" />
+                  </label>
+                  <label>
+                    <span>预留手机</span>
+                    <input v-model="draftForm.phone" data-page-agent-target="draft-phone" type="text" @input="markDraftFieldEdited('phone')" />
+                  </label>
+                  <label>
+                    <span>卡尾号</span>
+                    <input v-model="draftForm.cardLast4" data-page-agent-target="draft-cardLast4" type="text" @input="markDraftFieldEdited('cardLast4')" />
+                  </label>
+                  <label>
+                    <span>业务场景</span>
+                    <input v-model="draftForm.scene" data-page-agent-target="draft-scene" type="text" @input="markDraftFieldEdited('scene')" />
+                  </label>
+                  <label>
+                    <span>业务大类</span>
+                    <input v-model="draftForm.category" data-page-agent-target="draft-category" type="text" @input="markDraftFieldEdited('category')" />
+                  </label>
+                  <label>
+                    <span>业务小类</span>
+                    <input v-model="draftForm.subcategory" data-page-agent-target="draft-subcategory" type="text" @input="markDraftFieldEdited('subcategory')" />
+                  </label>
+                  <label>
+                    <span>优先级</span>
+                    <select v-model="draftForm.priority" data-page-agent-target="draft-priority" @change="markDraftFieldEdited('priority')">
+                      <option value="low">低</option>
+                      <option value="normal">普通</option>
+                      <option value="urgent">加急</option>
+                      <option value="critical">紧急</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>风险标签</span>
+                    <input v-model="draftForm.riskLabel" data-page-agent-target="draft-riskLabel" type="text" @input="markDraftFieldEdited('riskLabel')" />
+                  </label>
+                  <label>
+                    <span>风险等级</span>
+                    <select v-model="draftForm.riskLevel" data-page-agent-target="draft-riskLevel" @change="markDraftFieldEdited('riskLevel')">
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                    </select>
+                  </label>
+                  <label class="full">
+                    <span>发单内容</span>
+                    <textarea v-model="draftForm.content" data-page-agent-target="draft-content" class="draft-content-box" @input="markDraftFieldEdited('content')" />
+                  </label>
+                </div>
+                <div class="field-source-strip">
+                  <span v-for="field in store.ticketDraftResult?.keyFields || []" :key="field.name">
+                    {{ field.label }}：{{ field.value }} / {{ field.source }}
+                  </span>
+                  <span v-if="!store.ticketDraftResult">字段来源将在生成草稿后展示。</span>
+                </div>
+                <div class="call-actions">
+                  <button id="draft-submit" class="btn-primary" data-page-agent-target="draft-submit" type="button" :disabled="!canSubmitDraft" @click="handleSubmitDraft">一键提交工单</button>
+                  <span v-if="draftRequiredMissing.length" class="status amber">待补充：{{ draftRequiredMissing.join('、') }}</span>
+                </div>
+              </section>
+            </div>
+          </section>
 
           <section class="bucket-strip" aria-label="状态筛选">
             <button
@@ -583,7 +912,7 @@ function ticketSourceLabel(item?: Ticket | null) {
           </section>
         </section>
 
-        <section v-else-if="ticket" class="detail-view">
+        <section v-else-if="ticket" id="enterprise-ticket-detail" class="detail-view" data-page-agent-target="enterprise-ticket-detail">
           <div class="case-toolbar">
             <div>
               <h1>{{ ticket.title }}</h1>
@@ -600,7 +929,7 @@ function ticketSourceLabel(item?: Ticket | null) {
               <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="scrollToId('enterprise-reply')">查看草稿</button>
               <button class="btn-plain" type="button" :disabled="!store.aiResult?.missingFields?.length" @click="scrollToId('sunpilot-fields')">查看补充项</button>
               <button class="btn-primary" type="button" v-if="needsHumanConfirm" @click="openHumanConfirm">进入人工确认</button>
-              <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">复核并结案</button>
+              <button id="page-agent-close-ticket" class="btn-primary" data-page-agent-target="page-agent-close-ticket" type="button" :disabled="!canClose" @click="handleClose">复核并结案</button>
             </div>
           </div>
 
@@ -615,7 +944,7 @@ function ticketSourceLabel(item?: Ticket | null) {
               <input v-model="assignTo" type="text" />
               <button class="btn-plain" type="button" :disabled="!canCancel" @click="handleAssignTicket">指派</button>
             </label>
-            <button class="btn-plain" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
+            <button id="page-agent-save-draft" class="btn-plain" data-page-agent-target="page-agent-save-draft" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
             <label>
               <span>作废原因</span>
               <input v-model="cancelReason" type="text" />
@@ -728,6 +1057,7 @@ function ticketSourceLabel(item?: Ticket | null) {
                   <textarea
                     v-model="store.replyDraft"
                     class="reply-box"
+                    data-page-agent-target="page-agent-reply-draft"
                     placeholder="客户回单将在这里生成，坐席复核后再提交。"
                     @input="markReplyEdited"
                   />
@@ -787,7 +1117,41 @@ function ticketSourceLabel(item?: Ticket | null) {
       </button>
 
       <aside v-if="copilotOpen" class="copilot">
-        <div class="copilot-head"><strong>SunPilot</strong><span>受控智能辅助区</span></div>
+        <div class="copilot-head"><strong>SunPilot PageAgent</strong><span>受控 GUI 执行层</span></div>
+        <details class="copilot-section page-agent-console" open>
+          <summary><span>PageAgent 控制台</span><strong>{{ pageAgentStatusLabel }}</strong></summary>
+          <div class="copilot-body">
+            <label class="agent-command">
+              <span>自然语言任务</span>
+              <textarea v-model="pageInstruction" data-page-agent-target="page-agent-command" />
+            </label>
+            <div class="page-agent-state">
+              <span>当前目标</span>
+              <strong>{{ store.pageAgentGoal || '等待任务' }}</strong>
+              <small>工具白名单：observe / scroll / highlight / input / click / wait / verify / stop</small>
+            </div>
+            <div class="copilot-actions">
+              <button class="btn-primary" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask()">执行任务</button>
+              <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask('根据这通电话帮我发单')">通话发单</button>
+              <button id="page-agent-process" class="btn-plain" data-page-agent-target="page-agent-process" type="button" :disabled="store.isProcessing || !ticket" @click="handleProcess">生成处理建议</button>
+              <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="runPageAgentTask('处理当前工单并自动回单')">自动回单</button>
+              <button class="btn-plain danger" type="button" :disabled="!pageAgentBusy" @click="stopPageAgent">停止/接管</button>
+            </div>
+            <ol class="page-action-log">
+              <li v-for="entry in pageAgentLogs" :key="entry.id" :class="entry.status">
+                <span>{{ entry.createdAt }} · {{ entry.status }} · {{ entry.tool }}</span>
+                <strong>{{ entry.target }}</strong>
+                <p>{{ entry.result }}</p>
+                <small>{{ entry.contextSummary }} / {{ entry.stopReason || 'ok' }} / {{ entry.durationMs }}ms</small>
+              </li>
+              <li v-if="!pageAgentLogs.length" class="empty-log">
+                <span>EMPTY</span>
+                <strong>执行 PageAgent 任务后展示页面动作轨迹。</strong>
+              </li>
+            </ol>
+          </div>
+        </details>
+
         <details class="copilot-section" open>
           <summary><span>当前建议</span><strong>{{ suggestion.title }}</strong></summary>
           <div class="copilot-body">
@@ -811,7 +1175,7 @@ function ticketSourceLabel(item?: Ticket | null) {
           </div>
         </details>
 
-        <details class="copilot-section" open>
+        <details id="sunpilot-flow" class="copilot-section" data-page-agent-target="sunpilot-flow" open>
           <summary><span>状态流转</span><strong>{{ flowSteps.filter(step => step.status === 'done').length }}/{{ flowSteps.length }}</strong></summary>
           <div class="copilot-body">
             <ol class="flow-list">
@@ -1129,6 +1493,144 @@ function ticketSourceLabel(item?: Ticket | null) {
   background: #fff;
   color: var(--ink);
   font-size: 12px;
+}
+.call-intake-workspace {
+  margin: 0 8px 8px;
+}
+.call-intake-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  grid-template-areas:
+    "calls transcript"
+    "calls draft";
+  gap: 8px;
+  padding: 8px;
+}
+.call-list-pane {
+  grid-area: calls;
+}
+.call-transcript-pane {
+  grid-area: transcript;
+}
+.ticket-draft-form {
+  grid-area: draft;
+}
+.call-list-pane,
+.call-transcript-pane,
+.ticket-draft-form {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.call-list-pane header,
+.call-transcript-pane header,
+.ticket-draft-form header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.call-list-pane header span,
+.call-transcript-pane header span,
+.ticket-draft-form header span {
+  color: var(--ink-soft);
+}
+.call-record-item {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.call-record-item.active {
+  background: #eef7f4;
+  box-shadow: inset 3px 0 0 var(--green);
+}
+.call-record-item strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.call-record-item small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.transcript-box,
+.draft-content-box,
+.agent-command textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 10px;
+  line-height: 1.55;
+  font-size: 12px;
+}
+.draft-content-box {
+  min-height: 86px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.call-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 10px;
+}
+.draft-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 10px;
+}
+.draft-form-grid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.draft-form-grid label.full {
+  grid-column: 1 / -1;
+}
+.draft-form-grid span,
+.agent-command span {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 800;
+}
+.draft-form-grid input,
+.draft-form-grid select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.field-source-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 9px;
+}
+.field-source-strip span {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 11px;
 }
 .home-view,
 .detail-view {
@@ -1611,6 +2113,71 @@ function ticketSourceLabel(item?: Ticket | null) {
   font-size: 12px;
   font-weight: 800;
 }
+.agent-command {
+  display: grid;
+  gap: 5px;
+}
+.agent-command textarea {
+  min-height: 62px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.page-agent-state {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.page-agent-state span,
+.page-agent-state small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.page-action-log {
+  display: grid;
+  gap: 7px;
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 10px;
+  padding: 0;
+  list-style: none;
+}
+.page-action-log li {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-left: 3px solid var(--line-dark);
+  background: #fff;
+}
+.page-action-log li.executed,
+.page-action-log li.done {
+  border-left-color: var(--green);
+}
+.page-action-log li.error {
+  border-left-color: #c4263c;
+}
+.page-action-log li.stopped {
+  border-left-color: #c48622;
+}
+.page-action-log span,
+.page-action-log small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.page-action-log strong {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.page-action-log p {
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.empty-log {
+  opacity: 0.72;
+}
 .flow-list,
 .log-list {
   margin: 0;
@@ -1712,6 +2279,13 @@ function ticketSourceLabel(item?: Ticket | null) {
   .home-grid {
     grid-template-columns: 1fr;
   }
+  .call-intake-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "calls"
+      "transcript"
+      "draft";
+  }
   .reply-grid {
     grid-template-columns: 1fr;
   }
@@ -1752,6 +2326,9 @@ function ticketSourceLabel(item?: Ticket | null) {
   .case-grid,
   .home-grid {
     padding: 6px;
+  }
+  .draft-form-grid {
+    grid-template-columns: 1fr;
   }
   .bucket-strip,
   .verification-strip,

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload } from '../types';
+import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload, CallRecordSample, GenerateTicketDraftPayload, TicketDraftResult } from '../types';
 
 const api = axios.create({ baseURL: 'http://localhost:8000/api' });
 
@@ -20,6 +20,8 @@ export const ticketApi = {
   getAiResult: (id: string) => api.get<AiProcessResult>(`/tickets/${id}/ai-result`).then(r => r.data),
   getToolCalls: (id: string) => api.get<ToolCallLog[]>(`/tickets/${id}/tool-calls`).then(r => r.data),
   getOperations: (id: string) => api.get<TicketOperationLog[]>(`/tickets/${id}/operations`).then(r => r.data),
+  listCallRecords: () => api.get<CallRecordSample[]>('/call-records').then(r => r.data),
+  generateTicketDraft: (payload: GenerateTicketDraftPayload) => api.post<TicketDraftResult>('/call-records/generate-ticket-draft', payload).then(r => r.data),
 };
 
 export const agentApi = {

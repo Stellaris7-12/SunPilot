@@ -229,6 +229,59 @@ export interface CreateTicketPayload {
   content: string;
 }
 
+export interface CallRecordSample {
+  id: string;
+  source: string;
+  scenario: string;
+  riskLevel: RiskLevel;
+  callMeta: {
+    customerId?: string;
+    customerName?: string;
+    phone?: string;
+    cardLast4?: string;
+    channel?: string;
+    agent?: string;
+    callStartedAt?: string;
+  };
+  transcript: string;
+}
+
+export interface DraftKeyField {
+  name: string;
+  label: string;
+  value: string;
+  source: string;
+}
+
+export interface PageTaskHint {
+  action: string;
+  target: string;
+  label: string;
+  field: string;
+  value: string;
+  source: string;
+  required: boolean;
+}
+
+export interface GenerateTicketDraftPayload {
+  transcript?: string;
+  callMeta?: CallRecordSample['callMeta'];
+  sampleId?: string;
+  operatorId?: string;
+}
+
+export interface TicketDraftResult {
+  ticketDraft: CreateTicketPayload;
+  callSummary: string;
+  detectedScenario: string;
+  detectedTicketType: string;
+  keyFields: DraftKeyField[];
+  missingFields: string[];
+  confidence: number;
+  sourceCallId: string;
+  pageTaskHints: PageTaskHint[];
+}
+
 export interface ProcessTicketResponse {
   ticketId: string;
   status: TicketStatus | string;
@@ -303,4 +356,58 @@ export interface ReplyDraftState {
   body: string;
   source: 'agent' | 'operator' | 'empty';
   canSubmit: boolean;
+}
+
+export type PageActionStatus = 'thinking' | 'executing' | 'executed' | 'retrying' | 'error' | 'done' | 'stopped';
+export type PageActionType = 'observe' | 'scroll' | 'highlight' | 'input' | 'click' | 'wait' | 'verify' | 'stop';
+
+export interface PageBusinessContext {
+  scene: 'call-intake' | 'ticket-reply';
+  instruction: string;
+  callSummary?: string;
+  ticketDraft?: CreateTicketPayload | null;
+  aiResult?: AiProcessResult | null;
+  toolEvidenceIds?: string[];
+  riskLevel?: RiskLevel;
+  ticketStatus?: TicketStatus | string;
+  availableActions: string[];
+  currentAnchors: string[];
+  demoAutoClose?: boolean;
+}
+
+export interface PageAction {
+  id: string;
+  type: PageActionType;
+  target: string;
+  label: string;
+  value?: string;
+  riskLevel?: RiskLevel;
+  expected?: string;
+  stopReason?: string;
+}
+
+export interface PageTaskPlan {
+  id: string;
+  goal: string;
+  riskLevel: RiskLevel;
+  allowDemoAutoSubmit: boolean;
+  allowedTools: PageActionType[];
+  expectedResult: string;
+  steps: PageAction[];
+}
+
+export interface PageActionLogEntry {
+  id: string;
+  planId: string;
+  instruction: string;
+  contextSummary: string;
+  tool: PageActionType;
+  target: string;
+  inputSummary: string;
+  status: PageActionStatus;
+  result: string;
+  durationMs: number;
+  riskLevel: RiskLevel;
+  stopReason: string;
+  createdAt: string;
 }
