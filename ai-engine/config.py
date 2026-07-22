@@ -50,6 +50,7 @@ def validate_database_config():
 
 # Data files
 TICKETS_JSON = BASE_DIR / "data" / "tickets.json"
+CALL_TRANSCRIPTS_JSON = BASE_DIR / "data" / "call_transcripts.json"
 AGENT_CARDS_JSON = BASE_DIR / "data" / "agent_cards.json"
 TOOLS_JSON = BASE_DIR / "data" / "tools.json"
 TRACES_DIR = BASE_DIR / "data" / "traces"

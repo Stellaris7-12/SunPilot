@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -13,14 +14,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from agents.agent_registry import agent_registry
-from config import CORS_ORIGINS, HOST, PORT
+from config import CALL_TRANSCRIPTS_JSON, CORS_ORIGINS, HOST, PORT
 from evaluation.evaluator import evaluator
 from models.ai_result import AiProcessResult
 from models.api_schemas import (
     CloseTicketRequest,
     ConfirmActionRequest,
     CreateTicketRequest,
+    DraftKeyField,
     EvaluationMetrics,
+    GenerateTicketDraftRequest,
+    GenerateTicketDraftResponse,
+    PageTaskHint,
     AssignTicketRequest,
     CancelTicketRequest,
     ProcessTicketResponse,
@@ -150,6 +155,220 @@ def _public_result(result: dict) -> dict:
 async def _persist_ai_result(ticket_id: str, trace: TraceCollector, result: dict):
     public_result = _public_result(result)
     await ai_result_repository.insert_ai_result(ticket_id, trace, result, public_result)
+
+
+def _load_call_records() -> list[dict]:
+    if not CALL_TRANSCRIPTS_JSON.exists():
+        return []
+    with CALL_TRANSCRIPTS_JSON.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+    return data if isinstance(data, list) else []
+
+
+def _compact_summary(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    customer_lines = [line for line in lines if line.startswith("客户")]
+    basis = customer_lines or lines
+    summary = "；".join(line.split("：", 1)[-1] for line in basis[:3])
+    return summary[:180] or "已读取通话记录，等待坐席补充关键信息。"
+
+
+def _first_match(pattern: str, text: str) -> str:
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+def _detect_call_scenario(text: str) -> tuple[str, str, str, str]:
+    if re.search(r"优惠券|满减|券|活动达标|DINING|MALL_CASHBACK", text, re.I):
+        return "优惠券补发", "权益与活动", "优惠券补发", "COUPON_REISSUE"
+    if re.search(r"贵宾厅|权益|机场|积分|兑换|AIRPORT|POINT", text, re.I):
+        return "权益资格查询", "权益与活动", "权益查询", "BENEFIT_QUERY"
+    if re.search(r"申请进度|申请单|APP\d+", text, re.I):
+        return "申请进度查询", "申请与账务", "信用卡申请", "APPLICATION_PROGRESS_QUERY"
+    if re.search(r"地址|手机|资料|联系人|变更", text, re.I):
+        return "资料变更", "客户资料", "资料变更", "CUSTOMER_INFO_UPDATE"
+    if re.search(r"交易|流水|入账|盗刷|非本人|TXN\d+", text, re.I):
+        return "交易查询", "交易与风险", "交易核查", "TRANSACTION_QUERY"
+    return "人工客服发单", "综合服务", "待分类", "CALL_INTAKE"
+
+
+def _build_key_fields(draft: dict, expected: dict | None = None) -> list[DraftKeyField]:
+    source_fields = expected.get("keyFields", {}) if expected else {}
+    fields = {
+        "customerId": draft.get("customerId") or source_fields.get("customerId") or "",
+        "customerName": draft.get("customerName") or "",
+        "cardLast4": draft.get("cardLast4") or "",
+        "scene": draft.get("scene") or "",
+    }
+    for key, value in source_fields.items():
+        if key not in fields:
+            fields[key] = str(value)
+    labels = {
+        "customerId": "客户号",
+        "customerName": "客户姓名",
+        "cardLast4": "卡尾号",
+        "scene": "业务场景",
+        "couponType": "券类型",
+        "benefitCode": "权益编码",
+        "applicationNo": "申请单号",
+        "transactionId": "交易流水",
+        "field": "变更字段",
+        "newValue": "变更内容",
+    }
+    return [
+        DraftKeyField(name=name, label=labels.get(name, name), value=str(value), source="通话文本")
+        for name, value in fields.items()
+        if str(value).strip()
+    ]
+
+
+def _missing_draft_fields(draft: dict) -> list[str]:
+    required = {
+        "title": "标题",
+        "customerName": "客户姓名",
+        "phone": "预留手机",
+        "cardLast4": "卡尾号",
+        "scene": "业务场景",
+        "content": "发单内容",
+    }
+    return [label for key, label in required.items() if not str(draft.get(key) or "").strip()]
+
+
+def _build_page_task_hints(draft: dict, missing_fields: list[str]) -> list[PageTaskHint]:
+    hints = [
+        PageTaskHint(action="open", target="call-intake-workspace", label="打开通话发单工作区"),
+    ]
+    field_labels = {
+        "title": "标题",
+        "customerId": "客户号",
+        "customerName": "客户姓名",
+        "phone": "预留手机",
+        "cardLast4": "卡尾号",
+        "scene": "业务场景",
+        "category": "业务大类",
+        "subcategory": "业务小类",
+        "priority": "优先级",
+        "riskLabel": "风险标签",
+        "riskLevel": "风险等级",
+        "content": "发单内容",
+    }
+    for field, label in field_labels.items():
+        hints.append(PageTaskHint(
+            action="fill",
+            target=f"draft-{field}",
+            label=f"填写{label}",
+            field=field,
+            value=str(draft.get(field) or ""),
+            source="CallIntakeAgent",
+            required=label in missing_fields,
+        ))
+    hints.append(PageTaskHint(
+        action="submit" if not missing_fields else "stop",
+        target="draft-submit",
+        label="字段完整，提交标准工单" if not missing_fields else "字段不足，等待人工补充",
+        source="TicketAgent Policy Layer",
+        required=not missing_fields,
+    ))
+    return hints
+
+
+def _draft_from_transcript(transcript: str, call_meta: dict | None = None) -> tuple[dict, str, str, list[DraftKeyField]]:
+    meta = call_meta or {}
+    customer_id = meta.get("customerId") or meta.get("customer_id") or _first_match(r"(C\d{5,})", transcript)
+    card_last4 = meta.get("cardLast4") or meta.get("card_last4") or _first_match(r"卡尾(?:号)?\s*(\d{4})", transcript)
+    phone = meta.get("phone") or _first_match(r"(1\d{2}\*{4}\d{4}|1\d{10})", transcript) or "待补充"
+    customer_name = meta.get("customerName") or meta.get("customer_name") or "待补充客户"
+    scene, category, subcategory, ticket_type = _detect_call_scenario(transcript)
+    business_code = (
+        _first_match(r"((?:DINING|COFFEE|AIRPORT|HOTEL|POINT|MALL|CONCIERGE)[A-Z0-9_]*\d*)", transcript)
+        or _first_match(r"((?:TXN|APP)\d{6,})", transcript)
+    )
+    summary = _compact_summary(transcript)
+    title = f"{scene} - {customer_id or customer_name or '待补充客户'}"
+    if scene == "优惠券补发":
+        title = "活动达标未收到优惠券"
+    elif scene == "交易查询":
+        title = "交易入账/争议核查"
+    draft = {
+        "title": title,
+        "customerId": customer_id,
+        "customerName": customer_name,
+        "phone": phone,
+        "cardLast4": card_last4 or "待补充",
+        "scene": scene,
+        "category": category,
+        "subcategory": subcategory,
+        "priority": "normal",
+        "channel": meta.get("channel") or "客服热线发单",
+        "assignee": meta.get("agent") or "坐席 A1027",
+        "department": "信用卡运营组",
+        "riskLabel": "中风险" if scene == "资料变更" else "低风险",
+        "riskLevel": "medium" if scene == "资料变更" else "low",
+        "content": f"{summary}。{('关键业务编号：' + business_code + '。') if business_code else ''}原始通话已由发单 Agent 摘要，创建后进入标准多 Agent 工单处理链路。",
+    }
+    key_fields = _build_key_fields(draft)
+    return draft, summary, ticket_type, key_fields
+
+
+@app.get("/api/call-records")
+async def list_call_records():
+    records = _load_call_records()
+    return [
+        {
+            "id": item.get("id", ""),
+            "source": item.get("source", ""),
+            "scenario": item.get("scenario", ""),
+            "riskLevel": item.get("riskLevel", "low"),
+            "callMeta": item.get("callMeta", {}),
+            "transcript": item.get("transcript", ""),
+        }
+        for item in records
+    ]
+
+
+@app.post("/api/call-records/generate-ticket-draft")
+async def generate_ticket_draft(body: GenerateTicketDraftRequest):
+    sample = None
+    if body.sample_id:
+        sample = next((item for item in _load_call_records() if item.get("id") == body.sample_id), None)
+        if sample is None:
+            raise HTTPException(status_code=404, detail="Call sample not found")
+
+    if sample:
+        draft = dict(sample.get("ticketDraft") or {})
+        transcript = sample.get("transcript") or body.transcript
+        call_meta = sample.get("callMeta") or {}
+        summary = _compact_summary(transcript)
+        detected_type = (sample.get("expected") or {}).get("intentType") or sample.get("scenario") or "CALL_INTAKE"
+        key_fields = _build_key_fields(draft, sample.get("expected"))
+        confidence = 0.96
+        source_call_id = sample.get("id", "")
+    else:
+        transcript = body.transcript.strip()
+        if not transcript:
+            raise HTTPException(status_code=400, detail="transcript or sampleId is required")
+        call_meta = body.call_meta.model_dump(by_alias=True) if body.call_meta else {}
+        draft, summary, detected_type, key_fields = _draft_from_transcript(transcript, call_meta)
+        confidence = 0.78 if "待补充" not in json.dumps(draft, ensure_ascii=False) else 0.58
+        source_call_id = ""
+
+    draft.setdefault("customerId", call_meta.get("customerId") or "")
+    draft.setdefault("assignee", call_meta.get("agent") or body.operator_id or "坐席 A1027")
+    draft.setdefault("department", "信用卡运营组")
+    draft.setdefault("channel", call_meta.get("channel") or "客服热线发单")
+    missing_fields = _missing_draft_fields(draft)
+    response = GenerateTicketDraftResponse(
+        ticket_draft=CreateTicketRequest(**draft),
+        call_summary=summary,
+        detected_scenario=draft.get("scene", ""),
+        detected_ticket_type=detected_type,
+        key_fields=key_fields,
+        missing_fields=missing_fields,
+        confidence=confidence,
+        source_call_id=source_call_id,
+        page_task_hints=_build_page_task_hints(draft, missing_fields),
+    )
+    return response.model_dump(by_alias=True)
 
 
 @app.get("/api/tickets")

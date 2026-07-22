@@ -27,6 +27,52 @@ class CreateTicketRequest(ApiModel):
     content: str
 
 
+class DraftKeyField(ApiModel):
+    name: str
+    label: str
+    value: str
+    source: str = "transcript"
+
+
+class PageTaskHint(ApiModel):
+    action: str
+    target: str
+    label: str
+    field: str = ""
+    value: str = ""
+    source: str = ""
+    required: bool = False
+
+
+class CallMeta(ApiModel):
+    customer_id: str = ""
+    customer_name: str = ""
+    phone: str = ""
+    card_last4: str = ""
+    channel: str = ""
+    agent: str = ""
+    call_started_at: str = ""
+
+
+class GenerateTicketDraftRequest(ApiModel):
+    transcript: str = ""
+    call_meta: CallMeta | None = None
+    sample_id: str | None = None
+    operator_id: str | None = None
+
+
+class GenerateTicketDraftResponse(ApiModel):
+    ticket_draft: CreateTicketRequest
+    call_summary: str
+    detected_scenario: str
+    detected_ticket_type: str
+    key_fields: list[DraftKeyField] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    source_call_id: str = ""
+    page_task_hints: list[PageTaskHint] = Field(default_factory=list)
+
+
 class UpdateTicketRequest(ApiModel):
     title: str | None = None
     customer_id: str | None = None
