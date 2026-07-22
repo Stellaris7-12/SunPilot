@@ -165,3 +165,43 @@
 
 - K 是底座，M 是 PageAgent 主计划；L 属于 M3 的业务输入、页面契约和发单执行子链路。
 - 后续开发不再问“先做 L 还是先做 M3”，直接按 M3 实施。
+
+## 会话：2026-07-22（模块 M GUI PageAgent 执行）
+
+用户要求执行计划并完成模块 M 所有清单检查。
+
+已完成：
+
+- 后端新增 `GET /api/call-records` 与 `POST /api/call-records/generate-ticket-draft`，作为发单 Agent / Call Intake 接口，不新增第六个业务 Agent。
+- 发单接口支持 `sampleId` 命中 `call_transcripts.json` 直接返回样本草稿；自定义 transcript 走规则抽取兜底，输出 `ticketDraft`、`callSummary`、`detectedTicketType`、`keyFields`、`missingFields`、`pageTaskHints`。
+- 前端新增 `frontend/src/page-agent/`：本地 PageAgent 类型入口、TicketAgent Policy Layer、`PageActionRunner`、`SimulatorMask` 和来源/MIT 口径说明。
+- 企业壳新增“通话发单工作区”：通话样本列表、通话全文、标准工单草稿表单、字段来源、缺失提示和一键提交工单。
+- 右侧 SunPilot 升级为 PageAgent 控制台：自然语言任务、当前目标、白名单工具、停止/接管、PageActionLog 动作轨迹。
+- 回单侧 PageAgent 可通过白名单锚点触发多 Agent、定位证据/审计、填入回单、保存草稿，并在低风险可结案时点击结案接口；中高风险/缺字段停在人工节点。
+- PageAgent 禁用任意 JS 和任意 DOM index 点击，只执行 observe/scroll/highlight/input/click/wait/verify/stop。
+- `doc/planning/task_plan.md` 模块 M checklist 已全部勾选。
+
+验证：
+
+- `.venv\Scripts\python.exe -m compileall ai-engine` 通过。
+- `.venv\Scripts\python.exe ai-engine\evaluation\smoke_module_m_call_intake.py` 通过。
+- `frontend` 下 `npm.cmd run build` 通过。
+
+剩余边界：
+
+- 当前 PageAgent 是 TicketAgent 当前页面内的受控 GUI 执行层，不接完整 Ali monorepo、Chrome Extension、MCP 或外部遗留网页。
+- PageActionLog 当前为前端会话内日志，尚未持久化到 MySQL；持久化属于模块 N 后续优化项口径。
+
+## 会话：2026-07-22（模块 M 浏览器验收补充）
+
+定位结论：
+- “生成发单草稿”后端接口、发单 Agent 草稿生成和进程启动均正常；浏览器验收初期无响应的根因是前端通话发单区三列布局在 SunPilot 展开时被压缩，草稿表单控件覆盖了 PageAgent 按钮命中区域。
+
+已修复：
+- 将 `call-intake-grid` 从易压缩重叠的三列布局调整为稳定两列区域布局：左侧通话列表，右侧上方通话全文、下方标准工单草稿；窄屏仍为单列。
+- 回单侧 watcher 改为同时监听 `aiResult` 与 `pageAgentBusy`，确保 PageAgent 触发后端多 Agent 后，在结果返回且执行器空闲时继续自动填回单。
+
+浏览器验收：
+- 通话发单端：生成草稿成功填入 `C20001 / 张明 / 活动达标未收到餐饮优惠券`，PageAgent 可见填表、点击提交并跳转到新工单详情页。
+- 回单侧：PageAgent 自动触发多 Agent，等待 Trace 完成后定位证据区、填写客户回单、保存草稿，并停在人工复核/可结案节点。
+- `frontend` 中 `npm.cmd run build` 通过。
