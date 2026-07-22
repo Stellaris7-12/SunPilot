@@ -7,22 +7,81 @@ from urllib.parse import quote_plus
 # Project root
 BASE_DIR = Path(__file__).resolve().parent
 
+
+def get_env(name: str, default: str = "") -> str:
+    """Read process env, then Windows User/Machine env when available."""
+    value = os.getenv(name)
+    if value:
+        return value
+    if os.name != "nt":
+        return default
+    try:
+        import winreg
+
+        locations = [
+            (winreg.HKEY_CURRENT_USER, "Environment"),
+            (
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ),
+        ]
+        for root, path in locations:
+            try:
+                with winreg.OpenKey(root, path) as key:
+                    registry_value, _ = winreg.QueryValueEx(key, name)
+                if registry_value:
+                    return str(registry_value)
+            except OSError:
+                continue
+    except OSError:
+        return default
+    return default
+
+
 # LLM Configuration
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
-LLM_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-your-api-key-here")
-LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
+LLM_BASE_URL = get_env("LLM_BASE_URL", "https://api.deepseek.com/v1")
+LLM_API_KEY = get_env("DEEPSEEK_API_KEY", get_env("LLM_API_KEY", "sk-your-api-key-here"))
+LLM_MODEL = get_env("LLM_MODEL", "deepseek-chat")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "30"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 
 # PageAgent ReAct LLM proxy. Kept separate from backend business agents so
 # browser automation can use Ali/Qwen while business agents keep LLM_*.
-PAGE_AGENT_LLM_BASE_URL = os.getenv(
+PAGE_AGENT_LLM_BASE_URL = get_env(
     "PAGE_AGENT_LLM_BASE_URL",
-    os.getenv("ALI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    get_env("ALI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
 )
-PAGE_AGENT_LLM_API_KEY = os.getenv("ALI_API_KEY", "")
-PAGE_AGENT_LLM_MODEL = os.getenv("PAGE_AGENT_LLM_MODEL", "qwen3.7-plus")
+PAGE_AGENT_LLM_API_KEY = get_env("ALI_API_KEY", "")
+PAGE_AGENT_LLM_MODEL = get_env("PAGE_AGENT_LLM_MODEL", "qwen3.7-plus")
+PAGE_AGENT_LLM_ALLOWED_MODELS = [
+    model.strip()
+    for model in os.getenv(
+        "PAGE_AGENT_LLM_ALLOWED_MODELS",
+        ",".join(
+            [
+                "qwen3.7-plus",
+                "deepseek-v4-flash",
+                "qwen3-8b",
+                "qwen3-14b",
+                "qwen3-30b-a3b",
+                "qwen3-30b-a3b-instruct-2507",
+                "qwen3-next-80b-a3b-instruct",
+                "qwen-plus",
+                "qwen-turbo",
+                "qwen3.7-max",
+                "qwen3.7-max-preview",
+                "qwen3.7-max-2026-06-08",
+                "qwen3.7-max-2026-05-17",
+                "qwen3.5-plus-2026-04-20",
+                "qwen3.5-ocr",
+                "glm-5.2",
+                "kimi-k2.7-code",
+            ]
+        ),
+    ).split(",")
+    if model.strip()
+]
 PAGE_AGENT_LLM_TIMEOUT = int(os.getenv("PAGE_AGENT_LLM_TIMEOUT", str(LLM_TIMEOUT)))
 
 # Database

@@ -57,6 +57,23 @@ export default (
 		extraData.set(element, { ...extraData.get(element), ...data })
 	}
 
+	const PAGE_AGENT_IGNORE_SELECTOR =
+		'[data-page-agent-not-interactive="true"], [data-sunpilot-panel="true"], [data-page-agent-ignore="true"], [data-browser-use-ignore="true"]'
+
+	function isPageAgentIgnoredNode(node) {
+		if (!node) return false
+		const element =
+			node.nodeType === Node.ELEMENT_NODE ? node : node.nodeType === Node.TEXT_NODE ? node.parentElement : null
+		if (!element) return false
+		return (
+			element.dataset?.browserUseIgnore === 'true' ||
+			element.dataset?.pageAgentIgnore === 'true' ||
+			element.dataset?.pageAgentNotInteractive === 'true' ||
+			element.dataset?.sunpilotPanel === 'true' ||
+			Boolean(element.closest?.(PAGE_AGENT_IGNORE_SELECTOR))
+		)
+	}
+
 	// Add caching mechanisms at the top level
 	const DOM_CACHE = {
 		boundingRects: new WeakMap(),
@@ -207,18 +224,10 @@ export default (
 
 			// Generate a color based on the index
 			const colors = [
-				'#FF0000',
-				'#00FF00',
-				'#0000FF',
-				'#FFA500',
-				'#800080',
-				'#008080',
-				'#FF69B4',
-				'#4B0082',
-				'#FF4500',
-				'#2E8B57',
-				'#DC143C',
-				'#4682B4',
+				'#0E7490',
+				'#0F766E',
+				'#2563EB',
+				'#64748B',
 			]
 			const colorIndex = index % colors.length
 			let baseColor = colors[colorIndex]
@@ -255,10 +264,11 @@ export default (
 
 				const overlay = document.createElement('div')
 				overlay.style.position = 'fixed'
-				overlay.style.border = `2px solid ${baseColor}`
+				overlay.style.border = `1px dashed ${baseColor}`
 				overlay.style.backgroundColor = backgroundColor
 				overlay.style.pointerEvents = 'none'
 				overlay.style.boxSizing = 'border-box'
+				overlay.style.borderRadius = '5px'
 
 				const top = rect.top + iframeOffset.y
 				const left = rect.left + iframeOffset.x
@@ -277,11 +287,13 @@ export default (
 			label = document.createElement('div')
 			label.className = 'playwright-highlight-label'
 			label.style.position = 'fixed'
-			label.style.background = baseColor
+			label.style.background = 'rgba(15, 118, 110, 0.78)'
 			label.style.color = 'white'
-			label.style.padding = '1px 4px'
-			label.style.borderRadius = '4px'
-			label.style.fontSize = `${Math.min(12, Math.max(8, firstRect.height / 2))}px`
+			label.style.padding = '0 4px'
+			label.style.borderRadius = '999px'
+			label.style.fontSize = `${Math.min(10, Math.max(8, firstRect.height / 3))}px`
+			label.style.lineHeight = '16px'
+			label.style.boxShadow = 'none'
 			label.textContent = index.toString()
 
 			labelWidth = label.offsetWidth > 0 ? label.offsetWidth : labelWidth // Update actual width if possible
@@ -704,7 +716,7 @@ export default (
 		/**
 		 * @edit add interactiveBlacklist interactiveWhitelist
 		 */
-		if (interactiveBlacklist.includes(element)) {
+		if (interactiveBlacklist.includes(element) || isPageAgentIgnoredNode(element)) {
 			return false // Skip blacklisted elements
 		}
 		if (interactiveWhitelist.includes(element)) {
@@ -1486,7 +1498,7 @@ export default (
 		/**
 		 * @edit add `data-browser-use-ignore` attribute
 		 */
-		if (node.dataset?.browserUseIgnore === 'true' || node.dataset?.pageAgentIgnore === 'true') {
+		if (isPageAgentIgnoredNode(node)) {
 			return null // Skip this node and its children
 		}
 

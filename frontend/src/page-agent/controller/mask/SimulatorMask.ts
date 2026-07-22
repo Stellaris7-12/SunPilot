@@ -19,6 +19,7 @@ export class SimulatorMask extends EventTarget {
 
 	#targetCursorX = 0
 	#targetCursorY = 0
+	#syncBoundsListener = () => this.#syncBusinessBounds()
 
 	constructor() {
 		super()
@@ -75,6 +76,7 @@ export class SimulatorMask extends EventTarget {
 		// this.show()
 
 		document.body.appendChild(this.wrapper)
+		this.#syncBusinessBounds()
 
 		this.#moveCursorToTarget()
 
@@ -100,13 +102,29 @@ export class SimulatorMask extends EventTarget {
 		window.addEventListener('PageAgent::ClickPointer', clickPointerListener)
 		window.addEventListener('PageAgent::EnablePassThrough', enablePassThroughListener)
 		window.addEventListener('PageAgent::DisablePassThrough', disablePassThroughListener)
+		window.addEventListener('resize', this.#syncBoundsListener)
+		window.addEventListener('scroll', this.#syncBoundsListener, true)
 
 		this.addEventListener('dispose', () => {
 			window.removeEventListener('PageAgent::MovePointerTo', movePointerToListener)
 			window.removeEventListener('PageAgent::ClickPointer', clickPointerListener)
 			window.removeEventListener('PageAgent::EnablePassThrough', enablePassThroughListener)
 			window.removeEventListener('PageAgent::DisablePassThrough', disablePassThroughListener)
+			window.removeEventListener('resize', this.#syncBoundsListener)
+			window.removeEventListener('scroll', this.#syncBoundsListener, true)
 		})
+	}
+
+	#syncBusinessBounds() {
+		const panel = document.querySelector('[data-sunpilot-panel]')
+		if (!(panel instanceof HTMLElement)) {
+			this.wrapper.style.right = '0px'
+			return
+		}
+
+		const rect = panel.getBoundingClientRect()
+		const rightInset = Math.max(0, window.innerWidth - rect.left)
+		this.wrapper.style.right = `${rightInset}px`
 	}
 
 	#createCursor() {
@@ -179,6 +197,7 @@ export class SimulatorMask extends EventTarget {
 		if (this.shown || this.#disposed) return
 
 		this.shown = true
+		this.#syncBusinessBounds()
 		this.motion?.start()
 		this.motion?.fadeIn()
 

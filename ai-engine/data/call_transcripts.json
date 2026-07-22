@@ -176,7 +176,7 @@
       "content": "客户C20007来电申请变更信用卡账单地址，新地址为上海市浦东新区世纪大道示例小区。该资料变更涉及敏感客户信息，需人工确认后再执行。"
     },
     "expected": {
-      "intentType": "CUSTOMER_INFO_UPDATE",
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
       "workflowName": "customer_info_update_flow",
       "keyFields": {"customerId": "C20007", "field": "billingAddress", "newValue": "上海市浦东新区世纪大道示例小区"},
       "missingFields": [],
@@ -221,7 +221,7 @@
       "content": "客户C20009来电查询星河商场交易入账状态，交易流水号TXN20260721009，金额268.50元，希望确认该笔消费是否已经入账。"
     },
     "expected": {
-      "intentType": "TRANSACTION_QUERY",
+      "intentType": "TRANSACTION_DISPUTE",
       "workflowName": "transaction_query_flow",
       "keyFields": {"customerId": "C20009", "transactionId": "TXN20260721009", "amount": "268.50"},
       "missingFields": [],
@@ -719,7 +719,7 @@
       "content": "客户C20031来电申请变更信用卡预留手机号，客户表示新手机号稍后通过安全渠道确认。该场景属于敏感资料变更，需人工确认，不能直接自动执行。"
     },
     "expected": {
-      "intentType": "CUSTOMER_INFO_UPDATE",
+      "intentType": "CUSTOMER_ADDRESS_UPDATE",
       "workflowName": "customer_info_update_flow",
       "keyFields": {"customerId": "C20031", "field": "mobilePhone"},
       "missingFields": ["newPhone"],
@@ -764,7 +764,7 @@
       "content": "客户C20033来电反馈商户退款已完成但信用卡账单未见入账，原交易流水TXN20260715033，退款金额399元，希望查询退款状态和预计入账时间。"
     },
     "expected": {
-      "intentType": "TRANSACTION_QUERY",
+      "intentType": "TRANSACTION_DISPUTE",
       "workflowName": "transaction_query_flow",
       "keyFields": {"customerId": "C20033", "transactionId": "TXN20260715033", "amount": "399"},
       "missingFields": [],

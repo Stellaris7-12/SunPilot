@@ -156,10 +156,13 @@
       "properties": {
         "intent": {"type": "object"},
         "fields": {"type": "array"},
-        "available_tools": {"type": "string"},
+        "ticket_content": {"type": "string"},
+        "ticket": {"type": "object"},
+        "available_tool_names": {"type": "array", "items": {"type": "string"}},
+        "available_tools": {"type": "string", "description": "Legacy Markdown tool summary for old evaluations"},
         "workflow_config": {"type": "object"}
       },
-      "required": ["intent", "fields", "available_tools"]
+      "required": ["intent", "fields", "available_tool_names"]
     },
     "output_schema": {
       "type": "object",

@@ -36,6 +36,7 @@ class MockExecutor:
         self._registry = registry or tool_registry
 
     async def execute(self, tool_name: str, params: dict) -> ToolResult:
+        tool_name = self._registry.resolve_tool_name(tool_name) or tool_name
         tool_def = self._registry.get(tool_name)
         if tool_def is None:
             return self._result(
@@ -47,6 +48,17 @@ class MockExecutor:
                 duration_ms=0,
             )
 
+        if tool_def.risk_level not in {"low", "medium", "high"}:
+            return self._result(
+                tool_name,
+                False,
+                "INVALID_TOOL_RISK",
+                f"Tool {tool_name} has invalid risk level {tool_def.risk_level}.",
+                requires_human=True,
+                duration_ms=0,
+            )
+
+        params = self._registry.normalize_params(tool_name, params)
         is_valid, message = self._registry.validate_params(tool_name, params)
         if not is_valid:
             return self._result(

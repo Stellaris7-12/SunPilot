@@ -150,7 +150,13 @@ class Orchestrator:
             if early_result:
                 return early_result
 
-            available_tools = tool_registry.get_all_summaries()
+            available_tool_names = [
+                tool.name
+                for tool in tool_registry.list_for_intent(
+                    intent_result.get("type", "UNKNOWN"),
+                    workflow_config,
+                )
+            ]
             tool_agent_result = await self._run_agent_step(
                 "resolution_agent",
                 "Resolution Agent / 解决方案与执行",
@@ -158,7 +164,10 @@ class Orchestrator:
                 {
                     "intent": intent_result,
                     "fields": extract_result.get("fields", []),
-                    "available_tools": available_tools,
+                    "ticket_content": ticket_context,
+                    "ticket": self._ticket_payload(ticket),
+                    "available_tool_names": available_tool_names,
+                    "available_tools": tool_registry.get_all_summaries(),
                     "workflow_config": workflow_config,
                 },
                 trace,
@@ -169,6 +178,59 @@ class Orchestrator:
             tool_name = tool_agent_result.get("tool_name", "")
             tool_params = tool_agent_result.get("tool_params", {})
             if not tool_agent_result.get("skip") and tool_name:
+                allowed_tool_names = tool_agent_result.get("available_tool_names") or available_tool_names
+                is_valid_call, validation_message, normalized_params = tool_registry.validate_tool_call(
+                    tool_name,
+                    tool_params,
+                    allowed_tool_names=allowed_tool_names,
+                    allow_missing_required=True,
+                )
+                if not is_valid_call:
+                    failure_reason = validation_message
+                    next_verify = {
+                        **verify_result,
+                        "checks": [
+                            *verify_result.get("checks", []),
+                            {
+                                "label": f"工具调用校验失败: {tool_name}",
+                                "status": "已拦截",
+                            },
+                        ],
+                        "risk_decision": failure_reason,
+                        "can_auto_proceed": False,
+                        "needs_more_info": False,
+                    }
+                    reply_result = await self._run_notification_step(
+                        ticket,
+                        intent_result,
+                        extract_result,
+                        None,
+                        next_verify,
+                        workflow_config,
+                        trace,
+                        push,
+                        status=TicketState.ESCALATED.value,
+                        tool_request=tool_params,
+                        failure_reason=failure_reason,
+                    )
+                    result = self._build_result(
+                        ticket,
+                        intent_result,
+                        extract_result,
+                        None,
+                        next_verify,
+                        reply_result.get("reply_draft", ""),
+                        status=TicketState.ESCALATED.value,
+                        total_start=overall_start,
+                        tool_request=tool_params,
+                        failure_reason=failure_reason,
+                        notification=reply_result.get("notification"),
+                    )
+                    await self._set_ticket_status(ticket, TicketState.ESCALATED.value)
+                    await self._emit_terminal(push, ticket_id, result)
+                    return result
+                tool_name = tool_registry.resolve_tool_name(tool_name) or tool_name
+                tool_params = normalized_params
                 missing_result = await self._handle_tool_missing_params(
                     ticket,
                     intent_result,
@@ -290,6 +352,28 @@ class Orchestrator:
             ("正文", ticket.content),
         ]
         return "\n".join(f"{label}: {value}" for label, value in parts if value)
+
+    @staticmethod
+    def _ticket_payload(ticket: Ticket) -> dict:
+        """Return structured ticket context for downstream agents."""
+        return {
+            "id": ticket.id,
+            "no": ticket.no,
+            "title": ticket.title,
+            "customerId": ticket.customer_id,
+            "customerName": ticket.customer_name,
+            "phone": ticket.phone,
+            "cardLast4": ticket.card_last4,
+            "scene": ticket.scene,
+            "category": ticket.category,
+            "subcategory": ticket.subcategory,
+            "priority": ticket.priority,
+            "channel": ticket.channel,
+            "riskLabel": ticket.risk_label,
+            "riskLevel": ticket.risk_level,
+            "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
+            "content": ticket.content,
+        }
 
     async def _run_field_enrichment(
         self,

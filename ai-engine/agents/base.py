@@ -64,7 +64,14 @@ class BaseAgent(ABC):
     # ------------------------------------------------------------------
     # LLM helpers
     # ------------------------------------------------------------------
-    async def call_llm(self, system_prompt: str, user_prompt: str) -> dict:
+    async def call_llm(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict:
         """Call the LLM with a system + user prompt and return parsed JSON.
 
         The call is made with ``response_format={"type": "json_object"}`` so
@@ -94,24 +101,58 @@ class BaseAgent(ABC):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "response_format": {"type": "json_object"},
             "temperature": LLM_TEMPERATURE,
             "max_tokens": LLM_MAX_TOKENS,
             "timeout": LLM_TIMEOUT,
         }
+        if tools:
+            payload["tools"] = tools
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+        else:
+            payload["response_format"] = {"type": "json_object"}
 
         logger.info(
-            "Calling LLM (model=%s, agent=%s, temperature=%.2f, max_tokens=%d, timeout=%ds)",
+            "Calling LLM (model=%s, agent=%s, temperature=%.2f, max_tokens=%d, timeout=%ds, tools=%d)",
             LLM_MODEL,
             self._agent_card.agent_id,
             LLM_TEMPERATURE,
             LLM_MAX_TOKENS,
             LLM_TIMEOUT,
+            len(tools or []),
         )
 
         for attempt in range(2):  # initial call + 1 retry
             response = await client.chat.completions.create(**payload)
-            raw_text = response.choices[0].message.content
+            message = response.choices[0].message
+            raw_text = message.content or ""
+            normalized_tool_calls = _normalize_llm_tool_calls(
+                getattr(message, "tool_calls", None)
+            )
+
+            if tools:
+                content_json = _try_parse_json(raw_text)
+                if normalized_tool_calls or content_json is not None:
+                    return {
+                        "tool_calls": normalized_tool_calls,
+                        "content_json": content_json or {},
+                        "raw_content": raw_text,
+                    }
+                if attempt == 0:
+                    logger.warning(
+                        "Tool call parse failed for agent '%s' - retrying once. "
+                        "Raw response (first 200 chars): %.200s",
+                        self._agent_card.agent_id,
+                        raw_text,
+                    )
+                    continue
+                logger.error(
+                    "Tool call parse failed again for agent '%s' after retry. "
+                    "Raw response: %s",
+                    self._agent_card.agent_id,
+                    raw_text,
+                )
+                return {"tool_calls": [], "content_json": {}, "raw_content": raw_text}
 
             try:
                 result: dict = json.loads(raw_text)
@@ -187,3 +228,31 @@ class BaseAgent(ABC):
             Pretty-printed JSON string.
         """
         return json.dumps(input_data, ensure_ascii=False, indent=2)
+
+
+def _try_parse_json(raw_text: str) -> dict | None:
+    if not raw_text:
+        return None
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else {"value": parsed}
+
+
+def _normalize_llm_tool_calls(tool_calls) -> list[dict]:
+    normalized = []
+    for call in tool_calls or []:
+        function = getattr(call, "function", None)
+        name = getattr(function, "name", "") if function else ""
+        arguments = getattr(function, "arguments", "") if function else ""
+        parsed_arguments = _try_parse_json(arguments) if isinstance(arguments, str) else None
+        normalized.append({
+            "id": getattr(call, "id", ""),
+            "type": getattr(call, "type", "function"),
+            "function": {
+                "name": name,
+                "arguments": parsed_arguments if parsed_arguments is not None else arguments,
+            },
+        })
+    return normalized

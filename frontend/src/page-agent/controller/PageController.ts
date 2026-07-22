@@ -185,7 +185,11 @@ export class PageController extends EventTarget {
 
 		const blacklist = [
 			...(this.config.interactiveBlacklist || []),
-			...Array.from(document.querySelectorAll('[data-page-agent-not-interactive]')),
+			...Array.from(
+				document.querySelectorAll(
+					'[data-page-agent-not-interactive], [data-sunpilot-panel], [data-page-agent-ignore], [data-browser-use-ignore]'
+				)
+			),
 		]
 
 		this.flatTree = dom.getFlatTree({

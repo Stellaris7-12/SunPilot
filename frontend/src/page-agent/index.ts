@@ -2,7 +2,15 @@ import { PageAgentCore } from './core/PageAgentCore'
 import { PageController } from './controller/PageController'
 
 export function createTicketPageAgent() {
-  const controller = new PageController({ enableMask: true })
+  const controller = new PageController({
+    enableMask: true,
+    highlightOpacity: 0.015,
+    highlightLabelOpacity: 0.24,
+    interactiveBlacklist: [
+      () => document.querySelector('[data-sunpilot-panel]') || document.createElement('div'),
+      () => document.querySelector('[data-page-agent-ignore="true"]') || document.createElement('div'),
+    ],
+  })
   return new PageAgentCore({
     pageController: controller,
     model: 'qwen3.7-plus',
@@ -17,6 +25,7 @@ export function createTicketPageAgent() {
         '优先使用页面上可见的按钮、输入框和文本区域完成发单、回单、定位证据和滚动复核区。',
         '不要直接结案；结案必须等待坐席在人工作业区确认。',
         '当后端 Agent 结果已经通过 observation 告诉你时，直接把对应字段填到页面，不要要求坐席复制粘贴。',
+        '忽略 SunPilot 自己的右侧控制台、模型配置区和对话历史；它们不是业务页面目标。',
       ].join('\n'),
     },
   })

@@ -558,7 +558,7 @@ function ticketSourceLabel(item?: Ticket | null) {
           </div>
 
           <section id="call-intake-workspace" class="sys-panel call-intake-workspace" data-page-agent-target="call-intake-workspace">
-            <div class="sys-title">通话发单工作区 <small>发单 Agent 生成草稿，PageAgent 可见填单提交</small></div>
+            <div class="sys-title">通话发单工作区 <small>发单 Agent 生成草稿，SunPilot 可见填单提交</small></div>
             <div class="call-intake-grid">
               <section class="call-list-pane">
                 <header>
@@ -587,7 +587,7 @@ function ticketSourceLabel(item?: Ticket | null) {
                 <textarea v-model="customTranscript" class="transcript-box" data-page-agent-target="call-transcript" />
                 <div class="call-actions">
                   <button class="btn-primary" type="button" :disabled="!customTranscript.trim()" @click="generateDraftFromCall">生成发单草稿</button>
-                  <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="requestPageAgentTask('根据这通电话帮我发单')">PageAgent 可见发单</button>
+                  <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="requestPageAgentTask('根据这通电话帮我发单')">SunPilot 可见发单</button>
                 </div>
                 <p class="system-note">{{ draftGenerationStatus || store.ticketDraftResult?.callSummary || '选择通话后可生成摘要、字段来源和标准工单草稿。' }}</p>
               </section>
@@ -979,13 +979,21 @@ function ticketSourceLabel(item?: Ticket | null) {
         </section>
       </main>
 
-      <button class="copilot-toggle" type="button" @click="copilotOpen = !copilotOpen">
-        PageAgent {{ copilotOpen ? '隐藏' : '展开' }}
+      <button
+        class="copilot-toggle"
+        type="button"
+        data-page-agent-not-interactive="true"
+        data-sunpilot-panel="true"
+        :aria-label="copilotOpen ? '隐藏 SunPilot' : '展开 SunPilot'"
+        :title="copilotOpen ? '隐藏 SunPilot' : '展开 SunPilot'"
+        @click="copilotOpen = !copilotOpen"
+      >
+        {{ copilotOpen ? '›' : '‹' }}
       </button>
 
-      <aside v-if="copilotOpen" class="copilot">
+      <aside v-if="copilotOpen" class="copilot" data-page-agent-not-interactive="true" data-sunpilot-panel="true">
         <AgentPanel ref="pageAgentPanel" />
-        <div class="page-agent-hidden-targets" aria-hidden="true">
+        <div class="page-agent-hidden-targets" aria-hidden="true" data-page-agent-not-interactive="true">
           <div id="sunpilot-flow" data-page-agent-target="sunpilot-flow"></div>
           <div id="sunpilot-fields" data-page-agent-target="sunpilot-fields"></div>
           <div id="sunpilot-evidence" data-page-agent-target="sunpilot-evidence"></div>
@@ -1744,18 +1752,30 @@ function ticketSourceLabel(item?: Ticket | null) {
 }
 .copilot-toggle {
   position: fixed;
-  top: 50px;
-  right: 18px;
-  z-index: 5;
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid var(--line-dark);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  box-shadow: 0 8px 18px rgba(31, 41, 51, 0.1);
-  font-size: 12px;
+  top: 50%;
+  right: 0;
+  z-index: 7;
+  width: 22px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #d7e0ea;
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
+  box-shadow: -4px 0 14px rgba(31, 41, 51, 0.08);
+  font-size: 22px;
   font-weight: 900;
+  line-height: 1;
+  transform: translateY(-50%);
+  transition: width 140ms ease, background 140ms ease, color 140ms ease;
+}
+.copilot-toggle:hover {
+  width: 28px;
+  background: #f8fbff;
+  color: #0e7490;
 }
 .copilot {
   position: sticky;

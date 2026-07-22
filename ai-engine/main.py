@@ -20,6 +20,7 @@ from config import (
     CORS_ORIGINS,
     HOST,
     PAGE_AGENT_LLM_API_KEY,
+    PAGE_AGENT_LLM_ALLOWED_MODELS,
     PAGE_AGENT_LLM_BASE_URL,
     PAGE_AGENT_LLM_MODEL,
     PAGE_AGENT_LLM_TIMEOUT,
@@ -64,10 +65,41 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+page_agent_llm_config = {
+    "api_key": PAGE_AGENT_LLM_API_KEY,
+    "model": PAGE_AGENT_LLM_MODEL,
+}
 llm_proxy_client = AsyncOpenAI(
     base_url=PAGE_AGENT_LLM_BASE_URL,
-    api_key=PAGE_AGENT_LLM_API_KEY or "missing-ali-api-key",
+    api_key=page_agent_llm_config["api_key"] or "missing-ali-api-key",
 )
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:3]}***{value[-4:]}"
+
+
+def _reset_llm_proxy_client(api_key: str) -> None:
+    global llm_proxy_client
+    llm_proxy_client = AsyncOpenAI(
+        base_url=PAGE_AGENT_LLM_BASE_URL,
+        api_key=api_key or "missing-ali-api-key",
+    )
+
+
+def _llm_proxy_config_response() -> dict:
+    api_key = page_agent_llm_config["api_key"]
+    return {
+        "baseUrl": PAGE_AGENT_LLM_BASE_URL,
+        "model": page_agent_llm_config["model"],
+        "allowedModels": PAGE_AGENT_LLM_ALLOWED_MODELS,
+        "apiKeyConfigured": bool(api_key),
+        "apiKeyPreview": _mask_secret(api_key),
+    }
 
 
 @asynccontextmanager
@@ -115,7 +147,7 @@ async def _proxy_llm_chat_completion(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Request body must be a JSON object")
 
     payload = dict(payload)
-    payload["model"] = PAGE_AGENT_LLM_MODEL
+    payload["model"] = page_agent_llm_config["model"]
     extra_body = dict(payload.pop("extra_body", {}) or {})
     for provider_field in ("enable_thinking",):
         if provider_field in payload:
@@ -147,6 +179,42 @@ async def proxy_llm_chat_completion(request: Request):
 @app.post("/api/llm/proxy")
 async def proxy_llm_chat_completion_compat(request: Request):
     return await _proxy_llm_chat_completion(request)
+
+
+@app.get("/api/llm/proxy/config")
+async def get_llm_proxy_config():
+    return _llm_proxy_config_response()
+
+
+@app.post("/api/llm/proxy/config")
+async def update_llm_proxy_config(request: Request):
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    model = payload.get("model")
+    if model is not None:
+        if not isinstance(model, str) or not model.strip():
+            raise HTTPException(status_code=400, detail="model must be a non-empty string")
+        model = model.strip()
+        if PAGE_AGENT_LLM_ALLOWED_MODELS and model not in PAGE_AGENT_LLM_ALLOWED_MODELS:
+            raise HTTPException(status_code=400, detail=f"Unsupported PageAgent model: {model}")
+        page_agent_llm_config["model"] = model
+
+    api_key = payload.get("apiKey")
+    if api_key is not None:
+        if not isinstance(api_key, str):
+            raise HTTPException(status_code=400, detail="apiKey must be a string")
+        api_key = api_key.strip()
+        if api_key:
+            page_agent_llm_config["api_key"] = api_key
+            _reset_llm_proxy_client(api_key)
+
+    return _llm_proxy_config_response()
 
 
 def _ticket_response(row) -> dict:

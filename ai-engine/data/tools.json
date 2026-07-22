@@ -2,23 +2,17 @@
   {
     "name": "coupon.reissue",
     "display_name": "优惠券补发",
-    "description": "为客户补发指定类型的信用卡优惠券",
+    "description": "为客户补发指定类型的信用卡优惠券，并生成可审计的补发证据。",
     "category": "coupon",
     "parameters": [
-      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10001"},
-      {"name": "couponType", "type": "string", "description": "券类型编码或描述", "required": true, "example": "DINING_100_20"},
-      {"name": "reason", "type": "string", "description": "补发原因", "required": true, "example": "活动达标未到账"}
+      {"name": "customerId", "type": "string", "description": "客户号，用于定位客户权益和历史补发记录。", "required": true, "example": "C20001"},
+      {"name": "couponType", "type": "string", "description": "优惠券或活动券编码，例如餐饮满减、商圈返现券。", "required": true, "example": "DINING_100_20"},
+      {"name": "reason", "type": "string", "description": "补发原因，应来自客户诉求或活动达标核验结果。", "required": true, "example": "客户活动达标但未收到券"}
     ],
     "requires_confirmation": false,
     "risk_level": "low",
     "mock_enabled": true,
-    "mock_response": {
-      "success": true,
-      "couponId": "CP{{TIMESTAMP}}",
-      "status": "ISSUED",
-      "businessResult": "优惠券已补发到账",
-      "nextStep": "通知客户在 App 优惠券中心查收"
-    },
+    "mock_response": {},
     "mock_delay_ms": 500,
     "mcp_server_name": null,
     "mcp_tool_path": null
@@ -26,23 +20,17 @@
   {
     "name": "customer.update-address",
     "display_name": "修改客户地址",
-    "description": "修改客户的账单寄送地址",
+    "description": "在身份核验通过后准备客户账单寄送地址变更操作。",
     "category": "customer",
     "parameters": [
-      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10002"},
-      {"name": "newAddress", "type": "string", "description": "新地址", "required": true, "example": "上海市徐汇区XX路XX号"},
-      {"name": "verifyStatus", "type": "string", "description": "身份核验状态", "required": true, "example": "PASSED"}
+      {"name": "customerId", "type": "string", "description": "客户号，用于定位需要变更资料的客户。", "required": true, "example": "C20002"},
+      {"name": "newAddress", "type": "string", "description": "客户确认的新账单寄送地址。", "required": true, "example": "上海市徐汇区漕溪北路88号"},
+      {"name": "verifyStatus", "type": "string", "description": "身份核验结果，必须是 PASSED 才能继续准备变更。", "required": true, "example": "PASSED"}
     ],
     "requires_confirmation": true,
     "risk_level": "medium",
     "mock_enabled": true,
-    "mock_response": {
-      "success": true,
-      "changeId": "ADDR{{TIMESTAMP}}",
-      "status": "UPDATED",
-      "businessResult": "客户账单寄送地址已更新",
-      "nextStep": "进入人工终审后向客户发送资料变更结果"
-    },
+    "mock_response": {},
     "mock_delay_ms": 800,
     "mcp_server_name": null,
     "mcp_tool_path": null
@@ -50,26 +38,18 @@
   {
     "name": "transaction.query",
     "display_name": "查询交易流水",
-    "description": "查询指定交易的详细信息",
+    "description": "按客户、日期、金额和商户查询交易流水，只用于取证和人工复核准备。",
     "category": "transaction",
     "parameters": [
-      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10003"},
-      {"name": "transactionDate", "type": "string", "description": "交易日期", "required": true, "example": "2026-07-10"},
-      {"name": "amount", "type": "number", "description": "交易金额", "required": true, "example": "398.00"},
-      {"name": "merchantName", "type": "string", "description": "商户名称", "required": true, "example": "某某超市"}
+      {"name": "customerId", "type": "string", "description": "客户号，用于限定交易流水查询范围。", "required": true, "example": "C20011"},
+      {"name": "transactionDate", "type": "string", "description": "客户描述的交易日期，格式建议为 YYYY-MM-DD。", "required": true, "example": "2026-07-21"},
+      {"name": "amount", "type": "number", "description": "客户争议或核查的交易金额。", "required": true, "example": "899.00"},
+      {"name": "merchantName", "type": "string", "description": "客户描述的商户名称或交易对手名称。", "required": true, "example": "GLOBAL SHOP"}
     ],
     "requires_confirmation": true,
     "risk_level": "medium",
     "mock_enabled": true,
-    "mock_response": {
-      "success": true,
-      "transactionId": "TXN{{TIMESTAMP}}",
-      "status": "POSTED",
-      "channel": "线下POS",
-      "needManualReview": true,
-      "businessResult": "已查询到交易流水，争议处理需人工复核",
-      "nextStep": "转人工争议岗复核并联系客户确认材料"
-    },
+    "mock_response": {},
     "mock_delay_ms": 1200,
     "mcp_server_name": null,
     "mcp_tool_path": null
@@ -77,24 +57,17 @@
   {
     "name": "benefit.query",
     "display_name": "查询权益资格",
-    "description": "查询客户是否具备指定活动或权益资格",
+    "description": "查询客户是否具备指定活动或权益资格，并返回权益状态证据。",
     "category": "benefit",
     "parameters": [
-      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10004"},
-      {"name": "benefitCode", "type": "string", "description": "权益或活动编码", "required": true, "example": "AIRPORT_LOUNGE_2026"},
-      {"name": "queryReason", "type": "string", "description": "查询原因", "required": true, "example": "客户咨询贵宾厅权益资格"}
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询客户权益账户。", "required": true, "example": "C20003"},
+      {"name": "benefitCode", "type": "string", "description": "权益或活动编码，例如贵宾厅、礼宾、返现活动。", "required": true, "example": "AIRPORT_LOUNGE_2026"},
+      {"name": "queryReason", "type": "string", "description": "查询原因，说明客户咨询或核验的业务背景。", "required": true, "example": "客户咨询机场贵宾厅权益资格"}
     ],
     "requires_confirmation": false,
     "risk_level": "low",
     "mock_enabled": true,
-    "mock_response": {
-      "success": true,
-      "benefitCode": "AIRPORT_LOUNGE_2026",
-      "eligible": true,
-      "status": "ACTIVE",
-      "businessResult": "客户具备该权益使用资格",
-      "nextStep": "向客户说明权益使用规则和有效期"
-    },
+    "mock_response": {},
     "mock_delay_ms": 450,
     "mcp_server_name": null,
     "mcp_tool_path": null
@@ -102,24 +75,309 @@
   {
     "name": "application.progress-query",
     "display_name": "查询申请进度",
-    "description": "查询信用卡申请、资料补充或业务办理进度",
+    "description": "查询信用卡申请、资料补充或业务办理进度。",
     "category": "application",
     "parameters": [
-      {"name": "customerId", "type": "string", "description": "客户号", "required": true, "example": "C10005"},
-      {"name": "applicationNo", "type": "string", "description": "申请单号或业务流水号", "required": true, "example": "APP20260718001"}
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询客户名下申请记录。", "required": true, "example": "C20005"},
+      {"name": "applicationNo", "type": "string", "description": "申请单号或业务流水号。", "required": true, "example": "APP20260718005"}
     ],
     "requires_confirmation": false,
     "risk_level": "low",
     "mock_enabled": true,
-    "mock_response": {
-      "success": true,
-      "applicationNo": "APP{{TIMESTAMP}}",
-      "stage": "资料审核中",
-      "eta": "1-2个工作日",
-      "businessResult": "申请正在资料审核中",
-      "nextStep": "告知客户预计完成时间并提醒保持联系方式畅通"
-    },
+    "mock_response": {},
     "mock_delay_ms": 600,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "customer.lookup",
+    "display_name": "客户检索",
+    "description": "按客户号、手机号、客户姓名或卡尾检索客户基础档案，用于字段补全。",
+    "category": "customer",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，已知时优先使用。", "required": false, "example": "C20001"},
+      {"name": "phone", "type": "string", "description": "客户预留手机号或脱敏手机号。", "required": false, "example": "138****0001"},
+      {"name": "customerName", "type": "string", "description": "客户姓名，用于辅助检索。", "required": false, "example": "张先生"},
+      {"name": "cardLast4", "type": "string", "description": "信用卡卡尾四位。", "required": false, "example": "1234"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "customer.profile-query",
+    "display_name": "客户画像查询",
+    "description": "读取客户基础画像、风险分层和服务等级，用于处理建议取证。",
+    "category": "customer",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于读取客户画像。", "required": true, "example": "C20001"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "card.account-status-query",
+    "display_name": "卡账户状态查询",
+    "description": "查询客户信用卡账户状态、卡片是否有效及卡尾匹配情况。",
+    "category": "card",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询名下卡片。", "required": true, "example": "C20001"},
+      {"name": "cardLast4", "type": "string", "description": "卡尾四位，用于锁定具体卡片。", "required": false, "example": "1234"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "ticket.history-search",
+    "display_name": "历史工单检索",
+    "description": "检索客户或当前工单关联的历史工单和工具操作记录。",
+    "category": "ticket",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询客户历史工单。", "required": false, "example": "C20001"},
+      {"name": "ticketId", "type": "string", "description": "当前工单 ID，用于查询关联处理记录。", "required": false, "example": "T202607220001"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "knowledge.policy-search",
+    "display_name": "业务政策查询",
+    "description": "查询信用卡业务政策、活动规则和处理口径，用于辅助回单。",
+    "category": "knowledge",
+    "parameters": [
+      {"name": "query", "type": "string", "description": "需要查询的业务政策关键词或自然语言问题。", "required": true, "example": "餐饮满减券未到账补发规则"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "campaign.eligibility-check",
+    "display_name": "活动资格核验",
+    "description": "核验客户是否满足活动、券或权益的领取资格。",
+    "category": "benefit",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询活动参与记录。", "required": true, "example": "C20001"},
+      {"name": "couponType", "type": "string", "description": "优惠券活动编码，适用于券类活动。", "required": false, "example": "DINING_100_20"},
+      {"name": "benefitCode", "type": "string", "description": "权益活动编码，适用于权益资格。", "required": false, "example": "AIRPORT_LOUNGE_2026"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "coupon.status-query",
+    "display_name": "优惠券状态查询",
+    "description": "查询优惠券发放状态和补发幂等历史。",
+    "category": "coupon",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询券发放记录。", "required": true, "example": "C20001"},
+      {"name": "couponType", "type": "string", "description": "优惠券编码，用于定位券种。", "required": true, "example": "DINING_100_20"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "benefit.entitlement-query",
+    "display_name": "权益明细查询",
+    "description": "查询客户指定权益的持有、可用和有效期状态。",
+    "category": "benefit",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询权益账户。", "required": true, "example": "C20003"},
+      {"name": "benefitCode", "type": "string", "description": "权益编码；为空时可由上下文补全。", "required": false, "example": "AIRPORT_LOUNGE_2026"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "transaction.detail-query",
+    "display_name": "交易明细查询",
+    "description": "按金额、商户、日期或交易号定位交易明细，只用于读取证据。",
+    "category": "transaction",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于限定交易查询范围。", "required": true, "example": "C20011"},
+      {"name": "transactionId", "type": "string", "description": "交易流水号，已知时优先用于精确定位交易。", "required": false, "example": "TXN20260721011"},
+      {"name": "transactionDate", "type": "string", "description": "交易日期，格式建议为 YYYY-MM-DD。", "required": false, "example": "2026-07-21"},
+      {"name": "amount", "type": "number", "description": "交易金额，可由客户描述或工单内容抽取。", "required": false, "example": "899.00"},
+      {"name": "merchantName", "type": "string", "description": "商户名称或交易对手名称。", "required": false, "example": "GLOBAL SHOP"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "medium",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "merchant.info-query",
+    "display_name": "商户信息查询",
+    "description": "查询商户类别、交易场景和风险提示，用于交易核查辅助判断。",
+    "category": "merchant",
+    "parameters": [
+      {"name": "merchantName", "type": "string", "description": "商户名称或交易对手名称。", "required": true, "example": "GLOBAL SHOP"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "statement.bill-query",
+    "display_name": "账单状态查询",
+    "description": "查询客户账单出账、还款和入账状态。",
+    "category": "statement",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于查询账单账户。", "required": true, "example": "C20001"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "points.repair-request",
+    "display_name": "积分补登申请",
+    "description": "准备积分补登受控申请，不直接改变客户积分余额。",
+    "category": "points",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于创建积分补登申请。", "required": true, "example": "C20006"},
+      {"name": "reason", "type": "string", "description": "补登原因和客户诉求摘要。", "required": true, "example": "客户消费达标但积分未入账"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "medium",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "fee.adjustment-request",
+    "display_name": "费用调整申请",
+    "description": "准备年费或服务费调整申请，需人工复核后生效。",
+    "category": "fee",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于创建费用调整申请。", "required": true, "example": "C20007"},
+      {"name": "reason", "type": "string", "description": "费用调整原因和客户诉求摘要。", "required": true, "example": "客户要求核减年费"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "medium",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "dispute.case-create",
+    "display_name": "争议案件创建",
+    "description": "准备交易争议协作案件，创建后仍需人工复核和材料确认。",
+    "category": "transaction",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于创建争议案件。", "required": true, "example": "C20011"},
+      {"name": "transactionId", "type": "string", "description": "争议交易流水号，可由交易查询补全。", "required": false, "example": "TXN20260721011"},
+      {"name": "reason", "type": "string", "description": "争议原因，如非本人交易、金额不符或商户不认识。", "required": true, "example": "客户称该笔交易非本人消费"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "medium",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "notification.send-draft",
+    "display_name": "通知草稿准备",
+    "description": "准备客户通知草稿，不直接发送正式通知。",
+    "category": "notification",
+    "parameters": [
+      {"name": "customerId", "type": "string", "description": "客户号，用于生成通知对象摘要。", "required": true, "example": "C20001"},
+      {"name": "draft", "type": "string", "description": "拟发送给客户的通知草稿内容。", "required": true, "example": "您的优惠券补发申请已受理"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "ticket.assign",
+    "display_name": "工单分派建议",
+    "description": "准备工单分派建议，不直接修改主系统分派状态。",
+    "category": "ticket",
+    "parameters": [
+      {"name": "ticketId", "type": "string", "description": "当前工单 ID。", "required": true, "example": "T202607220001"},
+      {"name": "assignee", "type": "string", "description": "建议承接人或处理小组。", "required": true, "example": "交易争议岗"}
+    ],
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
+    "mcp_server_name": null,
+    "mcp_tool_path": null
+  },
+  {
+    "name": "ticket.close-request",
+    "display_name": "结案复核请求",
+    "description": "准备结案复核请求，不直接关闭工单；最终结案必须走后端结案接口。",
+    "category": "ticket",
+    "parameters": [
+      {"name": "ticketId", "type": "string", "description": "当前工单 ID。", "required": true, "example": "T202607220001"},
+      {"name": "finalReply", "type": "string", "description": "拟作为最终结案依据的客户回单。", "required": true, "example": "已为客户完成补券并告知查询路径"}
+    ],
+    "requires_confirmation": true,
+    "risk_level": "high",
+    "mock_enabled": true,
+    "mock_response": {},
+    "mock_delay_ms": 120,
     "mcp_server_name": null,
     "mcp_tool_path": null
   }
