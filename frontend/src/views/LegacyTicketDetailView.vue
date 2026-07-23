@@ -6,13 +6,13 @@ import AiProcessPanel from '../components/ai/AiProcessPanel.vue'
 import AiResultCard from '../components/ai/AiResultCard.vue'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import NotificationBundlePanel from '../components/ai/NotificationBundlePanel.vue'
-import PageAssistantPanel from '../components/ai/PageAssistantPanel.vue'
 import ReplyDraftEditor from '../components/ai/ReplyDraftEditor.vue'
 import AppHeader from '../components/layout/AppHeader.vue'
 import AppSidebar from '../components/layout/AppSidebar.vue'
 import ToolRegistryPanel from '../components/tools/ToolRegistryPanel.vue'
 import TicketContent from '../components/ticket/TicketContent.vue'
 import TicketInfo from '../components/ticket/TicketInfo.vue'
+import AgentPanel from '../page-agent/panel/AgentPanel.vue'
 import { useTicketStore } from '../stores/ticket'
 
 const route = useRoute()
@@ -34,23 +34,15 @@ function handleProcess() {
   if (ticketId.value) store.startAiProcess(ticketId.value)
 }
 
-function handleReset() {
-  store.resetState()
+function noop() {
+  // Legacy detail has no call-intake draft workflow; SunPilot keeps these events inert here.
 }
 
 function scrollToId(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function fillReplyDraft() {
-  const draft = store.aiResult?.notification?.standardReply?.body || store.aiResult?.replyDraft
-  if (draft) {
-    store.replyDraft = draft
-    scrollToId('reply-review')
-  }
-}
-
-function checkCurrentTicket() {
+function scrollMissing() {
   scrollToId(store.aiResult?.missingFields?.length ? 'tool-audit' : 'case-result')
 }
 </script>
@@ -59,7 +51,7 @@ function checkCurrentTicket() {
   <div class="detail-layout">
     <AppSidebar />
     <div class="detail-main">
-      <AppHeader :ticket="ticket" :processing="store.isProcessing" @process="handleProcess" @reset="handleReset" />
+      <AppHeader :ticket="ticket" />
 
       <div v-if="ticket" class="detail-body">
         <main class="case-col">
@@ -70,7 +62,7 @@ function checkCurrentTicket() {
             <AiResultCard v-if="store.aiResult" :result="store.aiResult" />
             <section v-else class="empty-state">
               <span class="section-title">处理建议</span>
-              <h2>等待坐席启动 AI 辅助</h2>
+              <h2>等待坐席在 SunPilot 中启动辅助</h2>
               <p>系统会按业务场景提取字段、分诊风险、调用工具或生成转人工建议，并留下证据编号。</p>
             </section>
           </div>
@@ -82,15 +74,13 @@ function checkCurrentTicket() {
         </main>
 
         <aside class="operator-col">
-          <PageAssistantPanel
-            :ticket="ticket"
-            :result="store.aiResult"
-            :processing="store.isProcessing"
-            @process="handleProcess"
-            @fill-reply="fillReplyDraft"
-            @check-ticket="checkCurrentTicket"
-            @locate-tools="scrollToId('tool-registry')"
-            @scroll-review="scrollToId('reply-review')"
+          <AgentPanel
+            @generate-draft="noop"
+            @submit-draft="noop"
+            @start-ai-process="handleProcess"
+            @scroll-reply="scrollToId('reply-review')"
+            @scroll-missing="scrollMissing"
+            @open-human-confirm="noop"
           />
           <div id="reply-review">
             <ReplyDraftEditor

@@ -5,6 +5,8 @@ from .agent_card import AgentCard, AgentSkill
 from .agent_trace import TraceStep, TraceStatus, SSETraceEvent
 from .tool_schemas import ToolDefinition, ToolParameter, ToolResult
 from .ai_result import AiProcessResult, IntentResult, FieldResult, VerifyCheck
+from .agent_contracts import IntakeResult, RiskDecision, TicketContext, ToolPlan
+from .workflow import WorkflowConfig, WorkflowField, WorkflowScenario
 from .api_schemas import (
     ProcessTicketRequest,
     ProcessTicketResponse,
@@ -20,6 +22,8 @@ __all__ = [
     "TraceStep", "TraceStatus", "SSETraceEvent",
     "ToolDefinition", "ToolParameter", "ToolResult",
     "AiProcessResult", "IntentResult", "FieldResult", "VerifyCheck",
+    "IntakeResult", "RiskDecision", "TicketContext", "ToolPlan",
+    "WorkflowConfig", "WorkflowField", "WorkflowScenario",
     "ProcessTicketRequest", "ProcessTicketResponse",
     "ConfirmActionRequest", "CloseTicketRequest",
     "EvaluationMetrics",

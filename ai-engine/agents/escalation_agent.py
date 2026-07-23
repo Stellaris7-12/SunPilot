@@ -3,6 +3,8 @@
 import logging
 
 from agents.base import BaseAgent
+from agents.escalation_guards import CompletenessGuard, RiskGuard, ToolResultGuard
+from models.workflow import workflow_scenario
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +16,6 @@ REQUIRED_FIELDS = {
     "APPLICATION_PROGRESS_QUERY": ["customerId", "applicationNo"],
     "UNKNOWN": [],
 }
-
-MISSING_VALUES = {"", "未提取", "未提供", "N/A", "UNKNOWN", None}
-TOOL_ESCALATION_KEYWORDS = ("冲突", "权限", "拒绝", "失败", "异常", "不存在")
 
 ESCALATION_SYSTEM_PROMPT = """你是信用卡工单升级与兜底专家。
 请根据工单、分类结果、字段提取结果和工具执行结果，以 JSON 返回：
@@ -35,8 +34,7 @@ ESCALATION_SYSTEM_PROMPT = """你是信用卡工单升级与兜底专家。
 
 
 def _required_fields(intent_type: str, workflow_config: dict) -> list[str]:
-    scenarios = workflow_config.get("scenarios", {})
-    configured = scenarios.get(intent_type, {}).get("required_fields")
+    configured = workflow_scenario(workflow_config, intent_type).required_fields
     if configured is not None:
         return configured
     return REQUIRED_FIELDS.get(intent_type, [])
@@ -67,132 +65,32 @@ class EscalationAgent(BaseAgent):
         checks = []
         required = _required_fields(intent_type, workflow_config)
 
-        if intent_type == "UNKNOWN":
-            checks.append({"label": "\u672a\u77e5\u573a\u666f\u9700\u4eba\u5de5\u5206\u6d41", "status": "\u9700\u590d\u6838"})
-            return {
-                "checks": checks,
-                "risk_level": "high" if ticket_risk == "high" else "medium",
-                "risk_decision": "\u5f53\u524d\u573a\u666f\u672a\u63a5\u5165\u81ea\u52a8\u5316\u5de5\u5177\uff0c\u5efa\u8bae\u8f6c\u4eba\u5de5\u5904\u7406",
-                "can_auto_proceed": False,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
-
-        if ticket_risk == "high":
-            checks.append({"label": "\u5de5\u5355\u6807\u8bb0\u4e3a\u9ad8\u98ce\u9669\uff0c\u5efa\u8bae\u8f6c\u4eba\u5de5", "status": "\u5df2\u62e6\u622a"})
-            return {
-                "checks": checks,
-                "risk_level": "high",
-                "risk_decision": "\u9ad8\u98ce\u9669\u5de5\u5355\uff0c\u5df2\u8f6c\u4eba\u5de5\u5ba1\u6838",
-                "can_auto_proceed": False,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
-
-        missing = [
-            name for name in required
-            if fields_dict.get(name) in MISSING_VALUES
-        ]
-        if missing:
-            checks.append({
-                "label": f"必填字段缺失: {', '.join(missing)}",
-                "status": "待补充",
-            })
-            return {
-                "checks": checks,
-                "risk_level": ticket_risk,
-                "risk_decision": "信息不足，需要补充必填字段后继续处理",
-                "can_auto_proceed": False,
-                "missing_fields": missing,
-                "needs_more_info": True,
-            }
-
-        if intent_type == "TRANSACTION_DISPUTE" and not tool_result:
-            checks.append({"label": "交易核查先执行只读查询取证", "status": "通过"})
-            return {
-                "checks": checks,
-                "risk_level": ticket_risk,
-                "risk_decision": "交易信息已基本齐全，先查询 Mock 交易流水作为人工复核证据",
-                "can_auto_proceed": True,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
+        guard_result = (
+            CompletenessGuard.unsupported_scene(intent_type, ticket_risk, checks)
+            or RiskGuard.high_risk_ticket(ticket_risk, checks)
+            or CompletenessGuard.missing_required(required, fields_dict, ticket_risk, checks)
+            or RiskGuard.transaction_precheck(intent_type, tool_result, ticket_risk, checks)
+        )
+        if guard_result:
+            return guard_result
 
         checks.append({"label": "必填字段完整", "status": "通过"})
 
-        scenarios = workflow_config.get("scenarios", {})
-        scenario_config = scenarios.get(intent_type, {})
-        requires_confirmation = scenario_config.get("requires_human_confirmation")
-        verify_status = str(fields_dict.get("verifyStatus", "")).upper()
-        if intent_type == "CUSTOMER_ADDRESS_UPDATE" and (
-            "FAILED" in verify_status or "\u672a\u901a\u8fc7" in verify_status
-        ):
-            checks.append({"label": "\u8eab\u4efd\u6838\u9a8c\u672a\u901a\u8fc7", "status": "\u5df2\u62e6\u622a"})
-            return {
-                "checks": checks,
-                "risk_level": "high",
-                "risk_decision": "\u8d44\u6599\u53d8\u66f4\u7684\u8eab\u4efd\u6838\u9a8c\u672a\u901a\u8fc7\uff0c\u5df2\u8f6c\u4eba\u5de5\u5904\u7406",
-                "can_auto_proceed": False,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
-        if not tool_result and (
-            ticket_risk == "medium"
-            or intent_type == "CUSTOMER_ADDRESS_UPDATE"
-            or requires_confirmation
-        ):
-            checks.append({"label": "\u654f\u611f\u6216\u4e2d\u98ce\u9669\u64cd\u4f5c\u9700\u4eba\u5de5\u786e\u8ba4", "status": "\u5f85\u786e\u8ba4"})
-            return {
-                "checks": checks,
-                "risk_level": "medium",
-                "risk_decision": "\u4fe1\u606f\u5df2\u57fa\u672c\u9f50\u5168\uff0c\u4f46\u6d89\u53ca\u654f\u611f\u6216\u4e2d\u98ce\u9669\u64cd\u4f5c\uff0c\u9700\u4eba\u5de5\u786e\u8ba4\u540e\u518d\u7ee7\u7eed",
-                "can_auto_proceed": False,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
-
-        if tool_result:
-            failure_reason = tool_result.get("failure_reason") or tool_result.get("message", "")
-            business_result = tool_result.get("business_result", "")
-            if not tool_result.get("success", False):
-                checks.append({
-                    "label": f"工具执行失败: {failure_reason}",
-                    "status": "已拦截",
-                })
-                return {
-                    "checks": checks,
-                    "risk_level": "high",
-                    "risk_decision": failure_reason or "工具执行失败，已升级人工处理",
-                    "can_auto_proceed": False,
-                    "missing_fields": [],
-                    "needs_more_info": False,
-                }
-            if any(keyword in f"{failure_reason}{business_result}" for keyword in TOOL_ESCALATION_KEYWORDS):
-                checks.append({
-                    "label": "工具结果存在冲突、权限或异常信号",
-                    "status": "需复核",
-                })
-                return {
-                    "checks": checks,
-                    "risk_level": "high",
-                    "risk_decision": "工具结果存在冲突或权限异常，已升级人工复核",
-                    "can_auto_proceed": False,
-                    "missing_fields": [],
-                    "needs_more_info": False,
-                }
-            if tool_result.get("requires_human"):
-                checks.append({
-                    "label": "工具结果要求人工复核",
-                    "status": "需复核",
-                })
-                return {
-                    "checks": checks,
-                    "risk_level": "medium",
-                    "risk_decision": "业务工具返回需人工复核，已转人工确认",
-                    "can_auto_proceed": False,
-                    "missing_fields": [],
-                    "needs_more_info": False,
-                }
+        scenario_config = workflow_scenario(workflow_config, intent_type)
+        requires_confirmation = scenario_config.requires_human_confirmation
+        guard_result = (
+            RiskGuard.failed_identity_check(intent_type, fields_dict, checks)
+            or RiskGuard.requires_confirmation_before_tool(
+                intent_type,
+                ticket_risk,
+                bool(requires_confirmation),
+                tool_result,
+                checks,
+            )
+            or ToolResultGuard.evaluate(tool_result, checks)
+        )
+        if guard_result:
+            return guard_result
 
         confidence = intent.get("confidence", 0)
         if confidence < 0.7:
@@ -214,20 +112,12 @@ class EscalationAgent(BaseAgent):
                 "needs_more_info": False,
             }
 
-        if intent_type == "TRANSACTION_DISPUTE":
-            checks.append({"label": "交易争议需人工复核", "status": "需复核"})
-            return {
-                "checks": checks,
-                "risk_level": "high",
-                "risk_decision": "交易争议类工单，建议转人工复核",
-                "can_auto_proceed": False,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
+        guard_result = RiskGuard.transaction_review_after_tool(intent_type, checks)
+        if guard_result:
+            return guard_result
 
-        scenarios = workflow_config.get("scenarios", {})
-        scenario_config = scenarios.get(intent_type, {})
-        requires_confirmation = scenario_config.get("requires_human_confirmation")
+        scenario_config = workflow_scenario(workflow_config, intent_type)
+        requires_confirmation = scenario_config.requires_human_confirmation
         if ticket_risk == "medium" or intent_type == "CUSTOMER_ADDRESS_UPDATE" or requires_confirmation:
             logger.info("[EscalationAgent] LLM assessment for ticket_risk=%s", ticket_risk)
             user_prompt = f"""工单风险等级: {ticket_risk}

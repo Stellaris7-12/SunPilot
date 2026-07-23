@@ -11,6 +11,8 @@ from pathlib import Path
 ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
+from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
+
 
 class FakeClassifierAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
@@ -216,16 +218,23 @@ class FailingExecutor:
 async def main():
     with tempfile.TemporaryDirectory() as tmp_dir:
         os.environ["DATABASE_PATH"] = str(Path(tmp_dir) / "tickets.db")
+        configure_mysql_test_database()
 
-        from fastapi.testclient import TestClient
+        import config
+        import models.database
+        import models.repositories
 
-        from main import app
+        importlib.reload(config)
+        database_module = importlib.reload(models.database)
+        importlib.reload(models.repositories)
+        await reset_mysql_test_data(database_module)
+
         from agents.notification_agent import NotificationAgent
-        from models.api_schemas import ConfirmActionRequest
+        from models.api_schemas import CloseTicketRequest, ConfirmActionRequest
         from models.agent_card import AgentCard
-        from models.database import get_db, init_db
+        from models.database import get_db
         from orchestrator.trace import TraceCollector
-        from main import confirm_action
+        from main import close_ticket, confirm_action, get_ai_result, trigger_ai_process
 
         class MaliciousNotificationAgent(NotificationAgent):
             async def call_llm(self, system_prompt: str, user_prompt: str) -> dict:
@@ -270,8 +279,6 @@ async def main():
         orchestrator_module = importlib.import_module("orchestrator.orchestrator")
         orchestrator = orchestrator_module.orchestrator
 
-        await init_db()
-
         orchestrator.classifier_agent = FakeClassifierAgent()
         orchestrator.intake_agent = FakeIntakeAgent()
         orchestrator.escalation_agent = FakeEscalationAgent()
@@ -281,13 +288,14 @@ async def main():
         async with get_db() as db:
             await db.execute(
                 """INSERT INTO tickets
-                   (id, no, title, customer_name, phone, card_last4, scene,
+                   (id, no, title, customer_id, customer_name, phone, card_last4, scene,
                     created_at, risk_label, risk_level, status, content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)""",
                 (
                     "missing_d",
                     "T-D-MISSING-01",
                     "模块D缺字段",
+                    "C-D-MISSING",
                     "测试客户",
                     "138****0000",
                     "0000",
@@ -300,13 +308,14 @@ async def main():
             )
             await db.execute(
                 """INSERT INTO tickets
-                   (id, no, title, customer_name, phone, card_last4, scene,
+                   (id, no, title, customer_id, customer_name, phone, card_last4, scene,
                     created_at, risk_label, risk_level, status, content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)""",
                 (
                     "failure_d",
                     "T-D-FAIL-01",
                     "模块D工具失败",
+                    "C-D-COUPON",
                     "测试客户",
                     "138****0002",
                     "0002",
@@ -319,13 +328,14 @@ async def main():
             )
             await db.execute(
                 """INSERT INTO tickets
-                   (id, no, title, customer_name, phone, card_last4, scene,
+                   (id, no, title, customer_id, customer_name, phone, card_last4, scene,
                     created_at, risk_label, risk_level, status, content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)""",
                 (
                     "address_reject_d",
                     "T-D-REJECT-01",
                     "模块D人工拒绝",
+                    "C-D-ADDR",
                     "测试客户",
                     "138****0003",
                     "0003",
@@ -338,13 +348,10 @@ async def main():
             )
             await db.commit()
 
-        def run_sync(ticket_id: str):
-            with TestClient(app) as client:
-                response = client.post(f"/api/tickets/{ticket_id}/ai-process")
-                assert response.status_code == 200, response.text
-                return response.json()
+        async def run_ticket(ticket_id: str):
+            return await trigger_ai_process(ticket_id)
 
-        coupon_response = run_sync("coupon")
+        coupon_response = await run_ticket("coupon")
         coupon_result = coupon_response["result"]
         assert coupon_response["status"] == "pending_human_review", coupon_response
         assert coupon_result["replyDraft"], coupon_result
@@ -352,15 +359,13 @@ async def main():
         assert coupon_result["notification"]["closureSuggestion"]["canClose"] is True
         assert coupon_result["notification"]["standardReply"]["evidenceIds"], coupon_result
 
-        with TestClient(app) as client:
-            latest = client.get("/api/tickets/coupon/ai-result")
-            assert latest.status_code == 200, latest.text
-            assert latest.json()["notification"]["closureSuggestion"]["canClose"] is True
-            close = client.post(
-                "/api/tickets/coupon/close",
-                json={"ticketId": "coupon", "finalReply": coupon_result["replyDraft"]},
-            )
-            assert close.status_code == 200, close.text
+        latest = await get_ai_result("coupon")
+        assert latest["notification"]["closureSuggestion"]["canClose"] is True
+        close = await close_ticket(
+            "coupon",
+            CloseTicketRequest(ticket_id="coupon", final_reply=coupon_result["replyDraft"]),
+        )
+        assert close["status"] == "closed", close
 
         async with get_db() as db:
             cursor = await db.execute(
@@ -372,29 +377,29 @@ async def main():
         assert row["final_reply"] == coupon_result["replyDraft"], row
         assert row["closed_at"], row
 
-        missing_response = run_sync("missing_d")
+        missing_response = await run_ticket("missing_d")
         missing_result = missing_response["result"]
         assert missing_response["status"] == "pending_info", missing_response
         assert missing_result["notification"]["standardReply"]["status"] == "needs_info"
-        assert "couponType" in missing_result["notification"]["reviewSummary"]["missingFields"]
+        assert "reason" in missing_result["notification"]["reviewSummary"]["missingFields"], missing_result["notification"]["reviewSummary"]
         async with get_db() as db:
             cursor = await db.execute(
-                "SELECT COUNT(*) FROM tool_call_log WHERE ticket_id = ?",
+                "SELECT COUNT(*) AS count_value FROM tool_call_log WHERE ticket_id = ?",
                 ("missing_d",),
             )
-            assert (await cursor.fetchone())[0] == 0
+            assert (await cursor.fetchone())["count_value"] == 0
 
-        address_response = run_sync("address")
+        address_response = await run_ticket("address")
         address_result = address_response["result"]
         assert address_response["status"] == "pending_human_confirm", address_response
         assert address_result["notification"]["closureSuggestion"]["canClose"] is False
         assert address_result["notification"]["reviewSummary"]["suggestedAction"]
         async with get_db() as db:
             cursor = await db.execute(
-                "SELECT COUNT(*) FROM tool_call_log WHERE ticket_id = ?",
+                "SELECT COUNT(*) AS count_value FROM tool_call_log WHERE ticket_id = ?",
                 ("address",),
             )
-            assert (await cursor.fetchone())[0] == 0
+            assert (await cursor.fetchone())["count_value"] == 0
 
         confirmed = await confirm_action(
             "address",
@@ -404,7 +409,7 @@ async def main():
         assert confirmed["result"]["notification"]["closureSuggestion"]["canClose"] is True
         assert confirmed["result"]["notification"]["standardReply"]["evidenceIds"], confirmed
 
-        run_sync("address_reject_d")
+        await run_ticket("address_reject_d")
         rejected = await confirm_action(
             "address_reject_d",
             ConfirmActionRequest(ticket_id="address_reject_d", approved=False),
@@ -417,7 +422,7 @@ async def main():
         original_executor = orchestrator_module.mock_executor
         orchestrator_module.mock_executor = FailingExecutor()
         try:
-            failure_response = run_sync("failure_d")
+            failure_response = await run_ticket("failure_d")
             failure_result = failure_response["result"]
             assert failure_response["status"] == "escalated", failure_response
             assert failure_result["notification"]["standardReply"]["status"] == "escalated"

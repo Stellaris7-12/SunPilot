@@ -49,7 +49,6 @@ const customTranscript = ref('')
 const draftForm = ref<CreateTicketPayload>(emptyTicketDraft())
 const draftFieldTouched = ref<Record<string, boolean>>({})
 const draftGenerationStatus = ref('')
-const pageAgentPanel = ref<InstanceType<typeof AgentPanel> | null>(null)
 
 const ticketId = computed(() => route.params.id as string | undefined)
 const ticket = computed(() => store.selectedTicket)
@@ -163,7 +162,6 @@ const draftRequiredMissing = computed(() => {
   return required.filter(([key]) => !String(draftForm.value[key] || '').trim()).map(([, label]) => label)
 })
 const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
-const pageAgentBusy = computed(() => ['thinking', 'executing', 'retrying'].includes(store.pageAgentStatus))
 
 onMounted(async () => {
   operationError.value = ''
@@ -289,13 +287,27 @@ function handleProcess() {
   if (ticket.value) store.startAiProcess(ticket.value.id)
 }
 
-function requestPageAgentTask(command: string) {
-  pageAgentPanel.value?.runTask(command)
-}
-
 function selectTicket(id: string) {
   store.selectTicket(id)
   router.push(`/tickets/${id}`)
+}
+
+function clearSelectedTicket() {
+  store.clearSelectedTicket()
+  if (routeHasTicket.value) router.push('/tickets')
+}
+
+function syncSelectionToFilteredTickets(forceFirst = false) {
+  const nextTicket = forceFirst
+    ? filteredTickets.value[0]
+    : filteredTickets.value.find(item => item.id === store.selectedTicketId) || filteredTickets.value[0]
+  if (!nextTicket) {
+    clearSelectedTicket()
+    return
+  }
+  if (nextTicket.id !== store.selectedTicketId || route.params.id !== nextTicket.id) {
+    selectTicket(nextTicket.id)
+  }
 }
 
 async function loadRouteTicket(id?: string) {
@@ -326,6 +338,22 @@ function selectMenu(id: string) {
   } else {
     activeBucket.value = 'all'
   }
+  syncSelectionToFilteredTickets(true)
+}
+
+function selectBucket(id: string) {
+  activeBucket.value = id
+  syncSelectionToFilteredTickets(true)
+}
+
+function handleStatusFilterChange() {
+  syncSelectionToFilteredTickets(true)
+}
+
+function resetQueueFilters() {
+  quickQuery.value = ''
+  statusFilter.value = 'all'
+  syncSelectionToFilteredTickets()
 }
 
 async function handleClose() {
@@ -436,14 +464,6 @@ function scrollToId(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function fillReplyDraft() {
-  const draft = store.aiResult?.notification?.standardReply?.body || store.aiResult?.replyDraft
-  if (draft) {
-    applyReplyText(draft, false)
-    scrollToId('enterprise-reply')
-  }
-}
-
 function applyReplyText(text: string, markTouched = true) {
   if (!text.trim()) return
   if (store.replyDraft.trim() && replyTouched.value && store.replyDraft.trim() !== text.trim()) {
@@ -463,13 +483,6 @@ function applyTemplate() {
     dispute: `您好，您反馈的交易问题已完成初步流水核查。证据编号：${ids}。如需进入调单/争议处理，请按材料提示补充交易凭证，我行将转人工团队继续跟进。`,
   }
   applyReplyText(templates[replyTemplate.value] || templates.standard)
-}
-
-function insertEvidenceIntoReply() {
-  const ids = evidence.value.map(item => item.id).filter(Boolean)
-  if (!ids.length) return
-  const line = `处理依据/证据编号：${ids.join('、')}`
-  insertReplyLine(line)
 }
 
 function insertEvidenceText(id: string) {
@@ -599,11 +612,7 @@ function ticketSourceLabel(item?: Ticket | null) {
                   <span>{{ selectedCall?.callMeta.agent || '坐席 A1027' }}</span>
                 </header>
                 <textarea v-model="customTranscript" class="transcript-box" data-page-agent-target="call-transcript" />
-                <div class="call-actions">
-                  <button class="btn-primary" type="button" :disabled="!customTranscript.trim()" @click="generateDraftFromCall">生成发单草稿</button>
-                  <button class="btn-plain" type="button" :disabled="pageAgentBusy" @click="requestPageAgentTask('根据这通电话帮我发单')">SunPilot 可见发单</button>
-                </div>
-                <p class="system-note">{{ draftGenerationStatus || store.ticketDraftResult?.callSummary || '选择通话后可生成摘要、字段来源和标准工单草稿。' }}</p>
+                <p class="system-note">{{ draftGenerationStatus || store.ticketDraftResult?.callSummary || '选择通话后，可在右侧 SunPilot 生成摘要、字段来源和标准工单草稿。' }}</p>
               </section>
 
               <section id="ticket-draft-form" class="ticket-draft-form" data-page-agent-target="ticket-draft-form">
@@ -690,7 +699,7 @@ function ticketSourceLabel(item?: Ticket | null) {
               :key="bucket.id"
               type="button"
               :class="{ active: activeBucket === bucket.id }"
-              @click="activeBucket = bucket.id"
+              @click="selectBucket(bucket.id)"
             >
               <span>{{ bucket.label }}</span>
               <strong>{{ bucket.count }}</strong>
@@ -705,7 +714,7 @@ function ticketSourceLabel(item?: Ticket | null) {
             </label>
             <label>
               <span>状态</span>
-              <select v-model="statusFilter">
+              <select v-model="statusFilter" @change="handleStatusFilterChange">
                 <option value="all">全部状态</option>
                 <option value="open">待处理</option>
                 <option value="pending_info">待客户补充</option>
@@ -716,7 +725,7 @@ function ticketSourceLabel(item?: Ticket | null) {
                 <option value="closed">已结案</option>
               </select>
             </label>
-            <button class="btn-plain" type="button" @click="quickQuery = ''; statusFilter = 'all'">重置查询</button>
+            <button class="btn-plain" type="button" @click="resetQueueFilters">重置查询</button>
           </section>
 
           <section class="sys-panel">
@@ -804,13 +813,7 @@ function ticketSourceLabel(item?: Ticket | null) {
               </div>
             </div>
             <div class="toolbar-actions">
-              <button id="page-agent-process" class="btn-primary" data-page-agent-target="page-agent-process" type="button" :disabled="store.isProcessing || Boolean(store.aiResult)" @click="handleProcess">
-                {{ store.isProcessing ? 'AI处理中' : store.aiResult ? '处理完成' : '启动 AI 处理' }}
-              </button>
-              <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="scrollToId('enterprise-reply')">查看草稿</button>
-              <button class="btn-plain" type="button" :disabled="!store.aiResult?.missingFields?.length" @click="scrollToId('sunpilot-fields')">查看补充项</button>
               <button class="btn-primary" type="button" v-if="needsHumanConfirm" @click="openHumanConfirm">进入人工确认</button>
-              <button id="page-agent-close-ticket" class="btn-primary" data-page-agent-target="page-agent-close-ticket" type="button" :disabled="!canClose" @click="handleClose">复核并结案</button>
             </div>
           </div>
 
@@ -825,7 +828,6 @@ function ticketSourceLabel(item?: Ticket | null) {
               <input v-model="assignTo" type="text" />
               <button class="btn-plain" type="button" :disabled="!canCancel" @click="handleAssignTicket">指派</button>
             </label>
-            <button id="page-agent-save-draft" class="btn-plain" data-page-agent-target="page-agent-save-draft" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
             <label>
               <span>作废原因</span>
               <input v-model="cancelReason" type="text" />
@@ -924,11 +926,9 @@ function ticketSourceLabel(item?: Ticket | null) {
                   </select>
                 </label>
                 <button class="btn-plain" type="button" @click="applyTemplate">套用模板</button>
-                <button class="btn-plain" type="button" :disabled="!store.aiResult" @click="fillReplyDraft">填入 SunPilot 建议</button>
-                <button class="btn-plain" type="button" :disabled="!evidence.length" @click="insertEvidenceIntoReply">插入证据编号</button>
                 <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="copyReplyDraft">复制回单</button>
-                <button class="btn-plain" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
-                <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">提交复核并结案</button>
+                <button id="page-agent-save-draft" class="btn-plain" data-page-agent-target="page-agent-save-draft" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
+                <button id="page-agent-close-ticket" class="btn-primary" data-page-agent-target="page-agent-close-ticket" type="button" :disabled="!canClose" @click="handleClose">提交复核并结案</button>
                 <span :class="statusClass(canClose ? 'green' : 'amber')">{{ replyWorkspaceStatus }}</span>
               </div>
 
@@ -1006,7 +1006,14 @@ function ticketSourceLabel(item?: Ticket | null) {
       </button>
 
       <aside v-if="copilotOpen" class="copilot" data-page-agent-not-interactive="true" data-sunpilot-panel="true">
-        <AgentPanel ref="pageAgentPanel" />
+        <AgentPanel
+          @generate-draft="generateDraftFromCall"
+          @submit-draft="handleSubmitDraft"
+          @start-ai-process="handleProcess"
+          @scroll-reply="scrollToId('enterprise-reply')"
+          @scroll-missing="scrollToId('sunpilot-fields')"
+          @open-human-confirm="openHumanConfirm"
+        />
         <div class="page-agent-hidden-targets" aria-hidden="true" data-page-agent-not-interactive="true">
           <div id="sunpilot-flow" data-page-agent-target="sunpilot-flow"></div>
           <div id="sunpilot-fields" data-page-agent-target="sunpilot-fields"></div>

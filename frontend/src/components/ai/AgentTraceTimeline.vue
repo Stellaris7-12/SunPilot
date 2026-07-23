@@ -20,7 +20,7 @@ function statusLabel(status: string) {
       <span>技术审计 / Agent 执行明细</span>
       <strong>{{ steps.length }} 步</strong>
     </summary>
-    <div v-if="steps.length === 0" class="empty">启动 AI 辅助后，这里会记录底层执行明细。</div>
+    <div v-if="steps.length === 0" class="empty">在 SunPilot 中启动辅助后，这里会记录底层执行明细。</div>
     <ol v-else class="trace-list">
       <li v-for="(step, index) in steps" :key="`${step.agentId}-${index}`" class="trace-step">
         <span class="dot" :class="`dot--${step.status.toLowerCase()}`" />

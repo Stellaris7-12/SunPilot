@@ -82,9 +82,94 @@ CREATE TABLE IF NOT EXISTS trace_steps (
   duration VARCHAR(32) NOT NULL,
   status ENUM('RUNNING', 'SUCCESS', 'FAILED', 'SKIPPED') NOT NULL,
   step_order INT NOT NULL,
+  input_json JSON NULL,
+  output_json JSON NULL,
+  error_message TEXT NULL,
+  duration_ms INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_trace_steps_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id),
   INDEX idx_trace_steps_ticket_created (ticket_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS call_records (
+  id VARCHAR(64) PRIMARY KEY,
+  source VARCHAR(64) NOT NULL DEFAULT '',
+  scenario VARCHAR(128) NOT NULL DEFAULT '',
+  risk_level ENUM('low', 'medium', 'high') NOT NULL DEFAULT 'low',
+  customer_id VARCHAR(32) NOT NULL DEFAULT '',
+  customer_name VARCHAR(64) NOT NULL DEFAULT '',
+  phone VARCHAR(32) NOT NULL DEFAULT '',
+  card_last4 CHAR(4) NOT NULL DEFAULT '',
+  channel VARCHAR(64) NOT NULL DEFAULT '',
+  agent VARCHAR(64) NOT NULL DEFAULT '',
+  call_started_at DATETIME NULL,
+  duration_seconds INT NOT NULL DEFAULT 0,
+  transcript MEDIUMTEXT NOT NULL,
+  audio_url VARCHAR(512) NOT NULL DEFAULT '',
+  status VARCHAR(64) NOT NULL DEFAULT 'imported',
+  raw_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_call_records_customer_created (customer_id, created_at),
+  INDEX idx_call_records_status_created (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ticket_drafts (
+  id VARCHAR(64) PRIMARY KEY,
+  call_record_id VARCHAR(64) NOT NULL DEFAULT '',
+  ticket_id VARCHAR(64) NULL,
+  draft_json JSON NOT NULL,
+  page_task_json JSON NULL,
+  page_task_hints_json JSON NULL,
+  confidence DOUBLE NOT NULL DEFAULT 0,
+  detected_scenario VARCHAR(128) NOT NULL DEFAULT '',
+  detected_ticket_type VARCHAR(128) NOT NULL DEFAULT '',
+  missing_fields_json JSON NULL,
+  key_fields_json JSON NULL,
+  status VARCHAR(64) NOT NULL DEFAULT 'generated',
+  created_by VARCHAR(64) NOT NULL DEFAULT 'system',
+  confirmed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ticket_drafts_call_created (call_record_id, created_at),
+  INDEX idx_ticket_drafts_ticket_created (ticket_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS page_action_logs (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  ticket_id VARCHAR(64) NOT NULL DEFAULT '',
+  task_id VARCHAR(128) NOT NULL DEFAULT '',
+  action_kind VARCHAR(64) NOT NULL DEFAULT '',
+  tool_name VARCHAR(128) NOT NULL DEFAULT '',
+  target VARCHAR(128) NOT NULL DEFAULT '',
+  input_json JSON NULL,
+  output_json JSON NULL,
+  status VARCHAR(64) NOT NULL DEFAULT '',
+  result_summary TEXT NULL,
+  duration_ms INT NOT NULL DEFAULT 0,
+  risk_level VARCHAR(32) NOT NULL DEFAULT '',
+  stop_reason TEXT NULL,
+  operator VARCHAR(64) NOT NULL DEFAULT 'sunpilot',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_page_action_logs_ticket_created (ticket_id, created_at),
+  INDEX idx_page_action_logs_task_created (task_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_execution_log (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  ticket_id VARCHAR(64) NOT NULL,
+  run_id VARCHAR(64) NOT NULL,
+  agent_id VARCHAR(128) NOT NULL,
+  agent_name VARCHAR(128) NOT NULL,
+  input_json JSON NULL,
+  output_json JSON NULL,
+  error_message TEXT NULL,
+  status VARCHAR(64) NOT NULL DEFAULT '',
+  duration_ms INT NOT NULL DEFAULT 0,
+  raw_response_json JSON NULL,
+  token_usage_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_agent_execution_log_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id),
+  INDEX idx_agent_execution_log_ticket_created (ticket_id, created_at),
+  INDEX idx_agent_execution_log_run_agent (run_id, agent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tool_call_log (

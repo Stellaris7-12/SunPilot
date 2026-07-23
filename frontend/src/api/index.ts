@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload, CallRecordSample, GenerateTicketDraftPayload, TicketDraftResult } from '../types';
+import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload, CallRecordSample, GenerateTicketDraftPayload, TicketDraftResult, PageActionLogPayload, PageActionLogRecord } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/$/, '');
 
@@ -22,8 +22,10 @@ export const ticketApi = {
   getAiResult: (id: string) => api.get<AiProcessResult>(`/tickets/${id}/ai-result`).then(r => r.data),
   getToolCalls: (id: string) => api.get<ToolCallLog[]>(`/tickets/${id}/tool-calls`).then(r => r.data),
   getOperations: (id: string) => api.get<TicketOperationLog[]>(`/tickets/${id}/operations`).then(r => r.data),
+  getPageActionLogs: (id: string) => api.get<PageActionLogRecord[]>(`/tickets/${id}/page-action-logs`).then(r => r.data),
   listCallRecords: () => api.get<CallRecordSample[]>('/call-records').then(r => r.data),
   generateTicketDraft: (payload: GenerateTicketDraftPayload) => api.post<TicketDraftResult>('/call-records/generate-ticket-draft', payload).then(r => r.data),
+  recordPageActionLog: (payload: PageActionLogPayload) => api.post<PageActionLogRecord>('/page-action-logs', payload).then(r => r.data),
 };
 
 export const agentApi = {

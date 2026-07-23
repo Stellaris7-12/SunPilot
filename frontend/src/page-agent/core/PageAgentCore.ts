@@ -193,6 +193,10 @@ export class PageAgentCore extends EventTarget {
 		this.#observations.push(content)
 	}
 
+	peekObservations(): string[] {
+		return [...this.#observations]
+	}
+
 	/**
 	 * Stop the current task and wait until the run has fully settled (including lifecycle hooks).
 	 * @note never await .stop() in a lifecycle hook.
@@ -201,6 +205,33 @@ export class PageAgentCore extends EventTarget {
 		if (this.#status !== 'running') return
 		this.#abortController.abort()
 		await this.#running
+	}
+
+	async runTool(toolName: string, toolInput: unknown, signal?: AbortSignal): Promise<string> {
+		if (this.disposed) throw new Error('PageAgent has been disposed. Create a new instance.')
+		const tool = this.tools.get(toolName)
+		assert(tool, `Tool ${toolName} not found`)
+		const activeSignal = signal || new AbortController().signal
+		activeSignal.throwIfAborted()
+		const input = tool.inputSchema.parse(toolInput)
+
+		console.log(chalk.blue.bold(`Executing tool: ${toolName}`), input)
+		this.#emitActivity({ type: 'executing', tool: toolName, input })
+
+		const startTime = Date.now()
+		const result = await tool.execute.bind(this)(input, { signal: activeSignal })
+		activeSignal.throwIfAborted()
+
+		const duration = Date.now() - startTime
+		console.log(chalk.green.bold(`Tool (${toolName}) executed for ${duration}ms`), result)
+		this.#emitActivity({
+			type: 'executed',
+			tool: toolName,
+			input,
+			output: result,
+			duration,
+		})
+		return result
 	}
 
 	/**
@@ -216,7 +247,8 @@ export class PageAgentCore extends EventTarget {
 		this.task = task
 		this.taskId = uid()
 
-		this.history = []
+		const pendingObservations = [...this.#observations]
+		this.history = pendingObservations.map((content) => ({ type: 'observation' as const, content }))
 		this.#observations = []
 		this.#states = { totalWaitTime: 0, lastURL: '', browserState: null }
 		this.#abortController = new AbortController()
@@ -426,32 +458,7 @@ export class PageAgentCore extends EventTarget {
 					console.log(reflectionText)
 				}
 
-				// Find the corresponding tool
-				const tool = tools.get(toolName)
-				assert(tool, `Tool ${toolName} not found`)
-
-				console.log(chalk.blue.bold(`Executing tool: ${toolName}`), toolInput)
-
-				// Emit executing activity
-				this.#emitActivity({ type: 'executing', tool: toolName, input: toolInput })
-
-				const startTime = Date.now()
-
-				const result = await tool.execute.bind(this)(toolInput, { signal })
-				// Enforce abort even if the tool ignored the signal and resolved normally.
-				signal.throwIfAborted()
-
-				const duration = Date.now() - startTime
-				console.log(chalk.green.bold(`Tool (${toolName}) executed for ${duration}ms`), result)
-
-				// Emit executed activity
-				this.#emitActivity({
-					type: 'executed',
-					tool: toolName,
-					input: toolInput,
-					output: result,
-					duration,
-				})
+				const result = await this.runTool(toolName, toolInput, signal)
 
 				// counting wait time
 				if (toolName === 'wait') {

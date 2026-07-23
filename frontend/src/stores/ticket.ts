@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionStatus, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload } from '../types';
+import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload } from '../types';
 import { ticketApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
@@ -52,19 +52,31 @@ export const useTicketStore = defineStore('ticket', () => {
     pageActionLogs.value = [];
   }
 
+  async function recordPageActionLog(payload: PageActionLogPayload) {
+    const saved = await ticketApi.recordPageActionLog(payload);
+    appendPageActionLog(pageActionRecordToEntry(saved));
+    return saved;
+  }
+
   function selectTicket(id: string) {
     selectedTicketId.value = id;
+    resetState();
+  }
+
+  function clearSelectedTicket() {
+    selectedTicketId.value = null;
     resetState();
   }
 
   async function loadTicketContext(id: string) {
     selectedTicketId.value = id;
     resetState();
-    const [resultResponse, traceResponse, toolCallsResponse, operationsResponse] = await Promise.allSettled([
+    const [resultResponse, traceResponse, toolCallsResponse, operationsResponse, pageActionLogsResponse] = await Promise.allSettled([
       ticketApi.getAiResult(id),
       ticketApi.getTrace(id),
       ticketApi.getToolCalls(id),
       ticketApi.getOperations(id),
+      ticketApi.getPageActionLogs(id),
     ]);
     if (resultResponse.status === 'fulfilled') {
       applyProcessResult(resultResponse.value);
@@ -77,6 +89,9 @@ export const useTicketStore = defineStore('ticket', () => {
     }
     if (operationsResponse.status === 'fulfilled') {
       operationLogs.value = operationsResponse.value;
+    }
+    if (pageActionLogsResponse.status === 'fulfilled') {
+      pageActionLogs.value = pageActionLogsResponse.value.map(pageActionRecordToEntry);
     }
   }
 
@@ -223,6 +238,7 @@ export const useTicketStore = defineStore('ticket', () => {
     traceSteps.value = [];
     toolCalls.value = [];
     operationLogs.value = [];
+    pageActionLogs.value = [];
     replyDraft.value = '';
     workflowPaused.value = false;
   }
@@ -250,8 +266,10 @@ export const useTicketStore = defineStore('ticket', () => {
     generateTicketDraft,
     setPageAgentStatus,
     appendPageActionLog,
+    recordPageActionLog,
     clearPageActionLogs,
     selectTicket,
+    clearSelectedTicket,
     loadTicketContext,
     startAiProcess,
     confirmAction,
@@ -265,3 +283,37 @@ export const useTicketStore = defineStore('ticket', () => {
     resetState,
   };
 });
+
+function pageActionRecordToEntry(record: PageActionLogRecord): PageActionLogEntry {
+  return {
+    id: String(record.id),
+    planId: record.taskId,
+    instruction: record.actionKind,
+    contextSummary: record.resultSummary,
+    tool: record.toolName || record.actionKind,
+    target: record.target,
+    inputSummary: summarizeRecord(record.input),
+    status: normalizePageActionStatus(record.status),
+    result: record.resultSummary,
+    durationMs: record.durationMs,
+    riskLevel: normalizeRiskLevel(record.riskLevel),
+    stopReason: record.stopReason,
+    createdAt: record.createdAt,
+  };
+}
+
+function summarizeRecord(value: Record<string, unknown>) {
+  const text = JSON.stringify(value || {});
+  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+}
+
+function normalizePageActionStatus(status: string): PageActionStatus {
+  if (['thinking', 'executing', 'executed', 'retrying', 'error', 'done', 'stopped'].includes(status)) {
+    return status as PageActionStatus;
+  }
+  return status === 'success' ? 'executed' : status === 'failed' ? 'error' : 'done';
+}
+
+function normalizeRiskLevel(value: string): RiskLevel {
+  return value === 'medium' || value === 'high' ? value : 'low';
+}

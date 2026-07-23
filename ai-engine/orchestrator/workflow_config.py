@@ -5,6 +5,8 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
+from models.workflow import WorkflowConfig
+
 
 WORKFLOW_CONFIG_JSON = Path(__file__).resolve().parent.parent / "data" / "workflow_config.json"
 
@@ -102,13 +104,14 @@ DEFAULT_WORKFLOW_CONFIG = {
 
 @lru_cache(maxsize=1)
 def load_workflow_config() -> dict:
-    """Load lightweight workflow config from disk."""
+    """Load and validate lightweight workflow config from disk."""
     try:
         with open(WORKFLOW_CONFIG_JSON, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (OSError, json.JSONDecodeError) as exc:
+            payload = json.load(file)
+        return WorkflowConfig.model_validate(payload).to_runtime_dict()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         logger.warning("Falling back to built-in workflow config: %s", exc)
-        return DEFAULT_WORKFLOW_CONFIG
+        return WorkflowConfig.model_validate(DEFAULT_WORKFLOW_CONFIG).to_runtime_dict()
 
 
 def get_scenario_config(intent_type: str) -> dict:

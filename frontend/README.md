@@ -92,8 +92,8 @@ component: () => import('../views/TicketDetailView.vue')
 AI 实时处理流程稍微特殊：
 
 ```text
-点击“启动 AI 辅助”
-  -> TicketDetailView 调用 store.startAiProcess(ticketId)
+在 SunPilot 面板点击 AI 快捷动作
+  -> AgentPanel 委托页面调用 store.startAiProcess(ticketId)
   -> store 创建 EventSource 连接 /ai-process-stream
   -> 后端持续推送 agent_start / agent_thinking / agent_complete 等事件
   -> store 更新 traceSteps、aiResult、replyDraft、workflowPaused
@@ -212,7 +212,7 @@ AI 实时处理流程稍微特殊：
 
 单个工单的处理台，是当前前端最核心的页面。它负责组合各个业务组件：
 
-- `AppHeader`：详情页顶部标题和“启动 AI 辅助”按钮。
+- `AppHeader`：详情页顶部标题、编号、场景和状态信息；AI 处理入口统一放在 SunPilot 面板。
 - `TicketInfo`：工单摘要、状态、风险、证据编号。
 - `TicketContent`：客户诉求原文。
 - `AiProcessPanel`：业务处理链路。
@@ -220,7 +220,7 @@ AI 实时处理流程稍微特殊：
 - `NotificationBundlePanel`：客户回单、内部通知、复核摘要、结案建议、回访计划。
 - `AgentTraceTimeline`：底层 Agent 执行明细。
 - `ToolRegistryPanel`：可用业务工具目录。
-- `PageAssistantPanel`：右侧坐席动作栏。
+- `AgentPanel`：SunPilot 面板，承载 AI 快捷功能按钮、结构化 PageTask 执行、动作日志和兜底对话框。
 - `ReplyDraftEditor`：回单复核和结案提交。
 - `ConfirmDialog`：敏感操作人工确认弹窗。
 
@@ -241,7 +241,7 @@ watch(ticketId, async id => {
 | 文件 | 作用 |
 | --- | --- |
 | `src/components/layout/AppSidebar.vue` | 左侧工单导航栏。提供状态桶筛选、场景筛选、工单列表、当前选中态和跳转逻辑。 |
-| `src/components/layout/AppHeader.vue` | 详情页顶部栏。展示工单标题、编号、场景和状态，并向父组件发出 `process`、`reset` 事件。 |
+| `src/components/layout/AppHeader.vue` | 详情页顶部栏。展示工单标题、编号、场景和状态；不再提供 AI 处理按钮。 |
 
 ### shared
 
@@ -265,7 +265,8 @@ watch(ticketId, async id => {
 | `src/components/ai/AiResultCard.vue` | AI 结果主卡片，展示意图、工作流、风险判断、字段提取、缺失字段、工具入参、工具证据和校验结果。 |
 | `src/components/ai/VerifyChecks.vue` | 风险与兜底检查列表，被 `AiResultCard` 引用。 |
 | `src/components/ai/NotificationBundlePanel.vue` | 模块 D 的结构化通知展示。展示标准回单、内部通知、人工复核摘要、结案建议和回访预留。 |
-| `src/components/ai/PageAssistantPanel.vue` | 右侧坐席动作栏。根据当前状态给出下一步动作，并发出滚动、填入回单、启动处理等事件。 |
+| `src/components/ai/PageAssistantPanel.vue` | 旧助手兼容 wrapper，内部挂载 SunPilot `AgentPanel`，不再渲染独立 AI 动作栏。 |
+| `src/page-agent/panel/AgentPanel.vue` | SunPilot 面板。集中承载 AI 快捷动作、PageTask 确定性执行、ReAct 兜底、操作日志和手动输入。 |
 | `src/components/ai/ReplyDraftEditor.vue` | 回单编辑器。通过 `v-model:draft` 与 store 中的 `replyDraft` 双向绑定，并提交最终结案。 |
 | `src/components/ai/ConfirmDialog.vue` | 人工确认弹窗。工作流暂停时出现，向父组件发出 `confirm` 或 `reject`。 |
 
@@ -489,8 +490,8 @@ list: () => api.get<Ticket[]>('/tickets').then(r => r.data)
 2. `TicketListView` 加载工单列表。
 3. 用户点击一个工单，路由跳到 `/tickets/:id`。
 4. `TicketDetailView` 加载该工单已有 AI 结果和 Trace。
-5. 用户点击“启动 AI 辅助”。
-6. `ticket.ts` 通过 SSE 接收多 Agent 事件。
+5. 用户在 SunPilot 面板点击 AI 快捷动作。
+6. `AgentPanel` 触发页面处理函数，`ticket.ts` 通过 SSE 接收多 Agent 事件。
 7. `AiProcessPanel` 和 `AgentTraceTimeline` 实时更新。
 8. 后端返回 `AiProcessResult`。
 9. `NotificationBundlePanel` 展示结构化回单和复核建议。

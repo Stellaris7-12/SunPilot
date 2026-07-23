@@ -4,6 +4,7 @@ import json
 import logging
 
 from agents.base import BaseAgent
+from models.workflow import workflow_scenario
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,10 @@ class NotificationAgent(BaseAgent):
         failure_reason = input_data.get("failure_reason", "") or verify_result.get("risk_decision", "")
         pause_type = input_data.get("pause_type")
 
-        notification_template = (
-            workflow_config.get("scenarios", {})
-            .get(intent.get("type", "UNKNOWN"), {})
-            .get("notification_template", "")
-        )
+        notification_template = workflow_scenario(
+            workflow_config,
+            intent.get("type", "UNKNOWN"),
+        ).notification_template
 
         parts = []
         if notification_template:

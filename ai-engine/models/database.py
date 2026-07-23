@@ -307,6 +307,7 @@ async def _init_mysql_db():
                'pending_human_review','escalated','failed','cancelled','closed'
             ) NOT NULL DEFAULT 'open'"""
         )
+        await _ensure_schema_upgrades(db)
         await db.execute("SET sql_notes = 1")
         await db.commit()
     async with get_db() as db:
@@ -373,6 +374,31 @@ def _split_mysql_ddl(ddl: str) -> list[str]:
         if statement:
             statements.append(statement)
     return statements
+
+
+async def _ensure_schema_upgrades(db: Any):
+    await _ensure_columns(
+        db,
+        "trace_steps",
+        {
+            "input_json": "JSON NULL",
+            "output_json": "JSON NULL",
+            "error_message": "TEXT NULL",
+            "duration_ms": "INT NOT NULL DEFAULT 0",
+        },
+    )
+
+
+async def _ensure_columns(db: Any, table_name: str, columns: dict[str, str]):
+    existing = await _existing_columns(db, table_name)
+    for column, definition in columns.items():
+        if column not in existing:
+            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}")
+
+
+async def _existing_columns(db: Any, table_name: str) -> set[str]:
+    cursor = await db.execute(f"SHOW COLUMNS FROM {table_name}")
+    return {str(row["Field"]) for row in await cursor.fetchall()}
 
 
 def _get_engine() -> AsyncEngine:

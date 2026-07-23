@@ -22,7 +22,8 @@ export function createTicketPageAgent() {
     instructions: {
       system: [
         '你正在 TicketAgent 企业工单页面内操作。',
-        '优先使用页面上可见的按钮、输入框和文本区域完成发单、回单、定位证据和滚动复核区。',
+        '优先使用 fill_form_by_targets、fill_textarea_by_target、select_option_by_label、click_semantic_target、locate_evidence、scroll_to_region、wait_for_business_state、stop_for_human 等语义工具完成发单、回单、定位证据和滚动复核区。',
+        '只有当结构化 PageTask 没有给出稳定 target 或语义工具失败时，才退回 DOM index 工具。',
         '不要直接结案；结案必须等待坐席在人工作业区确认。',
         '当后端 Agent 结果已经通过 observation 告诉你时，直接把对应字段填到页面，不要要求坐席复制粘贴。',
         '忽略 SunPilot 自己的右侧控制台、模型配置区和对话历史；它们不是业务页面目标。',

@@ -3,6 +3,7 @@
 import logging
 
 from agents.base import BaseAgent
+from models.workflow import workflow_scenario
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +47,12 @@ _FIELD_SCHEMAS = {
 
 
 def _fields_from_config(intent_type: str, workflow_config: dict) -> list[tuple[str, str]]:
-    scenarios = workflow_config.get("scenarios", {})
-    scenario_config = scenarios.get(intent_type, {})
-    configured_fields = scenario_config.get("fields", [])
+    scenario_config = workflow_scenario(workflow_config, intent_type)
+    configured_fields = scenario_config.fields
     if configured_fields:
         return [
-            (field["name"], field.get("label", field["name"]))
+            (field.name, field.label or field.name)
             for field in configured_fields
-            if "name" in field
         ]
     return _FIELD_SCHEMAS.get(intent_type, _FIELD_SCHEMAS["UNKNOWN"])
 

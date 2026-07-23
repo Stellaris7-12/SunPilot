@@ -11,6 +11,7 @@ ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
 from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
+from models.agent_trace import TraceStep, TraceStatus  # noqa: E402
 
 
 def _load_database_modules():
@@ -104,6 +105,99 @@ async def main():
     )
     calls = await repo_module.tool_call_repository.list_tool_calls("smoke_i1")
     assert calls and calls[0]["evidence_id"] == "EV-I1-001", calls
+
+    async with database_module.get_db() as db:
+        for table in (
+            "call_records",
+            "ticket_drafts",
+            "page_action_logs",
+            "agent_execution_log",
+        ):
+            cursor = await db.execute(f"SHOW TABLES LIKE '{table}'")
+            assert await cursor.fetchone(), table
+        cursor = await db.execute("SHOW COLUMNS FROM trace_steps")
+        trace_columns = {row["Field"] for row in await cursor.fetchall()}
+        assert {"input_json", "output_json", "error_message", "duration_ms"} <= trace_columns
+
+    call_record = await repo_module.call_record_repository.upsert_call_record({
+        "id": "call-smoke-i1",
+        "source": "smoke",
+        "scenario": "coupon_reissue",
+        "riskLevel": "low",
+        "callMeta": {
+            "customerId": "C29999",
+            "customerName": "Smoke",
+            "phone": "139****9999",
+            "cardLast4": "9999",
+            "channel": "smoke",
+            "agent": "tester",
+            "callStartedAt": "2026-07-23 12:00:00",
+        },
+        "transcript": "客户C29999反馈优惠券未到账。",
+    })
+    assert call_record["customer_id"] == "C29999", call_record
+
+    draft_row = await repo_module.ticket_draft_repository.insert_ticket_draft(
+        draft_id="draft-smoke-i1",
+        call_record_id="call-smoke-i1",
+        draft={"title": "smoke draft", "customerId": "C29999"},
+        page_task={"id": "draft-smoke-i1", "actions": [{"kind": "fillForm"}]},
+        page_task_hints=[{"action": "fill", "target": "draft-title"}],
+        confidence=0.91,
+        detected_scenario="优惠券补发",
+        detected_ticket_type="COUPON_REISSUE",
+        missing_fields=[],
+        key_fields=[{"name": "customerId", "value": "C29999"}],
+        created_by="smoke",
+    )
+    assert json.loads(draft_row["draft_json"])["customerId"] == "C29999", draft_row
+
+    await repo_module.trace_repository.insert_trace_steps(
+        "smoke_i1",
+        "run_trace_i1",
+        [
+            TraceStep(
+                agent="Smoke Agent",
+                agent_id="smoke_agent",
+                summary="完成",
+                duration="7ms",
+                status=TraceStatus.SUCCESS,
+                result={"ok": True},
+            )
+        ],
+    )
+    trace_rows = await repo_module.trace_repository.list_recent_trace("smoke_i1", limit=1)
+    assert trace_rows[0]["duration_ms"] == 7, trace_rows
+    assert json.loads(trace_rows[0]["output_json"]) == {"ok": True}, trace_rows
+
+    await repo_module.agent_execution_log_repository.insert_agent_execution(
+        ticket_id="smoke_i1",
+        run_id="run_i1",
+        agent_id="classifier_agent",
+        agent_name="Classifier Agent / 分类与优先级判定",
+        input_data={"ticket_content": "smoke"},
+        output_data={"type": "COUPON_REISSUE"},
+        status="SUCCESS",
+        duration_ms=9,
+    )
+    agent_logs = await repo_module.agent_execution_log_repository.list_agent_executions("smoke_i1")
+    assert agent_logs and agent_logs[0]["agent_id"] == "classifier_agent", agent_logs
+
+    page_action = await repo_module.page_action_log_repository.insert_page_action_log({
+        "ticketId": "smoke_i1",
+        "taskId": "reply-smoke_i1",
+        "actionKind": "fillTextarea",
+        "toolName": "fill_textarea_by_target",
+        "target": "page-agent-reply-draft",
+        "input": {"text": "hello"},
+        "output": {"message": "ok"},
+        "status": "executed",
+        "resultSummary": "ok",
+        "durationMs": 5,
+        "riskLevel": "low",
+        "operator": "sunpilot",
+    })
+    assert page_action["target"] == "page-agent-reply-draft", page_action
 
     await repo_module.ticket_repository.update_status("smoke_i1", "pending_human_review")
     await repo_module.ticket_repository.close_ticket("smoke_i1", "最终回单")

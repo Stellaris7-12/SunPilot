@@ -6,6 +6,7 @@ import * as z from 'zod/v4'
 
 import type { PageAgentCore } from '../core/PageAgentCore'
 import { waitFor } from '../core/utils'
+import { clickElement, inputTextElement, selectOptionElement } from '../controller/actions'
 
 /**
  * Per-invocation context passed to every tool execution.
@@ -34,6 +35,47 @@ export function tool<TParams>(options: PageAgentTool<TParams>): PageAgentTool<TP
  * Note: Using any to allow different parameter types for each tool
  */
 export const tools = new Map<string, PageAgentTool>()
+
+function cssString(value: string) {
+	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function findSemanticTarget(target: string): HTMLElement {
+	const byId = document.getElementById(target)
+	if (byId instanceof HTMLElement) return byId
+	const selector = `[data-page-agent-target="${cssString(target)}"]`
+	const element = document.querySelector(selector)
+	if (element instanceof HTMLElement) return element
+	throw new Error(`Semantic target not found: ${target}`)
+}
+
+async function fillElement(element: HTMLElement, value: string) {
+	if (element instanceof HTMLSelectElement) {
+		const option = Array.from(element.options).find(item =>
+			item.value === value || item.textContent?.trim() === value.trim()
+		)
+		if (option) {
+			element.value = option.value
+			element.dispatchEvent(new Event('change', { bubbles: true }))
+			await waitFor(0.1)
+			return
+		}
+		await selectOptionElement(element, value)
+		return
+	}
+	await inputTextElement(element, value)
+}
+
+function brieflyMark(element: HTMLElement) {
+	const previousOutline = element.style.outline
+	const previousOffset = element.style.outlineOffset
+	element.style.outline = '2px solid #0f766e'
+	element.style.outlineOffset = '2px'
+	window.setTimeout(() => {
+		element.style.outline = previousOutline
+		element.style.outlineOffset = previousOffset
+	}, 1400)
+}
 
 tools.set(
 	'done',
@@ -175,6 +217,167 @@ tools.set(
 		execute: async function (this: PageAgentCore, input) {
 			const result = await this.pageController.scrollHorizontally(input)
 			return result.message
+		},
+	})
+)
+
+tools.set(
+	'fill_form_by_targets',
+	tool({
+		description:
+			'Fill multiple form fields by stable semantic targets such as data-page-agent-target or element id. Prefer this over DOM indexes when PageTask provides field targets.',
+		inputSchema: z.object({
+			fields: z.array(z.object({
+				target: z.string().min(1),
+				value: z.string(),
+				label: z.string().optional(),
+			})),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			const results: string[] = []
+			for (const field of input.fields) {
+				const element = findSemanticTarget(field.target)
+				await fillElement(element, field.value)
+				results.push(`${field.label || field.target}=已填入`)
+			}
+			return `✅ Filled ${results.length} semantic field(s): ${results.join('；')}`
+		},
+	})
+)
+
+tools.set(
+	'fill_textarea_by_target',
+	tool({
+		description:
+			'Fill a textarea, input, or editable area by stable semantic target. Use for customer reply drafts and large text fields.',
+		inputSchema: z.object({
+			target: z.string().min(1),
+			text: z.string(),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			const element = findSemanticTarget(input.target)
+			await fillElement(element, input.text)
+			return `✅ Filled text into semantic target ${input.target}.`
+		},
+	})
+)
+
+tools.set(
+	'select_option_by_label',
+	tool({
+		description: 'Select an option in a dropdown by stable semantic target and visible label or value.',
+		inputSchema: z.object({
+			target: z.string().min(1),
+			value: z.string(),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			const element = findSemanticTarget(input.target)
+			if (!(element instanceof HTMLSelectElement)) {
+				throw new Error(`Semantic target is not a select: ${input.target}`)
+			}
+			await fillElement(element, input.value)
+			return `✅ Selected ${input.value} in ${input.target}.`
+		},
+	})
+)
+
+tools.set(
+	'click_semantic_target',
+	tool({
+		description:
+			'Click a stable semantic target by data-page-agent-target or id. Prefer this over click_element_by_index for TicketAgent pages.',
+		inputSchema: z.object({
+			target: z.string().min(1),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			const element = findSemanticTarget(input.target)
+			await clickElement(element)
+			return `✅ Clicked semantic target ${input.target}.`
+		},
+	})
+)
+
+tools.set(
+	'scroll_to_region',
+	tool({
+		description: 'Scroll to a stable page region by data-page-agent-target or id.',
+		inputSchema: z.object({
+			target: z.string().min(1),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			const element = findSemanticTarget(input.target)
+			element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+			brieflyMark(element)
+			await waitFor(0.4)
+			return `✅ Scrolled to region ${input.target}.`
+		},
+	})
+)
+
+tools.set(
+	'locate_evidence',
+	tool({
+		description:
+			'Locate and highlight evidence ids on the current TicketAgent page. If a specific evidence text is visible, scroll to it; otherwise scroll to the evidence region.',
+		inputSchema: z.object({
+			evidence_ids: z.array(z.string()).default([]),
+			target: z.string().default('sunpilot-evidence'),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			const candidates = Array.from(document.querySelectorAll('button, div, span, td, small, strong, textarea'))
+			for (const evidenceId of input.evidence_ids) {
+				const match = candidates.find(element => element.textContent?.includes(evidenceId))
+				if (match instanceof HTMLElement) {
+					match.scrollIntoView({ behavior: 'smooth', block: 'center' })
+					brieflyMark(match)
+					await waitFor(0.3)
+					return `✅ Located evidence ${evidenceId}.`
+				}
+			}
+			const region = findSemanticTarget(input.target)
+			region.scrollIntoView({ behavior: 'smooth', block: 'start' })
+			brieflyMark(region)
+			await waitFor(0.3)
+			return `✅ Evidence ids not directly visible; moved to ${input.target}.`
+		},
+	})
+)
+
+tools.set(
+	'stop_for_human',
+	tool({
+		description: 'Stop automation and report that the task is waiting for human handling.',
+		inputSchema: z.object({
+			reason: z.string().default('需要人工处理'),
+		}),
+		execute: async function (this: PageAgentCore, input) {
+			return `需要人工处理：${input.reason}`
+		},
+	})
+)
+
+tools.set(
+	'wait_for_business_state',
+	tool({
+		description:
+			'Wait until a stable semantic target or the document contains expected business state text. Use after submitting, processing, or navigating TicketAgent workflow states.',
+		inputSchema: z.object({
+			state: z.string().min(1),
+			target: z.string().optional(),
+			timeout_seconds: z.number().min(1).max(15).default(6),
+		}),
+		execute: async function (this: PageAgentCore, input, { signal }) {
+			const deadline = Date.now() + input.timeout_seconds * 1000
+			while (Date.now() < deadline) {
+				if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+				const container = input.target ? findSemanticTarget(input.target) : document.body
+				if (container.textContent?.includes(input.state)) {
+					if (container instanceof HTMLElement) brieflyMark(container)
+					return `✅ Business state appeared: ${input.state}.`
+				}
+				await waitFor(0.3, signal)
+			}
+			throw new Error(`Business state did not appear within ${input.timeout_seconds}s: ${input.state}`)
 		},
 	})
 )

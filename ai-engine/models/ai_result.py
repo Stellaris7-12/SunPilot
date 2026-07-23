@@ -87,6 +87,28 @@ class NotificationBundle(ApiModel):
     follow_up: FollowUpPlan = Field(default_factory=FollowUpPlan)
 
 
+class PageTaskActionEnvelope(ApiModel):
+    kind: str
+    target: str
+    label: str
+    field: str = ""
+    value: str = ""
+    required: bool = False
+
+
+class PageTaskEnvelope(ApiModel):
+    id: str
+    source: str
+    scene: str
+    risk_level: str = "low"
+    mode: str = "suggest"
+    business_payload: dict = Field(default_factory=dict)
+    actions: list[PageTaskActionEnvelope] = Field(default_factory=list)
+    allowed_targets: list[str] = Field(default_factory=list)
+    requires_human_before_submit: bool = True
+    stop_reason: str = ""
+
+
 class AiProcessResult(ApiModel):
     workflow_name: str = ""
     risk_decision: str = ""
@@ -103,3 +125,4 @@ class AiProcessResult(ApiModel):
     requires_human_review: bool = True
     missing_fields: list[str] = Field(default_factory=list)
     failure_reason: str = ""
+    page_task: Optional[PageTaskEnvelope] = None

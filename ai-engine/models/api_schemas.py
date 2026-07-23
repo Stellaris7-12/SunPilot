@@ -3,7 +3,7 @@
 from pydantic import Field
 
 from .agent_trace import TraceStep
-from .ai_result import AiProcessResult, ApiModel
+from .ai_result import AiProcessResult, ApiModel, PageTaskEnvelope
 
 
 class CreateTicketRequest(ApiModel):
@@ -71,6 +71,7 @@ class GenerateTicketDraftResponse(ApiModel):
     confidence: float = 0.0
     source_call_id: str = ""
     page_task_hints: list[PageTaskHint] = Field(default_factory=list)
+    page_task: PageTaskEnvelope | None = None
 
 
 class UpdateTicketRequest(ApiModel):
@@ -112,6 +113,22 @@ class ReopenTicketRequest(ApiModel):
 class SaveDraftRequest(ApiModel):
     draft: str
     operator: str = "operator"
+
+
+class PageActionLogRequest(ApiModel):
+    ticket_id: str = ""
+    task_id: str = ""
+    action_kind: str = ""
+    tool_name: str = ""
+    target: str = ""
+    input: dict = Field(default_factory=dict)
+    output: dict = Field(default_factory=dict)
+    status: str = ""
+    result_summary: str = ""
+    duration_ms: int = 0
+    risk_level: str = ""
+    stop_reason: str = ""
+    operator: str = "sunpilot"
 
 
 class TicketResponse(ApiModel):
@@ -187,6 +204,38 @@ class TicketOperationLogResponse(ApiModel):
     from_status: str = ""
     to_status: str = ""
     detail: dict = Field(default_factory=dict)
+    created_at: str
+
+
+class PageActionLogResponse(ApiModel):
+    id: int
+    ticket_id: str = ""
+    task_id: str = ""
+    action_kind: str = ""
+    tool_name: str = ""
+    target: str = ""
+    input: dict = Field(default_factory=dict)
+    output: dict = Field(default_factory=dict)
+    status: str = ""
+    result_summary: str = ""
+    duration_ms: int = 0
+    risk_level: str = ""
+    stop_reason: str = ""
+    operator: str = "sunpilot"
+    created_at: str = ""
+
+
+class AgentExecutionLogResponse(ApiModel):
+    id: int
+    ticket_id: str
+    run_id: str
+    agent_id: str
+    agent_name: str
+    input: dict = Field(default_factory=dict)
+    output: dict = Field(default_factory=dict)
+    error_message: str = ""
+    status: str = ""
+    duration_ms: int = 0
     created_at: str
 
 

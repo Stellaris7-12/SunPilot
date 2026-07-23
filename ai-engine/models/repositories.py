@@ -11,6 +11,20 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _duration_ms(duration: str) -> int:
+    text = str(duration or "").strip().lower()
+    if text.endswith("ms"):
+        text = text[:-2]
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return 0
+
+
 class TicketRepository:
     async def list_tickets(self, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         filters = filters or {}
@@ -424,8 +438,9 @@ class TraceRepository:
             for i, step in enumerate(steps):
                 await db.execute(
                     """INSERT INTO trace_steps
-                       (ticket_id, run_id, agent, agent_id, summary, duration, status, step_order)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (ticket_id, run_id, agent, agent_id, summary, duration, status, step_order,
+                        input_json, output_json, error_message, duration_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         ticket_id,
                         run_id,
@@ -435,6 +450,10 @@ class TraceRepository:
                         step.duration,
                         step.status.value,
                         i + 1,
+                        None,
+                        _json_dumps(step.result) if step.result is not None else None,
+                        step.summary if step.status.value == "FAILED" else None,
+                        _duration_ms(step.duration),
                     ),
                 )
             await db.commit()
@@ -476,6 +495,254 @@ class ToolCallRepository:
                    WHERE ticket_id = ?
                    ORDER BY created_at DESC, id DESC""",
                 (ticket_id,),
+            )
+            return [row_to_dict(row) for row in await cursor.fetchall()]
+
+
+class CallRecordRepository:
+    async def upsert_call_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        call_meta = record.get("callMeta") or record.get("call_meta") or {}
+        call_id = record.get("id") or f"call-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+        insert_values = (
+            call_id,
+            record.get("source", ""),
+            record.get("scenario", ""),
+            record.get("riskLevel") or record.get("risk_level") or "low",
+            call_meta.get("customerId") or call_meta.get("customer_id") or "",
+            call_meta.get("customerName") or call_meta.get("customer_name") or "",
+            call_meta.get("phone") or "",
+            call_meta.get("cardLast4") or call_meta.get("card_last4") or "",
+            call_meta.get("channel") or "",
+            call_meta.get("agent") or "",
+            nullable_datetime(call_meta.get("callStartedAt") or call_meta.get("call_started_at") or ""),
+            int(call_meta.get("durationSeconds") or call_meta.get("duration_seconds") or 0),
+            record.get("transcript", ""),
+            record.get("audioUrl") or record.get("audio_url") or "",
+            record.get("status", "imported"),
+            _json_dumps(record),
+        )
+        update_values = insert_values[1:]
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO call_records
+                   (id, source, scenario, risk_level, customer_id, customer_name, phone,
+                    card_last4, channel, agent, call_started_at, duration_seconds,
+                    transcript, audio_url, status, raw_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON DUPLICATE KEY UPDATE
+                    source = ?,
+                    scenario = ?,
+                    risk_level = ?,
+                    customer_id = ?,
+                    customer_name = ?,
+                    phone = ?,
+                    card_last4 = ?,
+                    channel = ?,
+                    agent = ?,
+                    call_started_at = ?,
+                    duration_seconds = ?,
+                    transcript = ?,
+                    audio_url = ?,
+                    status = ?,
+                    raw_json = ?""",
+                insert_values + update_values,
+            )
+            await db.commit()
+        row = await self.get_call_record(call_id)
+        if row is None:
+            raise RuntimeError(f"Call record {call_id} was not persisted")
+        return row
+
+    async def get_call_record(self, call_id: str) -> dict[str, Any] | None:
+        async with get_db() as db:
+            cursor = await db.execute("SELECT * FROM call_records WHERE id = ?", (call_id,))
+            return row_to_dict(await cursor.fetchone())
+
+    async def list_call_records(self) -> list[dict[str, Any]]:
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT * FROM call_records ORDER BY created_at DESC, id DESC"
+            )
+            return [row_to_dict(row) for row in await cursor.fetchall()]
+
+
+class TicketDraftRepository:
+    async def insert_ticket_draft(
+        self,
+        *,
+        draft_id: str,
+        call_record_id: str = "",
+        ticket_id: str | None = None,
+        draft: dict[str, Any],
+        page_task: dict[str, Any] | None = None,
+        page_task_hints: list[dict[str, Any]] | None = None,
+        confidence: float = 0.0,
+        detected_scenario: str = "",
+        detected_ticket_type: str = "",
+        missing_fields: list[str] | None = None,
+        key_fields: list[dict[str, Any]] | None = None,
+        status: str = "generated",
+        created_by: str = "system",
+    ) -> dict[str, Any]:
+        confirmed_at = _now() if status == "confirmed" else None
+        insert_values = (
+            draft_id,
+            call_record_id,
+            ticket_id,
+            _json_dumps(draft),
+            _json_dumps(page_task) if page_task is not None else None,
+            _json_dumps(page_task_hints or []),
+            confidence,
+            detected_scenario,
+            detected_ticket_type,
+            _json_dumps(missing_fields or []),
+            _json_dumps(key_fields or []),
+            status,
+            created_by,
+            confirmed_at,
+        )
+        update_values = insert_values[2:]
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO ticket_drafts
+                   (id, call_record_id, ticket_id, draft_json, page_task_json,
+                    page_task_hints_json, confidence, detected_scenario,
+                    detected_ticket_type, missing_fields_json, key_fields_json,
+                    status, created_by, confirmed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON DUPLICATE KEY UPDATE
+                    ticket_id = ?,
+                    draft_json = ?,
+                    page_task_json = ?,
+                    page_task_hints_json = ?,
+                    confidence = ?,
+                    detected_scenario = ?,
+                    detected_ticket_type = ?,
+                    missing_fields_json = ?,
+                    key_fields_json = ?,
+                    status = ?,
+                    created_by = ?,
+                    confirmed_at = ?""",
+                insert_values + update_values,
+            )
+            await db.commit()
+        row = await self.get_ticket_draft(draft_id)
+        if row is None:
+            raise RuntimeError(f"Ticket draft {draft_id} was not persisted")
+        return row
+
+    async def get_ticket_draft(self, draft_id: str) -> dict[str, Any] | None:
+        async with get_db() as db:
+            cursor = await db.execute("SELECT * FROM ticket_drafts WHERE id = ?", (draft_id,))
+            return row_to_dict(await cursor.fetchone())
+
+    async def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT * FROM ticket_drafts ORDER BY created_at DESC, id DESC LIMIT ?",
+                (limit,),
+            )
+            return [row_to_dict(row) for row in await cursor.fetchall()]
+
+
+class PageActionLogRepository:
+    async def insert_page_action_log(self, entry: dict[str, Any]) -> dict[str, Any]:
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO page_action_logs
+                   (ticket_id, task_id, action_kind, tool_name, target, input_json,
+                    output_json, status, result_summary, duration_ms, risk_level,
+                    stop_reason, operator)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    entry.get("ticket_id") or entry.get("ticketId") or "",
+                    entry.get("task_id") or entry.get("taskId") or "",
+                    entry.get("action_kind") or entry.get("actionKind") or "",
+                    entry.get("tool_name") or entry.get("toolName") or "",
+                    entry.get("target", ""),
+                    _json_dumps(entry.get("input") or entry.get("input_json") or {}),
+                    _json_dumps(entry.get("output") or entry.get("output_json") or {}),
+                    entry.get("status", ""),
+                    entry.get("result_summary") or entry.get("resultSummary") or "",
+                    int(entry.get("duration_ms") or entry.get("durationMs") or 0),
+                    entry.get("risk_level") or entry.get("riskLevel") or "",
+                    entry.get("stop_reason") or entry.get("stopReason") or "",
+                    entry.get("operator", "sunpilot"),
+                ),
+            )
+            await db.commit()
+        logs = await self.list_page_action_logs(
+            entry.get("ticket_id") or entry.get("ticketId") or "",
+            limit=1,
+        )
+        return logs[0] if logs else {}
+
+    async def list_page_action_logs(self, ticket_id: str = "", limit: int = 50) -> list[dict[str, Any]]:
+        async with get_db() as db:
+            if ticket_id:
+                cursor = await db.execute(
+                    """SELECT * FROM page_action_logs
+                       WHERE ticket_id = ?
+                       ORDER BY created_at DESC, id DESC
+                       LIMIT ?""",
+                    (ticket_id, limit),
+                )
+            else:
+                cursor = await db.execute(
+                    """SELECT * FROM page_action_logs
+                       ORDER BY created_at DESC, id DESC
+                       LIMIT ?""",
+                    (limit,),
+                )
+            return [row_to_dict(row) for row in await cursor.fetchall()]
+
+
+class AgentExecutionLogRepository:
+    async def insert_agent_execution(
+        self,
+        *,
+        ticket_id: str,
+        run_id: str,
+        agent_id: str,
+        agent_name: str,
+        input_data: dict[str, Any] | None = None,
+        output_data: dict[str, Any] | None = None,
+        error_message: str = "",
+        status: str,
+        duration_ms: int = 0,
+        raw_response: dict[str, Any] | None = None,
+        token_usage: dict[str, Any] | None = None,
+    ):
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO agent_execution_log
+                   (ticket_id, run_id, agent_id, agent_name, input_json, output_json,
+                    error_message, status, duration_ms, raw_response_json, token_usage_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    ticket_id,
+                    run_id,
+                    agent_id,
+                    agent_name,
+                    _json_dumps(input_data or {}),
+                    _json_dumps(output_data or {}),
+                    error_message,
+                    status,
+                    duration_ms,
+                    _json_dumps(raw_response or {}),
+                    _json_dumps(token_usage or {}),
+                ),
+            )
+            await db.commit()
+
+    async def list_agent_executions(self, ticket_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        async with get_db() as db:
+            cursor = await db.execute(
+                """SELECT * FROM agent_execution_log
+                   WHERE ticket_id = ?
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?""",
+                (ticket_id, limit),
             )
             return [row_to_dict(row) for row in await cursor.fetchall()]
 
@@ -645,4 +912,8 @@ ticket_repository = TicketRepository()
 ai_result_repository = AiResultRepository()
 trace_repository = TraceRepository()
 tool_call_repository = ToolCallRepository()
+call_record_repository = CallRecordRepository()
+ticket_draft_repository = TicketDraftRepository()
+page_action_log_repository = PageActionLogRepository()
+agent_execution_log_repository = AgentExecutionLogRepository()
 mock_business_repository = MockBusinessRepository()

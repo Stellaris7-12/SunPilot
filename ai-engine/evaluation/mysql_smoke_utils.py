@@ -10,6 +10,10 @@ from sqlalchemy.engine import URL, make_url
 TEST_DATABASE_NAME = os.getenv("MYSQL_TEST_DATABASE", "ticket_agent_test")
 
 RESET_TABLES = (
+    "page_action_logs",
+    "agent_execution_log",
+    "ticket_drafts",
+    "call_records",
     "ticket_operation_log",
     "tool_call_log",
     "trace_steps",

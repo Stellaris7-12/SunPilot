@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "smoke:page-agent": "node scripts/smoke-page-agent.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

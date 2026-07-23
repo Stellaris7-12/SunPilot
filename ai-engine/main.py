@@ -27,7 +27,7 @@ from config import (
     PORT,
 )
 from evaluation.evaluator import evaluator
-from models.ai_result import AiProcessResult
+from models.ai_result import AiProcessResult, PageTaskActionEnvelope, PageTaskEnvelope
 from models.api_schemas import (
     CloseTicketRequest,
     ConfirmActionRequest,
@@ -36,6 +36,9 @@ from models.api_schemas import (
     EvaluationMetrics,
     GenerateTicketDraftRequest,
     GenerateTicketDraftResponse,
+    AgentExecutionLogResponse,
+    PageActionLogRequest,
+    PageActionLogResponse,
     PageTaskHint,
     AssignTicketRequest,
     CancelTicketRequest,
@@ -49,8 +52,12 @@ from models.api_schemas import (
 )
 from models.database import init_db
 from models.repositories import (
+    agent_execution_log_repository,
     ai_result_repository,
+    call_record_repository,
+    page_action_log_repository,
     ticket_repository,
+    ticket_draft_repository,
     tool_call_repository,
     trace_repository,
 )
@@ -260,6 +267,42 @@ def _operation_log_response(row) -> dict:
     ).model_dump(by_alias=True)
 
 
+def _page_action_log_response(row) -> dict:
+    return PageActionLogResponse(
+        id=row["id"],
+        ticket_id=row.get("ticket_id") or "",
+        task_id=row.get("task_id") or "",
+        action_kind=row.get("action_kind") or "",
+        tool_name=row.get("tool_name") or "",
+        target=row.get("target") or "",
+        input=json.loads(row.get("input_json") or "{}"),
+        output=json.loads(row.get("output_json") or "{}"),
+        status=row.get("status") or "",
+        result_summary=row.get("result_summary") or "",
+        duration_ms=row.get("duration_ms") or 0,
+        risk_level=row.get("risk_level") or "",
+        stop_reason=row.get("stop_reason") or "",
+        operator=row.get("operator") or "sunpilot",
+        created_at=row.get("created_at") or "",
+    ).model_dump(by_alias=True)
+
+
+def _agent_execution_response(row) -> dict:
+    return AgentExecutionLogResponse(
+        id=row["id"],
+        ticket_id=row["ticket_id"],
+        run_id=row["run_id"],
+        agent_id=row["agent_id"],
+        agent_name=row["agent_name"],
+        input=json.loads(row.get("input_json") or "{}"),
+        output=json.loads(row.get("output_json") or "{}"),
+        error_message=row.get("error_message") or "",
+        status=row.get("status") or "",
+        duration_ms=row.get("duration_ms") or 0,
+        created_at=row.get("created_at") or "",
+    ).model_dump(by_alias=True)
+
+
 def _trace_response(trace: TraceCollector) -> list[dict]:
     return [
         {
@@ -289,6 +332,42 @@ def _load_call_records() -> list[dict]:
     with CALL_TRANSCRIPTS_JSON.open("r", encoding="utf-8") as file:
         data = json.load(file)
     return data if isinstance(data, list) else []
+
+
+async def _ensure_call_record_samples_persisted():
+    for item in _load_call_records():
+        await call_record_repository.upsert_call_record(item)
+
+
+def _call_record_response(row: dict) -> dict:
+    raw = json.loads(row.get("raw_json") or "{}")
+    call_meta = raw.get("callMeta") or {
+        "customerId": row.get("customer_id") or "",
+        "customerName": row.get("customer_name") or "",
+        "phone": row.get("phone") or "",
+        "cardLast4": row.get("card_last4") or "",
+        "channel": row.get("channel") or "",
+        "agent": row.get("agent") or "",
+        "callStartedAt": row.get("call_started_at") or "",
+    }
+    return {
+        "id": row.get("id", ""),
+        "source": row.get("source", ""),
+        "scenario": row.get("scenario", ""),
+        "riskLevel": row.get("risk_level", "low"),
+        "callMeta": call_meta,
+        "transcript": row.get("transcript", ""),
+    }
+
+
+def _row_raw_json(row: dict | None) -> dict:
+    if not row:
+        return {}
+    try:
+        raw = json.loads(row.get("raw_json") or "{}")
+        return raw if isinstance(raw, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def _compact_summary(text: str) -> str:
@@ -398,6 +477,46 @@ def _build_page_task_hints(draft: dict, missing_fields: list[str]) -> list[PageT
     return hints
 
 
+def _build_page_task_from_hints(
+    draft: dict,
+    hints: list[PageTaskHint],
+    missing_fields: list[str],
+    source_call_id: str,
+) -> PageTaskEnvelope:
+    kind_by_action = {
+        "open": "openPanel",
+        "fill": "fillForm",
+        "submit": "clickSemantic",
+        "stop": "stopForHuman",
+    }
+    actions = [
+        PageTaskActionEnvelope(
+            kind=kind_by_action.get(hint.action, "clickSemantic"),
+            target=hint.target,
+            label=hint.label,
+            field=hint.field,
+            value=hint.value,
+            required=hint.required,
+        )
+        for hint in hints
+    ]
+    return PageTaskEnvelope(
+        id=f"draft-{source_call_id or uuid.uuid4().hex[:8]}",
+        source="call_intake",
+        scene="call-intake",
+        risk_level=draft.get("riskLevel") or draft.get("risk_level") or "low",
+        mode="suggest" if missing_fields else "auto",
+        business_payload={
+            "ticketDraft": draft,
+            "missingFields": missing_fields,
+        },
+        actions=actions,
+        allowed_targets=[action.target for action in actions if action.target],
+        requires_human_before_submit=bool(missing_fields),
+        stop_reason=f"字段不足：{'、'.join(missing_fields)}" if missing_fields else "",
+    )
+
+
 def _draft_from_transcript(transcript: str, call_meta: dict | None = None) -> tuple[dict, str, str, list[DraftKeyField]]:
     meta = call_meta or {}
     customer_id = meta.get("customerId") or meta.get("customer_id") or _first_match(r"(C\d{5,})", transcript)
@@ -438,26 +557,19 @@ def _draft_from_transcript(transcript: str, call_meta: dict | None = None) -> tu
 
 @app.get("/api/call-records")
 async def list_call_records():
-    records = _load_call_records()
-    return [
-        {
-            "id": item.get("id", ""),
-            "source": item.get("source", ""),
-            "scenario": item.get("scenario", ""),
-            "riskLevel": item.get("riskLevel", "low"),
-            "callMeta": item.get("callMeta", {}),
-            "transcript": item.get("transcript", ""),
-        }
-        for item in records
-    ]
+    await _ensure_call_record_samples_persisted()
+    rows = await call_record_repository.list_call_records()
+    return [_call_record_response(row) for row in rows]
 
 
 @app.post("/api/call-records/generate-ticket-draft")
 async def generate_ticket_draft(body: GenerateTicketDraftRequest):
     sample = None
+    await _ensure_call_record_samples_persisted()
     if body.sample_id:
-        sample = next((item for item in _load_call_records() if item.get("id") == body.sample_id), None)
-        if sample is None:
+        sample_row = await call_record_repository.get_call_record(body.sample_id)
+        sample = _row_raw_json(sample_row)
+        if not sample:
             raise HTTPException(status_code=404, detail="Call sample not found")
 
     if sample:
@@ -476,13 +588,24 @@ async def generate_ticket_draft(body: GenerateTicketDraftRequest):
         call_meta = body.call_meta.model_dump(by_alias=True) if body.call_meta else {}
         draft, summary, detected_type, key_fields = _draft_from_transcript(transcript, call_meta)
         confidence = 0.78 if "待补充" not in json.dumps(draft, ensure_ascii=False) else 0.58
-        source_call_id = ""
+        call_record = await call_record_repository.upsert_call_record({
+            "id": f"call-{uuid.uuid4().hex[:8]}",
+            "source": "manual_transcript",
+            "scenario": detected_type,
+            "riskLevel": draft.get("riskLevel", "low"),
+            "callMeta": call_meta,
+            "transcript": transcript,
+            "status": "draft_generated",
+        })
+        source_call_id = call_record["id"]
 
     draft.setdefault("customerId", call_meta.get("customerId") or "")
     draft.setdefault("assignee", call_meta.get("agent") or body.operator_id or "坐席 A1027")
     draft.setdefault("department", "信用卡运营组")
     draft.setdefault("channel", call_meta.get("channel") or "客服热线发单")
     missing_fields = _missing_draft_fields(draft)
+    page_task_hints = _build_page_task_hints(draft, missing_fields)
+    page_task = _build_page_task_from_hints(draft, page_task_hints, missing_fields, source_call_id)
     response = GenerateTicketDraftResponse(
         ticket_draft=CreateTicketRequest(**draft),
         call_summary=summary,
@@ -492,7 +615,21 @@ async def generate_ticket_draft(body: GenerateTicketDraftRequest):
         missing_fields=missing_fields,
         confidence=confidence,
         source_call_id=source_call_id,
-        page_task_hints=_build_page_task_hints(draft, missing_fields),
+        page_task_hints=page_task_hints,
+        page_task=page_task,
+    )
+    await ticket_draft_repository.insert_ticket_draft(
+        draft_id=page_task.id,
+        call_record_id=source_call_id,
+        draft=response.ticket_draft.model_dump(by_alias=True),
+        page_task=page_task.model_dump(by_alias=True),
+        page_task_hints=[hint.model_dump(by_alias=True) for hint in page_task_hints],
+        confidence=confidence,
+        detected_scenario=response.detected_scenario,
+        detected_ticket_type=detected_type,
+        missing_fields=missing_fields,
+        key_fields=[field.model_dump(by_alias=True) for field in key_fields],
+        created_by=body.operator_id or "system",
     )
     return response.model_dump(by_alias=True)
 
@@ -647,6 +784,29 @@ async def get_ticket_operations(ticket_id: str):
         raise HTTPException(status_code=404, detail="Ticket not found")
     rows = await ticket_repository.list_operation_logs(ticket_id)
     return [_operation_log_response(item) for item in rows]
+
+
+@app.post("/api/page-action-logs")
+async def create_page_action_log(body: PageActionLogRequest):
+    row = await page_action_log_repository.insert_page_action_log(
+        body.model_dump(by_alias=True)
+    )
+    return _page_action_log_response(row)
+
+
+@app.get("/api/tickets/{ticket_id}/page-action-logs")
+async def get_page_action_logs(ticket_id: str, limit: int = Query(50, ge=1, le=200)):
+    rows = await page_action_log_repository.list_page_action_logs(ticket_id, limit=limit)
+    return [_page_action_log_response(row) for row in rows]
+
+
+@app.get("/api/tickets/{ticket_id}/agent-executions")
+async def get_agent_executions(ticket_id: str, limit: int = Query(20, ge=1, le=100)):
+    row = await ticket_repository.get_ticket(ticket_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    rows = await agent_execution_log_repository.list_agent_executions(ticket_id, limit=limit)
+    return [_agent_execution_response(item) for item in rows]
 
 
 @app.post("/api/tickets/{ticket_id}/ai-process")

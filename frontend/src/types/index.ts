@@ -147,6 +147,7 @@ export interface AiProcessResult {
   requiresHumanReview: boolean;
   missingFields: string[];
   failureReason: string;
+  pageTask?: PageTaskEnvelope | null;
 }
 
 export interface ToolCallLog {
@@ -280,6 +281,7 @@ export interface TicketDraftResult {
   confidence: number;
   sourceCallId: string;
   pageTaskHints: PageTaskHint[];
+  pageTask?: PageTaskEnvelope | null;
 }
 
 export interface ProcessTicketResponse {
@@ -397,12 +399,47 @@ export interface PageTaskPlan {
   steps: PageAction[];
 }
 
+export type PageTaskMode = 'auto' | 'suggest' | 'display' | 'stop';
+export type PageTaskScene = 'call-intake' | 'ticket-reply' | 'evidence-review' | 'human-confirm';
+export type PageTaskActionKind =
+  | 'fillForm'
+  | 'fillTextarea'
+  | 'selectOption'
+  | 'clickSemantic'
+  | 'locateEvidence'
+  | 'scrollToRegion'
+  | 'openPanel'
+  | 'waitForState'
+  | 'stopForHuman';
+
+export interface PageTaskActionEnvelope {
+  kind: PageTaskActionKind;
+  target: string;
+  label: string;
+  field?: string;
+  value?: string;
+  required?: boolean;
+}
+
+export interface PageTaskEnvelope {
+  id: string;
+  source: 'call_intake' | 'ai_result' | 'human_command';
+  scene: PageTaskScene;
+  riskLevel: RiskLevel;
+  mode: PageTaskMode;
+  businessPayload: Record<string, unknown>;
+  actions: PageTaskActionEnvelope[];
+  allowedTargets: string[];
+  requiresHumanBeforeSubmit: boolean;
+  stopReason: string;
+}
+
 export interface PageActionLogEntry {
   id: string;
   planId: string;
   instruction: string;
   contextSummary: string;
-  tool: PageActionType;
+  tool: PageActionType | string;
   target: string;
   inputSummary: string;
   status: PageActionStatus;
@@ -410,5 +447,39 @@ export interface PageActionLogEntry {
   durationMs: number;
   riskLevel: RiskLevel;
   stopReason: string;
+  createdAt: string;
+}
+
+export interface PageActionLogPayload {
+  ticketId?: string;
+  taskId?: string;
+  actionKind?: string;
+  toolName?: string;
+  target?: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  status?: string;
+  resultSummary?: string;
+  durationMs?: number;
+  riskLevel?: RiskLevel | string;
+  stopReason?: string;
+  operator?: string;
+}
+
+export interface PageActionLogRecord {
+  id: number;
+  ticketId: string;
+  taskId: string;
+  actionKind: string;
+  toolName: string;
+  target: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  status: string;
+  resultSummary: string;
+  durationMs: number;
+  riskLevel: RiskLevel | string;
+  stopReason: string;
+  operator: string;
   createdAt: string;
 }

@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from agents.base import BaseAgent
+from models.workflow import workflow_scenario
 from tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
@@ -68,9 +69,10 @@ class ResolutionAgent(BaseAgent):
             "ticket_content": input_data.get("ticket_content", ""),
             "ticket": input_data.get("ticket", {}),
             "available_tool_names": candidate_tool_names,
-            "workflow_config_for_intent": (
-                workflow_config.get("scenarios", {}).get(intent_type, {})
-            ),
+            "workflow_config_for_intent": workflow_scenario(
+                workflow_config,
+                intent_type,
+            ).to_runtime_dict(),
         })
 
         logger.info(
@@ -105,11 +107,7 @@ def _candidate_tool_names(input_data: dict, intent_type: str, workflow_config: d
         provided = [item.strip() for item in provided.split(",") if item.strip()]
     registry_candidates = [tool.name for tool in tool_registry.list_for_intent(intent_type, workflow_config)]
     mapped = _INTENT_TOOL_MAP.get(intent_type, [])
-    recommended = (
-        workflow_config.get("scenarios", {})
-        .get(intent_type, {})
-        .get("recommended_tool")
-    )
+    recommended = workflow_scenario(workflow_config, intent_type).recommended_tool
     names = []
     for name in [recommended, *provided, *registry_candidates, *mapped]:
         if name and name not in names and tool_registry.get(name):
@@ -179,11 +177,7 @@ def _fallback_result(
     candidate_tool_names: list[str],
     fields_dict: dict,
 ) -> dict:
-    recommended = (
-        workflow_config.get("scenarios", {})
-        .get(intent_type, {})
-        .get("recommended_tool")
-    )
+    recommended = workflow_scenario(workflow_config, intent_type).recommended_tool
     fallback_tool = recommended if recommended in candidate_tool_names else None
     fallback_tool = fallback_tool or (candidate_tool_names[0] if candidate_tool_names else "")
     if fallback_tool:
