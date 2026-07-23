@@ -46,6 +46,7 @@ ai-engine/data/traces/
 # Large local datasets
 ai-engine/data/external/
 ai-engine/data/generated/
+doc/SystemReference/工单系统案例/
 
 # Node / frontend
 node_modules/
