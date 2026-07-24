@@ -181,7 +181,7 @@ export function evidenceItems(result?: AiProcessResult | null, toolCalls: ToolCa
   const items = new Map<string, EvidenceItem>();
   evidenceIds(result).forEach(id => items.set(id, {
     id,
-    source: result?.toolName || 'Agent',
+    source: result?.toolName || '业务处理',
     summary: typeof result?.toolResponse?.businessResult === 'string'
       ? result.toolResponse.businessResult
       : '已生成业务证据。',
@@ -192,7 +192,7 @@ export function evidenceItems(result?: AiProcessResult | null, toolCalls: ToolCa
     items.set(call.evidenceId, {
       id: call.evidenceId,
       source: call.toolName,
-      summary: call.success ? response?.businessResult || '工具调用成功。' : call.failureReason || '工具调用失败。',
+      summary: call.success ? response?.businessResult || '外部系统核验成功。' : call.failureReason || '外部系统核验失败。',
     });
   });
   return Array.from(items.values());
@@ -245,7 +245,7 @@ export function fieldVerificationItems(result?: AiProcessResult | null): FieldVe
       source: '补全兜底',
       evidenceId: '-',
       status: 'missing',
-      note: '受控工具仍无法安全补齐，需要客户或人工补充。',
+      note: '外部系统未查到可直接带入的信息，需要客户或坐席补充。',
     });
   });
 
@@ -505,8 +505,8 @@ export function operationLogs(
   traceSteps.forEach((step, index) => {
     rows.push({
       id: `${ticket.id}-trace-${index}`,
-      time: result ? 'AI处理' : '待处理',
-      operator: 'Agent',
+      time: result ? '处理中' : '待处理',
+      operator: '业务处理',
       actionType: businessAgentLabel[step.agentId] || step.agent,
       content: step.summary || `${businessAgentLabel[step.agentId] || step.agent}已执行。`,
       evidenceId: '-',
@@ -519,8 +519,8 @@ export function operationLogs(
     rows.push({
       id: `${ticket.id}-tool-${call.id}`,
       time: formatShortTime(call.createdAt),
-      operator: 'Agent',
-      actionType: '工具调用',
+      operator: '业务处理',
+      actionType: '外部系统核验',
       content: `${call.toolName}：${call.success ? response?.businessResult || '执行成功' : call.failureReason || '执行失败'}`,
       evidenceId: call.evidenceId || '-',
       nextOwner: response?.requiresHuman ? '人工团队' : nextOwner(result, ticket.status),
@@ -530,8 +530,8 @@ export function operationLogs(
   if (result?.notification?.standardReply?.body) {
     rows.push({
       id: `${ticket.id}-reply`,
-      time: 'AI处理',
-      operator: 'Agent',
+      time: '处理中',
+      operator: '业务处理',
       actionType: '生成回单',
       content: result.notification.closureSuggestion?.canClose ? '已生成标准回单和结案建议。' : '已生成回单草稿，等待人工复核。',
       evidenceId: evidenceIds(result)[0] || '-',

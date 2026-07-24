@@ -2,129 +2,193 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
-import { evalApi } from '../api'
 import AgentPanel from '../page-agent/panel/AgentPanel.vue'
 import { useTicketStore } from '../stores/ticket'
-import type { CallRecordSample, CreateTicketPayload, EvaluationMetrics, Ticket } from '../types'
+import type { CallRecordSample, CreateTicketPayload, Ticket, WorkflowField } from '../types'
 import {
-  bucketMatches,
-  type CopilotSuggestion,
-  copilotSuggestion,
-  enterpriseMenuGroups,
   evidenceItems,
   fieldVerificationItems,
-  formatMs,
-  formatPercent,
+  formatShortTime,
   replyWorkspaceSections,
   riskMeta,
-  scenarioFamily,
   statusMeta,
-  suggestedAction,
-  workBuckets,
 } from '../utils/business'
+
+type CommonField = WorkflowField & {
+  name: keyof CreateTicketPayload
+  required?: boolean
+}
+
+type WorkFlowStage = {
+  id: string
+  label: string
+  status: 'waiting' | 'running' | 'done' | 'blocked'
+}
+
+type MockToolStep = {
+  id: string
+  title: string
+  source: string
+  status: 'waiting' | 'running' | 'done' | 'blocked'
+  detail: string
+  evidenceId?: string
+}
 
 const route = useRoute()
 const router = useRouter()
 const store = useTicketStore()
 
-const activeMenu = ref('all')
-const activeBucket = ref('all')
 const copilotOpen = ref(true)
-const confirmVisible = ref(false)
 const operationError = ref('')
-const metrics = ref<EvaluationMetrics | null>(null)
-const editableTitle = ref('')
-const assignTo = ref('')
-const cancelReason = ref('')
+const selectedCallId = ref('')
+const customTranscript = ref('')
+const draftForm = ref<CreateTicketPayload>(emptyTicketDraft())
+const draftGenerationStatus = ref('')
+const confirmVisible = ref(false)
+const replyTouched = ref(false)
 const replyTemplate = ref('standard')
-const quickQuery = ref('')
-const statusFilter = ref('all')
 const internalNoteDraft = ref('')
 const reviewSummaryDraft = ref('')
 const customerQuestionDraft = ref('')
 const followUpDraft = ref('')
-const replyTouched = ref(false)
-const selectedCallId = ref('')
-const customTranscript = ref('')
-const draftForm = ref<CreateTicketPayload>(emptyTicketDraft())
-const draftFieldTouched = ref<Record<string, boolean>>({})
-const draftGenerationStatus = ref('')
+const activeReplyAssist = ref<'internal' | 'review' | 'question' | 'followUp'>('internal')
+const quickQuery = ref('')
+const statusFilter = ref('all')
+const missingFieldDraft = ref<Record<string, string>>({})
+const supplementStatus = ref('')
 
-const ticketId = computed(() => route.params.id as string | undefined)
+const businessCategories = [
+  { id: 'repayment', code: '11/71', label: '协商还款', scenes: ['协商还款'], pattern: /协商还款|还款方案|延期还款|11|71/i },
+  { id: 'fraud-prevent', code: '12', label: '伪冒预防', scenes: ['伪冒预防'], pattern: /伪冒预防|非本人申请|投诉引导|12/i },
+  { id: 'fraud-invest', code: '13', label: '伪冒调查', scenes: ['伪冒调查'], pattern: /伪冒调查|管制|BLOCK|X-DK|13/i },
+  { id: 'customer-mgmt', code: '29', label: '客户经营', scenes: ['客户经营'], pattern: /客户经营|汽车分期|资料借阅|29/i },
+  { id: 'marketing', code: '30', label: '市场企划', scenes: ['市场企划'], pattern: /市场企划|饭票|影票|掌上生活|优惠券|30/i },
+  { id: 'chargeback', code: '41', label: '调单扣款', scenes: ['调单扣款'], pattern: /调单扣款|调单|扣款|公司资料异动|41/i },
+  { id: 'credit', code: '42', label: '征信', scenes: ['征信'], pattern: /征信|贷后|逾期|E CODE|42/i },
+]
+
+const businessFieldLabels: Record<string, string> = {
+  couponType: '券种',
+  reason: '补发原因',
+  customerId: '客户号',
+  customerName: '客户姓名',
+  phone: '手机号',
+  cardLast4: '卡号后四位',
+  cardName: '卡片名称',
+  activityName: '活动名称',
+  transactionDate: '交易日期',
+  transactionAmount: '交易金额',
+  merchantName: '商户名称',
+  applicationNo: '申请编号',
+  accountStatus: '账户状态',
+  creditReportType: '征信类型',
+}
+
+const commonFields: CommonField[] = [
+  { name: 'customerName', label: '客户姓名', type: 'text', required: true },
+  { name: 'customerId', label: '客户号', type: 'text' },
+  { name: 'phone', label: '手机号', type: 'text', required: true },
+  { name: 'cardLast4', label: '卡号后四位', type: 'text', required: true },
+  { name: 'priority', label: '件别', type: 'select', options: ['normal', 'urgent', 'critical'] },
+  { name: 'scene', label: '工单分类', type: 'text', required: true },
+  { name: 'category', label: '业务类型', type: 'text' },
+  { name: 'subcategory', label: '业务细分类型', type: 'text' },
+  { name: 'receiveUnit', label: '接单单位', type: 'text' },
+  { name: 'needReply', label: '是否需要回复', type: 'select', options: ['是', '否'] },
+  { name: 'deadline', label: '规定回件日期', type: 'text' },
+  { name: 'content', label: '发单内容', type: 'textarea', required: true },
+]
+
+const routeMode = computed<'home' | 'dispatch' | 'reply-list' | 'reply-detail'>(() => {
+  if (route.path.startsWith('/dispatch')) return 'dispatch'
+  if (route.path.startsWith('/reply/tickets/')) return 'reply-detail'
+  if (route.path.startsWith('/reply')) return 'reply-list'
+  return 'home'
+})
+const routeCategoryId = computed(() => typeof route.params.category === 'string' ? route.params.category : '')
+const selectedCategory = computed(() => businessCategories.find(item => item.id === routeCategoryId.value) || null)
+const ticketId = computed(() => typeof route.params.id === 'string' ? route.params.id : '')
 const ticket = computed(() => store.selectedTicket)
-const routeHasTicket = computed(() => Boolean(ticketId.value))
-
-const menuGroups = computed(() => enterpriseMenuGroups(store.tickets, activeMenu.value))
-const buckets = computed(() => workBuckets(store.tickets))
-const family = computed(() => ticket.value ? scenarioFamily(ticket.value, store.aiResult) : null)
-const status = computed(() => ticket.value ? statusMeta(ticket.value.status) : null)
-const risk = computed(() => ticket.value ? riskMeta(ticket.value.riskLevel, ticket.value.riskLabel) : null)
+const routeHasTicket = computed(() => routeMode.value === 'reply-detail' && Boolean(ticketId.value))
+const workflowConfig = computed(() => store.workflowConfig?.scenarios || {})
+const selectedCall = computed<CallRecordSample | null>(() =>
+  store.callRecords.find(item => item.id === selectedCallId.value) || filteredCalls.value[0] || store.callRecords[0] || null
+)
+const currentScene = computed(() => draftForm.value.scene || selectedCategory.value?.scenes[0] || selectedCall.value?.scenario || '')
+const scenarioConfig = computed(() => workflowConfig.value[currentScene.value] || null)
+const scenarioFields = computed<WorkflowField[]>(() => scenarioConfig.value?.specificFields || [])
+const draftRequiredMissing = computed(() =>
+  commonFields.filter(field => field.required && !String(draftForm.value[field.name] || '').trim()).map(field => field.label)
+)
+const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
 const evidence = computed(() => evidenceItems(store.aiResult, store.toolCalls))
 const verificationItems = computed(() => fieldVerificationItems(store.aiResult))
+const missingFields = computed(() => store.aiResult?.missingFields || [])
+const hasMissingSupplementDraft = computed(() =>
+  missingFields.value.some(field => String(missingFieldDraft.value[field] || '').trim())
+)
+const fieldEnrichment = computed(() => store.aiResult?.fieldEnrichment || null)
+const mockToolSteps = computed<MockToolStep[]>(() => {
+  const rows: MockToolStep[] = []
+  const enrichment = fieldEnrichment.value
+  const sourceTools = enrichment?.sourceTools?.length ? enrichment.sourceTools : []
+  const filledFields = Object.entries(enrichment?.filledFields || {})
+  const unresolvedFields = enrichment?.unresolvedFields || missingFields.value
+
+  sourceTools.forEach((tool, index) => {
+    const filledText = filledFields.length
+      ? filledFields.map(([key, value]) => `${businessFieldLabel(key)}=${String(value || '-')}`).join('、')
+      : '未查到可直接带入的信息'
+    rows.push({
+      id: `enrichment-${tool}-${index}`,
+      title: '字段核验补齐',
+      source: toolBusinessLabel(tool),
+      status: unresolvedFields.length ? 'blocked' : 'done',
+      detail: businessText(filledText),
+      evidenceId: enrichment?.evidenceIds?.[index],
+    })
+  })
+
+  store.toolCalls.forEach(call => {
+    rows.push({
+      id: `tool-${call.id}`,
+      title: call.success ? '外部系统处理完成' : '外部系统处理未通过',
+      source: toolBusinessLabel(call.toolName),
+      status: call.success ? 'done' : 'blocked',
+      detail: businessText(call.success
+        ? call.response?.businessResult || '已返回处理结果。'
+        : call.failureReason || call.response?.failureReason || '未能完成处理。'),
+      evidenceId: call.evidenceId,
+    })
+  })
+
+  const traceOnly = store.traceSteps.filter(step =>
+    /tool|mock|enrich|executor|resolution|field/i.test(`${step.agentId} ${step.agent} ${step.summary}`)
+  )
+  traceOnly.forEach((step, index) => {
+    if (rows.some(row => row.detail === step.summary)) return
+    rows.push({
+      id: `trace-${index}`,
+      title: /enrich|field/i.test(step.agentId) ? '字段补齐尝试' : '处理过程',
+      source: '业务处理链路',
+      status: step.status === 'FAILED' ? 'blocked' : step.status === 'RUNNING' ? 'running' : 'done',
+      detail: businessText(step.summary || '已执行。'),
+    })
+  })
+
+  if (!rows.length && store.isProcessing) {
+    rows.push({
+      id: 'waiting-tool',
+      title: '等待外部系统返回',
+      source: '业务处理链路',
+      status: 'running',
+      detail: '正在查询客户、卡片、交易或权益信息。',
+    })
+  }
+  return rows
+})
 const replySections = computed(() => replyWorkspaceSections(store.aiResult, ticket.value))
-const suggestion = computed<CopilotSuggestion>(() => copilotSuggestion(ticket.value, store.aiResult, store.isProcessing))
-const filteredTickets = computed(() => store.tickets.filter(item => {
-  const text = `${item.title} ${item.scene} ${item.content}`
-  const queryText = quickQuery.value.trim().toLowerCase()
-  const quickOk = !queryText || [
-    item.no,
-    item.customerId,
-    item.customerName,
-    item.category,
-    item.subcategory,
-    item.assignee,
-    item.title,
-  ].some(value => String(value || '').toLowerCase().includes(queryText))
-  const statusOk = statusFilter.value === 'all' || item.status === statusFilter.value
-  const detailMenuOk = activeMenu.value === 'dining'
-    ? /餐饮|满减|DINING/i.test(text)
-    : activeMenu.value === 'airport'
-      ? /机场|贵宾厅/i.test(text)
-      : activeMenu.value === 'points'
-        ? /积分|兑换/i.test(text)
-        : activeMenu.value === 'phone'
-          ? /手机|手机号/i.test(text)
-          : activeMenu.value === 'contact'
-            ? /联系人/i.test(text)
-            : activeMenu.value === 'company'
-              ? /商务卡|公司资料/i.test(text)
-              : activeMenu.value === 'fraud'
-                ? /非本人|盗刷/i.test(text)
-                : activeMenu.value === 'chargeback'
-                  ? /调单|拒付/i.test(text)
-                  : activeMenu.value === 'oversea'
-                    ? /境外/i.test(text)
-                    : activeMenu.value === 'limit'
-                      ? /额度/i.test(text)
-                      : activeMenu.value === 'annual-fee'
-                        ? /年费/i.test(text)
-                        : activeMenu.value === 'repayment'
-                          ? /还款|延期/i.test(text)
-                          : activeMenu.value === 'credit'
-                            ? /征信/i.test(text)
-                            : activeMenu.value === 'cross-team'
-                              ? /跨部门|协办/i.test(text)
-                              : activeMenu.value === 'retry'
-                                ? item.status === 'failed'
-                                : true
-  const detailMenuIds = ['dining', 'airport', 'points', 'phone', 'contact', 'company', 'fraud', 'chargeback', 'oversea', 'limit', 'annual-fee', 'repayment', 'credit', 'cross-team', 'retry']
-  const familyOk = activeMenu.value === 'all' || ['info', 'confirm', 'review', 'escalated'].includes(activeMenu.value) || detailMenuIds.includes(activeMenu.value)
-    ? true
-    : scenarioFamily(item).id === activeMenu.value
-  const bucketOk = activeBucket.value === 'all' || bucketMatches(activeBucket.value, item)
-  const statusMenuOk = activeMenu.value === 'info'
-    ? item.status === 'pending_info'
-    : activeMenu.value === 'confirm'
-      ? item.status === 'pending_human_confirm'
-      : activeMenu.value === 'review'
-        ? item.status === 'pending_human_review'
-        : activeMenu.value === 'escalated'
-          ? ['escalated', 'failed'].includes(item.status)
-          : true
-  return familyOk && bucketOk && statusMenuOk && detailMenuOk && quickOk && statusOk
-}))
-const queueTickets = computed(() => filteredTickets.value.slice(0, 12))
-const replyStatus = computed(() => store.replyDraft ? '草稿已生成' : '等待生成')
+const replyStatus = computed(() => store.replyDraft ? '已生成' : '待处理')
 const canClose = computed(() => Boolean(
   ticket.value &&
   ticket.value.status === 'pending_human_review' &&
@@ -132,79 +196,139 @@ const canClose = computed(() => Boolean(
   !store.isProcessing &&
   store.aiResult?.notification?.closureSuggestion?.canClose,
 ))
-const replyWorkspaceStatus = computed(() => {
-  if (!store.replyDraft) return '未生成'
-  if (ticket.value?.status === 'closed') return '已提交'
-  if (canClose.value) return '可结案'
-  return replyTouched.value ? '坐席已编辑' : '已填入'
-})
 const needsHumanConfirm = computed(() => ticket.value?.status === 'pending_human_confirm')
-const canCancel = computed(() => Boolean(ticket.value && !['closed', 'cancelled'].includes(ticket.value.status)))
-const canReopen = computed(() => Boolean(ticket.value && ['closed', 'cancelled', 'escalated', 'failed', 'pending_info'].includes(ticket.value.status)))
 const showConfirmDialog = computed(() => Boolean(ticket.value && (store.workflowPaused || confirmVisible.value)))
+const replyWorkspaceStatus = computed(() => {
+  if (!store.replyDraft) return '待处理'
+  if (ticket.value?.status === 'closed') return '已结案'
+  if (canClose.value) return '待结案'
+  return replyTouched.value ? '坐席已编辑' : '待复核'
+})
+const replyAssistOptions = computed(() => [
+  { id: 'internal' as const, label: '内部处理意见', status: replySections.value.find(section => section.id === 'internal')?.status || '待处理' },
+  { id: 'review' as const, label: '复核意见', status: replySections.value.find(section => section.id === 'review')?.status || '待处理' },
+  { id: 'question' as const, label: '客户追问', status: replySections.value.find(section => section.id === 'question')?.status || '待处理' },
+  { id: 'followUp' as const, label: '跟进计划', status: replySections.value.find(section => section.id === 'followUp')?.status || '待处理' },
+])
+const activeReplyAssistMeta = computed(() =>
+  replyAssistOptions.value.find(item => item.id === activeReplyAssist.value) || replyAssistOptions.value[0]
+)
+const filteredCalls = computed(() => {
+  if (!selectedCategory.value) return store.callRecords
+  return store.callRecords.filter(item => selectedCategory.value?.scenes.includes(item.scenario))
+})
+const filteredTickets = computed(() => {
+  const queryText = quickQuery.value.trim().toLowerCase()
+  return store.tickets.filter(item => {
+    const text = `${item.no} ${item.customerId} ${item.customerName} ${item.title} ${item.scene} ${item.category} ${item.subcategory} ${item.content}`.toLowerCase()
+    const queryOk = !queryText || text.includes(queryText)
+    const statusOk = statusFilter.value === 'all' || item.status === statusFilter.value
+    const categoryOk = !selectedCategory.value || selectedCategory.value.pattern.test(`${item.no} ${item.title} ${item.scene} ${item.category} ${item.subcategory} ${item.content}`)
+    return queryOk && statusOk && categoryOk
+  })
+})
+const queueTickets = computed(() => filteredTickets.value.slice(0, 14))
 const tabTickets = computed(() => {
   const selected = ticket.value ? [ticket.value] : []
   const others = store.tickets.filter(item => item.id !== ticket.value?.id).slice(0, 2)
   return [...selected, ...others]
 })
-const selectedCall = computed<CallRecordSample | null>(() =>
-  store.callRecords.find(item => item.id === selectedCallId.value) || store.callRecords[0] || null
-)
-const draftRequiredMissing = computed(() => {
-  const required: Array<[keyof CreateTicketPayload, string]> = [
-    ['title', '标题'],
-    ['customerName', '客户姓名'],
-    ['phone', '预留手机'],
-    ['cardLast4', '卡尾号'],
-    ['scene', '业务场景'],
-    ['content', '发单内容'],
-  ]
-  return required.filter(([key]) => !String(draftForm.value[key] || '').trim()).map(([, label]) => label)
+const dashboardCards = computed(() => [
+  { label: '待发单', value: filteredCalls.value.length, hint: '来电待登记' },
+  { label: '待回单', value: store.tickets.filter(item => ['open', 'in_progress'].includes(item.status)).length, hint: '待接单处理' },
+  { label: '待补充', value: store.tickets.filter(item => item.status === 'pending_info').length, hint: '缺少材料' },
+  { label: '待复核', value: store.tickets.filter(item => item.status === 'pending_human_review').length, hint: '回单复核' },
+  { label: '即将逾期', value: store.tickets.filter(item => item.riskLevel === 'high' && item.status !== 'closed').length, hint: '优先处理' },
+  { label: '已完成', value: store.tickets.filter(item => item.status === 'closed').length, hint: '今日归档' },
+])
+const businessFlow = computed<WorkFlowStage[]>(() => {
+  const hasDraft = Boolean(store.ticketDraftResult)
+  const hasTicket = Boolean(ticket.value || store.selectedTicketId)
+  const hasExternalChecks = mockToolSteps.value.length > 0
+  const hasReply = Boolean(store.replyDraft || store.aiResult?.notification?.standardReply?.body)
+  const hasMissing = missingFields.value.length > 0
+  const hardBlocked = Boolean(store.workflowPaused || ticket.value?.status === 'failed' || ticket.value?.status === 'escalated')
+  const current = routeMode.value
+  const statusFor = (index: number): WorkFlowStage['status'] => {
+    if (hardBlocked && index >= 5) return 'blocked'
+    if (current === 'dispatch') {
+      if (index === 0) return selectedCall.value ? 'done' : 'running'
+      if (index === 1) return hasDraft ? 'done' : 'running'
+      if (index === 2) return hasTicket ? 'done' : 'waiting'
+      return 'waiting'
+    }
+    if (current === 'reply-detail') {
+      if (index <= 2) return 'done'
+      if (index === 3) return store.isProcessing ? 'running' : store.aiResult ? 'done' : 'waiting'
+      if (index === 4) {
+        if (store.isProcessing) return 'running'
+        if (hasExternalChecks) return 'done'
+        if (store.aiResult && hasMissing) return 'blocked'
+        return store.aiResult ? 'done' : 'waiting'
+      }
+      if (index === 5) {
+        if (!store.aiResult) return 'waiting'
+        if (hasMissing) return hasMissingSupplementDraft.value ? 'running' : 'blocked'
+        return 'done'
+      }
+      if (index === 6) return hasReply && !hasMissing ? 'running' : 'waiting'
+      if (index === 7) return ticket.value?.status === 'closed' ? 'done' : 'waiting'
+    }
+    if (index <= 1) return 'done'
+    if (index === 2 && store.tickets.length) return 'done'
+    return 'waiting'
+  }
+  return ['来电受理', '发单登记', '派送接单单位', '接单处理', '外部系统核验', '信息补充', '回单复核', '结案归档']
+    .map((label, index) => ({ id: `stage-${index}`, label, status: statusFor(index) }))
 })
-const canSubmitDraft = computed(() => draftRequiredMissing.value.length === 0)
 
 onMounted(async () => {
   operationError.value = ''
   const loadErrors: string[] = []
-
-  const [ticketsResult, callRecordsResult] = await Promise.allSettled([
+  const [ticketsResult, callsResult, workflowResult] = await Promise.allSettled([
     store.fetchTickets(),
     store.fetchCallRecords(),
+    store.fetchWorkflowConfig(),
   ])
   if (ticketsResult.status === 'rejected') loadErrors.push('工单列表')
-  if (callRecordsResult.status === 'rejected') loadErrors.push('通话记录')
-
-  if (!selectedCallId.value && store.callRecords[0]) {
-    selectCallRecord(store.callRecords[0].id)
-  }
+  if (callsResult.status === 'rejected') loadErrors.push('通话记录')
+  if (workflowResult.status === 'rejected') loadErrors.push('表单配置')
+  hydrateCallSelection()
   await loadRouteTicket(ticketId.value)
-  try {
-    metrics.value = await evalApi.metrics()
-  } catch {
-    metrics.value = null
-    loadErrors.push('测评指标')
-  }
-
-  if (loadErrors.length) {
-    operationError.value = `数据加载失败：${loadErrors.join('、')}。请确认后端 /api 服务可访问，或刷新页面重试。`
-  }
+  if (loadErrors.length) operationError.value = `数据加载失败：${loadErrors.join('、')}。请检查服务连接后刷新。`
 })
 
-watch(ticketId, async id => {
-  await loadRouteTicket(id)
+watch(() => route.path, async () => {
+  hydrateCallSelection()
+  if (routeMode.value === 'dispatch') resetDispatchDraft(selectedCall.value)
+  await loadRouteTicket(ticketId.value)
 })
 
 watch(selectedCall, current => {
   if (!current) return
-  customTranscript.value = current.transcript
+  resetDispatchDraft(current)
 }, { immediate: true })
 
-watch(ticket, current => {
-  editableTitle.value = current?.title || ''
-  assignTo.value = current?.assignee || ''
-  cancelReason.value = ''
-  replyTouched.value = false
-}, { immediate: true })
+watch(routeCategoryId, () => {
+  if (routeMode.value === 'dispatch') resetDispatchDraft(selectedCall.value)
+})
+
+function resetDispatchDraft(current: CallRecordSample | null) {
+  store.ticketDraftResult = null
+  draftGenerationStatus.value = ''
+  if (!current) {
+    customTranscript.value = ''
+    draftForm.value = { ...emptyTicketDraft(), scene: selectedCategory.value?.scenes[0] || '' }
+    return
+  }
+  customTranscript.value = current.transcript
+  draftForm.value = {
+    ...emptyTicketDraft(),
+    scene: selectedCategory.value?.scenes[0] || current.scenario,
+    riskLevel: current.riskLevel,
+    riskLabel: current.riskLevel === 'high' ? '高风险' : current.riskLevel === 'medium' ? '中风险' : '低风险',
+  }
+}
 
 watch([() => store.aiResult, ticket], () => {
   const sections = replySections.value
@@ -212,6 +336,8 @@ watch([() => store.aiResult, ticket], () => {
   reviewSummaryDraft.value = sections.find(section => section.id === 'review')?.body || ''
   customerQuestionDraft.value = sections.find(section => section.id === 'question')?.body || ''
   followUpDraft.value = sections.find(section => section.id === 'followUp')?.body || ''
+  missingFieldDraft.value = Object.fromEntries(missingFields.value.map(field => [field, missingFieldDraft.value[field] || '']))
+  supplementStatus.value = ''
   replyTouched.value = false
 }, { immediate: true })
 
@@ -225,40 +351,94 @@ function emptyTicketDraft(): CreateTicketPayload {
     scene: '',
     category: '',
     subcategory: '',
+    extJson: {},
+    orderPrefix: '',
+    bizType: '',
+    bizSubType: '',
     priority: 'normal',
     channel: '客服热线发单',
     assignee: '坐席 A1027',
     department: '信用卡运营组',
+    dueAt: '',
+    deadline: '',
     riskLabel: '低风险',
     riskLevel: 'low',
+    receiveUnit: '',
+    needReply: true,
     content: '',
   }
+}
+
+function hydrateCallSelection() {
+  if (!filteredCalls.value.length) return
+  if (!selectedCallId.value || !filteredCalls.value.some(item => item.id === selectedCallId.value)) {
+    selectedCallId.value = filteredCalls.value[0].id
+  }
+}
+
+async function loadRouteTicket(id?: string) {
+  confirmVisible.value = false
+  if (!id || routeMode.value !== 'reply-detail') {
+    store.clearSelectedTicket()
+    return
+  }
+  const matched = store.tickets.find(item => item.id === id || item.no === id)
+  if (!matched) {
+    store.selectTicket(id)
+    return
+  }
+  await store.loadTicketContext(matched.id)
+}
+
+function selectCategory(mode: 'dispatch' | 'reply', id: string) {
+  if (mode === 'dispatch') router.push(`/dispatch/${id}`)
+  else router.push(`/reply/${id}`)
 }
 
 function selectCallRecord(id: string) {
   selectedCallId.value = id
   const record = store.callRecords.find(item => item.id === id)
-  if (record) customTranscript.value = record.transcript
+  resetDispatchDraft(record || null)
 }
 
-function markDraftFieldEdited(field: keyof CreateTicketPayload) {
-  draftFieldTouched.value[field] = true
+function draftFieldValue(field: CommonField) {
+  const value = draftForm.value[field.name]
+  if (field.name === 'needReply') return value === false ? '否' : '是'
+  return String(value ?? '')
+}
+
+function updateDraftField(field: CommonField, value: string) {
+  if (field.name === 'needReply') draftForm.value.needReply = value !== '否'
+  else if (field.name === 'priority') draftForm.value.priority = priorityValue(value)
+  else draftForm.value = { ...draftForm.value, [field.name]: value }
+}
+
+function specificFieldValue(name: string) {
+  return String((draftForm.value.extJson || {})[name] ?? '')
+}
+
+function updateSpecificField(name: string, value: string) {
+  draftForm.value.extJson = { ...(draftForm.value.extJson || {}), [name]: value }
+  if (name === 'receiveUnit') draftForm.value.receiveUnit = value
+  if (name === 'bizSubType') {
+    draftForm.value.bizSubType = value
+    draftForm.value.subcategory = draftForm.value.subcategory || value
+  }
 }
 
 async function generateDraftFromCall() {
   operationError.value = ''
-  draftGenerationStatus.value = '正在调用发单 Agent...'
+  draftGenerationStatus.value = '正在整理来电内容...'
   try {
     const payload = selectedCall.value && selectedCall.value.transcript === customTranscript.value
       ? { sampleId: selectedCall.value.id, operatorId: 'desk-a1027' }
       : { transcript: customTranscript.value, callMeta: selectedCall.value?.callMeta, operatorId: 'desk-a1027' }
     const result = await store.generateTicketDraft(payload)
-    draftForm.value = { ...emptyTicketDraft(), ...result.ticketDraft }
-    draftFieldTouched.value = {}
-    draftGenerationStatus.value = `已生成草稿：${result.detectedTicketType} / 置信度 ${(result.confidence * 100).toFixed(0)}%`
+    draftForm.value = { ...emptyTicketDraft(), ...result.ticketDraft, extJson: result.ticketDraft.extJson || {} }
+    draftGenerationStatus.value = `已带入来电内容：${result.detectedScenario}`
     return result
   } catch {
-    draftGenerationStatus.value = '发单 Agent 调用失败，请检查后端 /api/call-records/generate-ticket-draft。'
+    draftGenerationStatus.value = '来电内容整理失败，请检查服务后重试。'
     operationError.value = draftGenerationStatus.value
     throw new Error(draftGenerationStatus.value)
   }
@@ -271,15 +451,25 @@ async function handleSubmitDraft() {
   }
   operationError.value = ''
   try {
+    const stamp = Date.now().toString().slice(-8)
     const created = await store.createTicket({
       ...draftForm.value,
-      id: `call_${Date.now().toString().slice(-8)}`,
-      no: `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${Date.now().toString().slice(-6)}`,
+      id: `call_${stamp}`,
+      no: `${draftForm.value.orderPrefix || scenarioConfig.value?.orderPrefix || 'T'}${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${Date.now().toString().slice(-6)}`,
+      dueAt: draftForm.value.dueAt || draftForm.value.deadline,
     })
-    await router.push(`/tickets/${created.id}`)
+    await router.push(`/reply/tickets/${created.id}`)
   } catch {
-    operationError.value = '提交发单失败，请确认工单字段和编号是否有效。'
+    operationError.value = '发送工单失败，请确认编号和字段后重试。'
   }
+}
+
+function handleSaveDispatchDraft() {
+  draftGenerationStatus.value = '已暂存当前发单草稿。'
+}
+
+function selectTicket(id: string) {
+  router.push(`/reply/tickets/${id}`)
 }
 
 function handleProcess() {
@@ -287,73 +477,14 @@ function handleProcess() {
   if (ticket.value) store.startAiProcess(ticket.value.id)
 }
 
-function selectTicket(id: string) {
-  store.selectTicket(id)
-  router.push(`/tickets/${id}`)
-}
-
-function clearSelectedTicket() {
-  store.clearSelectedTicket()
-  if (routeHasTicket.value) router.push('/tickets')
-}
-
-function syncSelectionToFilteredTickets(forceFirst = false) {
-  const nextTicket = forceFirst
-    ? filteredTickets.value[0]
-    : filteredTickets.value.find(item => item.id === store.selectedTicketId) || filteredTickets.value[0]
-  if (!nextTicket) {
-    clearSelectedTicket()
-    return
+async function handleSaveReply() {
+  if (!ticket.value || !store.replyDraft.trim()) return
+  operationError.value = ''
+  try {
+    await store.saveReplyDraft(ticket.value.id, store.replyDraft, 'desk-a1027')
+  } catch {
+    operationError.value = '保存回单失败，请刷新后重试。'
   }
-  if (nextTicket.id !== store.selectedTicketId || route.params.id !== nextTicket.id) {
-    selectTicket(nextTicket.id)
-  }
-}
-
-async function loadRouteTicket(id?: string) {
-  confirmVisible.value = false
-  if (!id) {
-    store.resetState()
-    return
-  }
-
-  const matched = store.tickets.find(item => item.id === id || item.no === id)
-  if (!matched) {
-    store.selectTicket(id)
-    return
-  }
-
-  if (id !== matched.id) {
-    await router.replace(`/tickets/${matched.id}`)
-    return
-  }
-
-  await store.loadTicketContext(matched.id)
-}
-
-function selectMenu(id: string) {
-  activeMenu.value = id
-  if (['info', 'confirm', 'review', 'escalated'].includes(id)) {
-    activeBucket.value = id
-  } else {
-    activeBucket.value = 'all'
-  }
-  syncSelectionToFilteredTickets(true)
-}
-
-function selectBucket(id: string) {
-  activeBucket.value = id
-  syncSelectionToFilteredTickets(true)
-}
-
-function handleStatusFilterChange() {
-  syncSelectionToFilteredTickets(true)
-}
-
-function resetQueueFilters() {
-  quickQuery.value = ''
-  statusFilter.value = 'all'
-  syncSelectionToFilteredTickets()
 }
 
 async function handleClose() {
@@ -363,85 +494,6 @@ async function handleClose() {
     await store.closeTicket(ticket.value.id, store.replyDraft)
   } catch {
     operationError.value = '结案提交失败，请刷新工单状态后重试。'
-  }
-}
-
-async function handleCreateTicket() {
-  operationError.value = ''
-  const stamp = Date.now().toString().slice(-6)
-  try {
-    const created = await store.createTicket({
-      id: `desk_${stamp}`,
-      no: `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${stamp}`,
-      title: '新建信用卡工单',
-      customerId: `C29${stamp.slice(-3)}`,
-      customerName: '待补充客户',
-      phone: '138****0000',
-      cardLast4: '0000',
-      scene: '优惠券补发',
-      category: '权益与活动',
-      subcategory: '优惠券补发',
-      priority: 'normal',
-      channel: '坐席新建',
-      assignee: '坐席 A1027',
-      department: '信用卡权益组',
-      riskLabel: '低风险',
-      riskLevel: 'low',
-      content: '坐席新建工单，请补充客户诉求后启动智能处理。',
-    })
-    await router.push(`/tickets/${created.id}`)
-  } catch {
-    operationError.value = '新建工单失败，请检查工单编号是否重复。'
-  }
-}
-
-async function handleEditTicket() {
-  if (!ticket.value || !editableTitle.value.trim()) return
-  operationError.value = ''
-  try {
-    await store.updateTicket(ticket.value.id, { title: editableTitle.value.trim(), operator: 'desk-a1027' })
-  } catch {
-    operationError.value = '编辑工单失败，请确认当前状态是否允许修改。'
-  }
-}
-
-async function handleAssignTicket() {
-  if (!ticket.value || !assignTo.value.trim()) return
-  operationError.value = ''
-  try {
-    await store.assignTicket(ticket.value.id, assignTo.value.trim(), ticket.value.department, 'desk-a1027')
-  } catch {
-    operationError.value = '指派失败，请确认当前状态是否允许指派。'
-  }
-}
-
-async function handleSaveDraft() {
-  if (!ticket.value || !store.replyDraft.trim()) return
-  operationError.value = ''
-  try {
-    await store.saveReplyDraft(ticket.value.id, store.replyDraft, 'desk-a1027')
-  } catch {
-    operationError.value = '保存草稿失败，请刷新后重试。'
-  }
-}
-
-async function handleCancelTicket() {
-  if (!ticket.value || !cancelReason.value.trim()) return
-  operationError.value = ''
-  try {
-    await store.cancelTicket(ticket.value.id, cancelReason.value.trim(), 'desk-a1027')
-  } catch {
-    operationError.value = '作废失败，请确认当前状态是否允许作废。'
-  }
-}
-
-async function handleReopenTicket() {
-  if (!ticket.value) return
-  operationError.value = ''
-  try {
-    await store.reopenTicket(ticket.value.id, '坐席重新打开工单', 'desk-a1027')
-  } catch {
-    operationError.value = '重开失败，请确认当前状态是否允许重开。'
   }
 }
 
@@ -460,106 +512,259 @@ async function handleHumanConfirm(approved: boolean) {
   }
 }
 
-function scrollToId(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function businessFieldLabel(field: string) {
+  return businessFieldLabels[field] || field
 }
 
-function applyReplyText(text: string, markTouched = true) {
-  if (!text.trim()) return
-  if (store.replyDraft.trim() && replyTouched.value && store.replyDraft.trim() !== text.trim()) {
-    store.replyDraft = `${store.replyDraft.trim()}\n\n${text.trim()}`
-  } else {
-    store.replyDraft = text
+function businessText(value: string) {
+  return Object.entries(businessFieldLabels).reduce(
+    (text, [key, label]) => text.replace(new RegExp(key, 'gi'), label),
+    value,
+  )
+}
+
+function toolBusinessLabel(toolName?: string) {
+  const name = toolName || ''
+  if (/coupon|benefit|权益|优惠|activity/i.test(name)) return '权益活动系统'
+  if (/transaction|trade|交易|dispute|chargeback/i.test(name)) return '交易查询系统'
+  if (/customer|profile|客户|资料/i.test(name)) return '客户资料系统'
+  if (/card|account|卡片|账户/i.test(name)) return '卡片账户系统'
+  if (/credit|征信/i.test(name)) return '征信业务系统'
+  if (/application|申请/i.test(name)) return '申请进度系统'
+  if (/mock/i.test(name)) return 'Mock Tools（外部系统模拟）'
+  return name || '外部业务系统'
+}
+
+function missingFieldOptions(field: string) {
+  if (/couponType/i.test(field)) return ['满减券', '饭票优惠券', '影票优惠券']
+  if (/reason/i.test(field)) return ['达标未发放', '券已过期未使用', '活动资格争议']
+  if (/transactionAmount|amount/i.test(field)) return ['以交易流水为准', '客户待提供金额']
+  if (/transactionDate|date/i.test(field)) return ['以账单日为准', '客户待提供日期']
+  return ['客户来电补充', '接单单位补充', '坐席核实补充']
+}
+
+function fillMissingField(field: string, value: string) {
+  missingFieldDraft.value = { ...missingFieldDraft.value, [field]: value }
+}
+
+function buildSupplementText(includeEmpty = false) {
+  const rows = missingFields.value
+    .map(field => {
+      const value = String(missingFieldDraft.value[field] || '').trim()
+      if (!value && !includeEmpty) return ''
+      return `${businessFieldLabel(field)}：${value || '待客户补充'}`
+    })
+    .filter(Boolean)
+  return rows.length ? `客户补充信息：\n${rows.map(row => `- ${row}`).join('\n')}` : ''
+}
+
+function generateSupplementQuestion() {
+  const fields = missingFields.value.map(businessFieldLabel).join('、')
+  customerQuestionDraft.value = fields
+    ? `您好，为继续处理本工单，请补充${fields}。收到后我行将继续核验并反馈处理结果。`
+    : '当前暂无必须追问客户的信息。'
+  activeReplyAssist.value = 'question'
+  supplementStatus.value = '已生成客户补充话术。'
+  scrollToId('enterprise-reply')
+}
+
+async function saveMissingSupplement(restart = false) {
+  if (!ticket.value) return
+  const supplementText = buildSupplementText(false)
+  if (!supplementText) {
+    supplementStatus.value = '请先填写至少一项补充信息。'
+    return
   }
-  replyTouched.value = markTouched
+  operationError.value = ''
+  supplementStatus.value = restart ? '正在暂存并重新处理...' : '正在暂存补充信息...'
+  try {
+    const supplement = Object.fromEntries(
+      missingFields.value
+        .map(field => [field, String(missingFieldDraft.value[field] || '').trim()])
+        .filter(([, value]) => value)
+    )
+    const currentContent = ticket.value.content || ''
+    const nextContent = currentContent.includes(supplementText)
+      ? currentContent
+      : `${currentContent.trim()}\n\n${supplementText}`.trim()
+    await store.updateTicket(ticket.value.id, {
+      content: nextContent,
+      extJson: {
+        ...(ticket.value.extJson || {}),
+        supplementInfo: {
+          ...((ticket.value.extJson?.supplementInfo as Record<string, unknown> | undefined) || {}),
+          ...supplement,
+        },
+      },
+      operator: 'desk-a1027',
+    })
+    supplementStatus.value = restart ? '已暂存补充信息，正在重新处理。' : '已暂存补充信息，可重新开始处理。'
+    if (restart) handleProcess()
+  } catch {
+    supplementStatus.value = '补充信息暂存失败，请检查服务后重试。'
+    operationError.value = supplementStatus.value
+  }
 }
 
 function applyTemplate() {
-  const ids = evidence.value.map(item => item.id).join('、') || '待生成'
-  const scene = family.value?.label || ticket.value?.scene || '信用卡工单'
+  const ids = evidence.value.map(item => item.id).join('、') || '待补充'
+  const scene = ticket.value?.scene || '信用卡工单'
   const templates: Record<string, string> = {
-    standard: `您好，关于您反馈的${scene}问题，我行已完成核验处理。处理依据编号：${ids}。请您按回单说明查看处理结果，如仍有疑问可继续联系我行客服。`,
-    benefit: `您好，您反馈的权益/优惠券问题已完成活动资格与发放状态核验。证据编号：${ids}。如符合补发条件，券将在规则时限内到账，请在信用卡 App 对应权益入口查看。`,
-    dispute: `您好，您反馈的交易问题已完成初步流水核查。证据编号：${ids}。如需进入调单/争议处理，请按材料提示补充交易凭证，我行将转人工团队继续跟进。`,
+    standard: `您好，关于您反馈的${scene}问题，我行已完成核验处理。处理依据编号：${ids}。如仍有疑问可继续联系我行客服。`,
+    benefit: `您好，您反馈的活动权益问题已完成资格与发放状态核验。处理依据编号：${ids}。如符合补发条件，将按活动规则处理。`,
+    dispute: `您好，您反馈的交易问题已完成初步核查。处理依据编号：${ids}。如需补充材料，我行将继续跟进。`,
   }
   applyReplyText(templates[replyTemplate.value] || templates.standard)
 }
 
+function applyReplyText(text: string, markTouched = true) {
+  if (!text.trim()) return
+  store.replyDraft = store.replyDraft.trim() && replyTouched.value && store.replyDraft.trim() !== text.trim()
+    ? `${store.replyDraft.trim()}\n\n${text.trim()}`
+    : text
+  replyTouched.value = markTouched
+}
+
+function replyAssistValue() {
+  if (activeReplyAssist.value === 'review') return reviewSummaryDraft.value
+  if (activeReplyAssist.value === 'question') return customerQuestionDraft.value
+  if (activeReplyAssist.value === 'followUp') return followUpDraft.value
+  return internalNoteDraft.value
+}
+
+function updateReplyAssist(value: string) {
+  if (activeReplyAssist.value === 'review') reviewSummaryDraft.value = value
+  else if (activeReplyAssist.value === 'question') customerQuestionDraft.value = value
+  else if (activeReplyAssist.value === 'followUp') followUpDraft.value = value
+  else internalNoteDraft.value = value
+}
+
 function insertEvidenceText(id: string) {
-  insertReplyLine(`处理依据/证据编号：${id}`)
-}
-
-async function copyReplyDraft() {
-  if (!store.replyDraft.trim()) return
-  try {
-    await navigator.clipboard?.writeText(store.replyDraft)
-    operationError.value = '回单已复制。'
-  } catch {
-    operationError.value = '复制失败，请手动选择回单内容。'
-  }
-}
-
-function insertReplyLine(line: string) {
-  store.replyDraft = store.replyDraft.trim() ? `${store.replyDraft.trim()}\n${line}` : line
+  store.replyDraft = store.replyDraft.trim() ? `${store.replyDraft.trim()}\n处理依据编号：${id}` : `处理依据编号：${id}`
   replyTouched.value = true
-  scrollToId('enterprise-reply')
 }
 
 function markReplyEdited() {
   replyTouched.value = true
 }
 
+function scrollToId(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 function statusClass(tone?: string) {
   return `status ${tone || 'neutral'}`
 }
 
-function ticketSourceLabel(item?: Ticket | null) {
-  if (!item) return '-'
-  return item.content.includes('客服') || item.content.includes('电话') ? '人工客服发单' : '工单文本导入'
+function stageLabel(status: WorkFlowStage['status']) {
+  return {
+    waiting: '未开始',
+    running: '处理中',
+    done: '已完成',
+    blocked: '需补充',
+  }[status]
+}
+
+function priorityLabel(value?: string) {
+  if (value === 'critical') return '紧急件'
+  if (value === 'urgent') return '加急件'
+  return '一般件'
+}
+
+function priorityValue(value: string): Ticket['priority'] {
+  if (value === '紧急件' || value === 'critical') return 'critical'
+  if (value === '加急件' || value === 'urgent') return 'urgent'
+  return 'normal'
+}
+
+function ticketStatus(item: Ticket) {
+  return statusMeta(item.status)
+}
+
+function ticketRisk(item: Ticket) {
+  return riskMeta(item.riskLevel, item.riskLabel)
+}
+
+function statusLabelFor(value?: string) {
+  return statusMeta(value).label
 }
 </script>
 
 <template>
   <div class="enterprise-shell">
     <header class="topbar">
-      <button class="brand-strip" type="button" @click="router.push('/tickets')">
+      <button class="brand-strip" type="button" @click="router.push('/')">
         <span class="bank-seal">CC</span>
         信用卡客服工单系统
       </button>
       <div class="top-actions">
         <span>坐席：A1027 李青</span>
-        <span class="mono">2026-07-20</span>
-        <RouterLink to="/legacy/tickets">旧版工作台</RouterLink>
+        <span class="mono">2026-07-23</span>
+        <span v-if="operationError" class="status red">{{ operationError }}</span>
       </div>
     </header>
 
     <div class="layout-core" :class="{ 'copilot-expanded': copilotOpen }">
       <aside class="nav-tree">
         <div class="tree-head">业务菜单</div>
-        <div v-for="group in menuGroups" :key="group.id" class="tree-group">
-          <span class="tree-title">{{ group.label }}</span>
+        <button class="tree-root" :class="{ active: routeMode === 'home' }" type="button" @click="router.push('/')">
+          <span>工作台</span>
+          <strong>{{ store.tickets.length }}</strong>
+        </button>
+        <div class="tree-group">
+          <span class="tree-title">发单</span>
+          <button class="tree-item" :class="{ active: route.path === '/dispatch' }" type="button" @click="router.push('/dispatch')">
+            <span>全部发单</span>
+            <strong>{{ store.callRecords.length }}</strong>
+          </button>
           <button
-            v-for="item in group.items"
-            :key="`${group.id}-${item.id}`"
-            class="tree-item"
-            :class="{ active: item.active || activeMenu === item.id, sub: item.sub }"
+            v-for="item in businessCategories"
+            :key="`dispatch-${item.id}`"
+            class="tree-item sub"
+            :class="{ active: routeMode === 'dispatch' && routeCategoryId === item.id }"
             type="button"
-            @click="selectMenu(item.id)"
+            @click="selectCategory('dispatch', item.id)"
           >
             <span>{{ item.label }}</span>
-            <strong>{{ item.count }}</strong>
+            <strong>{{ store.callRecords.filter(call => item.scenes.includes(call.scenario)).length }}</strong>
           </button>
+        </div>
+        <div class="tree-group">
+          <span class="tree-title">回单</span>
+          <button class="tree-item" :class="{ active: route.path === '/reply' }" type="button" @click="router.push('/reply')">
+            <span>全部回单</span>
+            <strong>{{ store.tickets.length }}</strong>
+          </button>
+          <button
+            v-for="item in businessCategories"
+            :key="`reply-${item.id}`"
+            class="tree-item sub"
+            :class="{ active: routeMode !== 'dispatch' && routeCategoryId === item.id }"
+            type="button"
+            @click="selectCategory('reply', item.id)"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ store.tickets.filter(ticket => item.pattern.test(`${ticket.no} ${ticket.title} ${ticket.scene} ${ticket.category} ${ticket.subcategory}`)).length }}</strong>
+          </button>
+        </div>
+        <div class="tree-group">
+          <span class="tree-title">查询与复核</span>
+          <button class="tree-item" type="button" @click="router.push('/reply')"><span>工单查询</span><strong>{{ store.tickets.length }}</strong></button>
+          <button class="tree-item" type="button" @click="router.push('/reply?status=pending_human_review')"><span>复核剔退</span><strong>{{ store.tickets.filter(item => item.status === 'pending_human_review').length }}</strong></button>
+          <button class="tree-item" type="button" @click="router.push('/')"><span>报表看板</span><strong>{{ dashboardCards.at(-1)?.value }}</strong></button>
         </div>
       </aside>
 
       <main class="workspace">
-        <nav class="tabbar" aria-label="打开的工单标签">
-          <button class="tab" :class="{ active: !routeHasTicket }" type="button" @click="router.push('/tickets')">工作首页</button>
+        <nav class="tabbar" aria-label="打开的业务页签">
+          <button class="tab" :class="{ active: routeMode === 'home' }" type="button" @click="router.push('/')">工作台</button>
+          <button class="tab" :class="{ active: routeMode === 'dispatch' }" type="button" @click="router.push('/dispatch')">发单</button>
+          <button class="tab" :class="{ active: routeMode === 'reply-list' }" type="button" @click="router.push('/reply')">回单</button>
           <button
             v-for="tab in tabTickets"
             :key="tab.id"
             class="tab"
-            :class="{ active: tab.id === ticket?.id }"
+            :class="{ active: routeHasTicket && tab.id === ticket?.id }"
             type="button"
             @click="selectTicket(tab.id)"
           >
@@ -567,371 +772,406 @@ function ticketSourceLabel(item?: Ticket | null) {
           </button>
         </nav>
 
-        <section v-if="!routeHasTicket" class="home-view">
+        <section v-if="routeMode === 'home'" class="home-view">
           <div class="case-toolbar home-toolbar">
             <div>
-              <h1>二线工单处理首页</h1>
+              <h1>工作台</h1>
               <div class="toolbar-meta">
-                <span>来源：人工客服发单后续处理</span>
-                <span>Agent：低耦合辅助接入</span>
-                <span class="status blue">智能服务已连接</span>
-                <span v-if="operationError" class="status red">{{ operationError }}</span>
+                <span>信用卡综合业务处理门户</span>
+                <span>当前班次：早班</span>
+                <span>机构：信用卡运营组</span>
               </div>
             </div>
-            <button class="btn-primary" type="button" :disabled="!queueTickets.length" @click="queueTickets[0] && selectTicket(queueTickets[0].id)">
-              处理下一张
-            </button>
-            <button class="btn-plain" type="button" @click="handleCreateTicket">新建工单</button>
+            <div class="toolbar-actions">
+              <button class="btn-primary" type="button" @click="router.push('/dispatch')">进入发单</button>
+              <button class="btn-plain" type="button" @click="router.push('/reply')">进入回单</button>
+            </div>
           </div>
 
-          <section id="call-intake-workspace" class="sys-panel call-intake-workspace" data-page-agent-target="call-intake-workspace">
-            <div class="sys-title">通话发单工作区 <small>发单 Agent 生成草稿，SunPilot 可见填单提交</small></div>
-            <div class="call-intake-grid">
-              <section class="call-list-pane">
-                <header>
-                  <strong>通话记录</strong>
-                  <span>{{ store.callRecords.length }} 条样本</span>
-                </header>
-                <button
-                  v-for="record in store.callRecords.slice(0, 8)"
-                  :key="record.id"
-                  class="call-record-item"
-                  :class="{ active: selectedCallId === record.id }"
-                  type="button"
-                  @click="selectCallRecord(record.id)"
-                >
-                  <span class="mono">{{ record.id }}</span>
-                  <strong>{{ record.callMeta.customerName || '未知客户' }} / {{ record.scenario }}</strong>
-                  <small>{{ record.callMeta.customerId }} · {{ record.riskLevel }}</small>
-                </button>
-              </section>
-
-              <section id="call-transcript-panel" class="call-transcript-pane" data-page-agent-target="call-transcript-panel">
-                <header>
-                  <strong>通话全文</strong>
-                  <span>{{ selectedCall?.callMeta.agent || '坐席 A1027' }}</span>
-                </header>
-                <textarea v-model="customTranscript" class="transcript-box" data-page-agent-target="call-transcript" />
-                <p class="system-note">{{ draftGenerationStatus || store.ticketDraftResult?.callSummary || '选择通话后，可在右侧 SunPilot 生成摘要、字段来源和标准工单草稿。' }}</p>
-              </section>
-
-              <section id="ticket-draft-form" class="ticket-draft-form" data-page-agent-target="ticket-draft-form">
-                <header>
-                  <strong>标准工单草稿</strong>
-                  <span :class="statusClass(draftRequiredMissing.length ? 'amber' : 'green')">{{ draftRequiredMissing.length ? `缺 ${draftRequiredMissing.length} 项` : '可提交' }}</span>
-                </header>
-                <div class="draft-form-grid">
-                  <label>
-                    <span>标题</span>
-                    <input v-model="draftForm.title" data-page-agent-target="draft-title" type="text" @input="markDraftFieldEdited('title')" />
-                  </label>
-                  <label>
-                    <span>客户号</span>
-                    <input v-model="draftForm.customerId" data-page-agent-target="draft-customerId" type="text" @input="markDraftFieldEdited('customerId')" />
-                  </label>
-                  <label>
-                    <span>客户姓名</span>
-                    <input v-model="draftForm.customerName" data-page-agent-target="draft-customerName" type="text" @input="markDraftFieldEdited('customerName')" />
-                  </label>
-                  <label>
-                    <span>预留手机</span>
-                    <input v-model="draftForm.phone" data-page-agent-target="draft-phone" type="text" @input="markDraftFieldEdited('phone')" />
-                  </label>
-                  <label>
-                    <span>卡尾号</span>
-                    <input v-model="draftForm.cardLast4" data-page-agent-target="draft-cardLast4" type="text" @input="markDraftFieldEdited('cardLast4')" />
-                  </label>
-                  <label>
-                    <span>业务场景</span>
-                    <input v-model="draftForm.scene" data-page-agent-target="draft-scene" type="text" @input="markDraftFieldEdited('scene')" />
-                  </label>
-                  <label>
-                    <span>业务大类</span>
-                    <input v-model="draftForm.category" data-page-agent-target="draft-category" type="text" @input="markDraftFieldEdited('category')" />
-                  </label>
-                  <label>
-                    <span>业务小类</span>
-                    <input v-model="draftForm.subcategory" data-page-agent-target="draft-subcategory" type="text" @input="markDraftFieldEdited('subcategory')" />
-                  </label>
-                  <label>
-                    <span>优先级</span>
-                    <select v-model="draftForm.priority" data-page-agent-target="draft-priority" @change="markDraftFieldEdited('priority')">
-                      <option value="low">低</option>
-                      <option value="normal">普通</option>
-                      <option value="urgent">加急</option>
-                      <option value="critical">紧急</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>风险标签</span>
-                    <input v-model="draftForm.riskLabel" data-page-agent-target="draft-riskLabel" type="text" @input="markDraftFieldEdited('riskLabel')" />
-                  </label>
-                  <label>
-                    <span>风险等级</span>
-                    <select v-model="draftForm.riskLevel" data-page-agent-target="draft-riskLevel" @change="markDraftFieldEdited('riskLevel')">
-                      <option value="low">low</option>
-                      <option value="medium">medium</option>
-                      <option value="high">high</option>
-                    </select>
-                  </label>
-                  <label class="full">
-                    <span>发单内容</span>
-                    <textarea v-model="draftForm.content" data-page-agent-target="draft-content" class="draft-content-box" @input="markDraftFieldEdited('content')" />
-                  </label>
-                </div>
-                <div class="field-source-strip">
-                  <span v-for="field in store.ticketDraftResult?.keyFields || []" :key="field.name">
-                    {{ field.label }}：{{ field.value }} / {{ field.source }}
-                  </span>
-                  <span v-if="!store.ticketDraftResult">字段来源将在生成草稿后展示。</span>
-                </div>
-                <div class="call-actions">
-                  <button id="draft-submit" class="btn-primary" data-page-agent-target="draft-submit" type="button" :disabled="!canSubmitDraft" @click="handleSubmitDraft">一键提交工单</button>
-                  <span v-if="draftRequiredMissing.length" class="status amber">待补充：{{ draftRequiredMissing.join('、') }}</span>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <section class="bucket-strip" aria-label="状态筛选">
-            <button
-              v-for="bucket in buckets"
-              :key="bucket.id"
-              type="button"
-              :class="{ active: activeBucket === bucket.id }"
-              @click="selectBucket(bucket.id)"
-            >
-              <span>{{ bucket.label }}</span>
-              <strong>{{ bucket.count }}</strong>
-              <small>{{ bucket.hint }}</small>
+          <section class="dashboard-strip">
+            <button v-for="card in dashboardCards" :key="card.label" type="button" @click="card.label === '待发单' ? router.push('/dispatch') : router.push('/reply')">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+              <small>{{ card.hint }}</small>
             </button>
-          </section>
-
-          <section class="case-query-bar" aria-label="业务查询条件">
-            <label>
-              <span>快速查询</span>
-              <input v-model="quickQuery" type="search" placeholder="工单号 / 客户号 / 姓名 / 分类 / 处理人" />
-            </label>
-            <label>
-              <span>状态</span>
-              <select v-model="statusFilter" @change="handleStatusFilterChange">
-                <option value="all">全部状态</option>
-                <option value="open">待处理</option>
-                <option value="pending_info">待客户补充</option>
-                <option value="pending_human_confirm">待人工确认</option>
-                <option value="pending_human_review">待回单复核</option>
-                <option value="escalated">已升级</option>
-                <option value="failed">处理失败</option>
-                <option value="closed">已结案</option>
-              </select>
-            </label>
-            <button class="btn-plain" type="button" @click="resetQueueFilters">重置查询</button>
           </section>
 
           <section class="sys-panel">
-            <div class="sys-title">当前优先队列 <small>按状态和业务菜单筛选</small></div>
+            <div class="sys-title">业务流转 <small>今日处理进度</small></div>
+            <div class="business-flow">
+              <div v-for="stage in businessFlow" :key="stage.id" class="flow-node" :class="stage.status">
+                <span>{{ stage.label }}</span>
+                <strong>{{ stageLabel(stage.status) }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="home-grid">
+            <section class="sys-panel">
+              <div class="sys-title">最近发单 <small>来电登记</small></div>
+              <table class="compact-table">
+                <thead><tr><th>时间</th><th>客户</th><th>分类</th><th>来电摘要</th></tr></thead>
+                <tbody>
+                  <tr v-for="call in store.callRecords.slice(0, 6)" :key="call.id" @click="router.push(`/dispatch/${businessCategories.find(item => item.scenes.includes(call.scenario))?.id || ''}`)">
+                    <td>{{ call.callMeta.callStartedAt || '-' }}</td>
+                    <td>{{ call.callMeta.customerName || call.callMeta.customerId }}</td>
+                    <td>{{ call.scenario }}</td>
+                    <td>{{ call.transcript.slice(0, 48) }}...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="sys-panel">
+              <div class="sys-title">待回单提醒 <small>优先处理</small></div>
+              <table class="compact-table">
+                <thead><tr><th>工单编号</th><th>客户</th><th>分类</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr v-for="item in store.tickets.filter(t => t.status !== 'closed').slice(0, 6)" :key="item.id" @click="selectTicket(item.id)">
+                    <td class="mono">{{ item.no }}</td>
+                    <td>{{ item.customerName }}</td>
+                    <td>{{ item.scene || item.subcategory }}</td>
+                    <td><span :class="statusClass(ticketStatus(item).tone)">{{ ticketStatus(item).label }}</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          </section>
+        </section>
+
+        <section v-else-if="routeMode === 'dispatch'" class="dispatch-view">
+          <div class="case-toolbar">
+            <div>
+              <h1>{{ selectedCategory ? `${selectedCategory.label}发单` : '发单工作台' }}</h1>
+              <div class="toolbar-meta">
+                <span>通话记录转标准工单</span>
+                <span v-if="selectedCategory">编号段：{{ selectedCategory.code }}</span>
+                <span v-if="draftGenerationStatus" class="status blue">{{ draftGenerationStatus }}</span>
+              </div>
+            </div>
+            <div class="toolbar-actions">
+              <button class="btn-primary" type="button" @click="generateDraftFromCall">生成发单草稿</button>
+              <button class="btn-plain" type="button" @click="handleSaveDispatchDraft">暂存</button>
+              <button id="dispatch-submit" class="btn-primary" data-page-agent-target="dispatch-submit" type="button" :disabled="!canSubmitDraft" @click="handleSubmitDraft">发送</button>
+            </div>
+          </div>
+
+          <section class="sys-panel">
+            <div class="sys-title">业务流转 <small>发单阶段</small></div>
+            <div class="business-flow compact">
+              <div v-for="stage in businessFlow.slice(0, 3)" :key="stage.id" class="flow-node" :class="stage.status">
+                <span>{{ stage.label }}</span>
+                <strong>{{ stageLabel(stage.status) }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section id="call-intake-workspace" class="dispatch-grid" data-page-agent-target="call-intake-workspace">
+            <section class="sys-panel call-list-pane">
+              <div class="sys-title">通话记录 <small>{{ filteredCalls.length }} 条</small></div>
+              <button
+                v-for="record in filteredCalls"
+                :key="record.id"
+                class="call-record-item"
+                :class="{ active: selectedCallId === record.id }"
+                type="button"
+                @click="selectCallRecord(record.id)"
+              >
+                <span class="mono">{{ record.callMeta.callStartedAt || record.id }}</span>
+                <strong>{{ record.callMeta.customerName || '未知客户' }} / {{ record.scenario }}</strong>
+                <small>{{ record.callMeta.customerId }} · {{ record.riskLevel === 'high' ? '紧急件' : record.riskLevel === 'medium' ? '普通加急' : '一般件' }}</small>
+              </button>
+              <div v-if="!filteredCalls.length" class="empty-panel">当前分类暂无通话记录。</div>
+            </section>
+
+            <section id="call-transcript-panel" class="sys-panel call-transcript-pane" data-page-agent-target="call-transcript-panel">
+              <div class="sys-title">来电内容 <small>{{ selectedCall?.callMeta.agent || '坐席A1027' }}</small></div>
+              <textarea v-model="customTranscript" class="transcript-box" data-page-agent-target="call-transcript" />
+            </section>
+
+            <section id="ticket-draft-form" class="sys-panel ticket-draft-form" data-page-agent-target="ticket-draft-form">
+              <div class="sys-title">标准工单 <small>{{ draftRequiredMissing.length ? `待补充 ${draftRequiredMissing.join('、')}` : '可发送' }}</small></div>
+              <div class="draft-section-title">基础信息</div>
+              <div class="draft-form-grid">
+                <label v-for="field in commonFields" :key="field.name" :class="{ full: field.type === 'textarea' }">
+                  <span>{{ field.label }}</span>
+                  <select
+                    v-if="field.type === 'select'"
+                    :value="draftFieldValue(field)"
+                    :data-page-agent-target="`dispatch-${field.name}`"
+                    @change="updateDraftField(field, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option v-for="option in field.options" :key="option" :value="option">{{ field.name === 'priority' ? priorityLabel(option) : option }}</option>
+                  </select>
+                  <textarea
+                    v-else-if="field.type === 'textarea'"
+                    :value="draftFieldValue(field)"
+                    :data-page-agent-target="`dispatch-${field.name}`"
+                    class="draft-content-box"
+                    @input="updateDraftField(field, ($event.target as HTMLTextAreaElement).value)"
+                  />
+                  <input
+                    v-else
+                    :value="draftFieldValue(field)"
+                    :data-page-agent-target="`dispatch-${field.name}`"
+                    type="text"
+                    @input="updateDraftField(field, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
+              </div>
+
+              <div class="draft-section-title">分类字段 <small>{{ currentScene || '待选择' }}</small></div>
+              <div class="draft-form-grid">
+                <label v-for="field in scenarioFields" :key="field.name" :class="{ full: field.type === 'textarea' }">
+                  <span>{{ field.label }}</span>
+                  <select
+                    v-if="field.type === 'select'"
+                    :value="specificFieldValue(field.name)"
+                    :data-page-agent-target="`dispatch-${field.name}`"
+                    @change="updateSpecificField(field.name, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">请选择</option>
+                    <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                  <textarea
+                    v-else-if="field.type === 'textarea'"
+                    :value="specificFieldValue(field.name)"
+                    :data-page-agent-target="`dispatch-${field.name}`"
+                    class="draft-content-box"
+                    @input="updateSpecificField(field.name, ($event.target as HTMLTextAreaElement).value)"
+                  />
+                  <input
+                    v-else
+                    :value="specificFieldValue(field.name)"
+                    :data-page-agent-target="`dispatch-${field.name}`"
+                    type="text"
+                    @input="updateSpecificField(field.name, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
+                <div v-if="!scenarioFields.length" class="empty-panel">选择分类或生成草稿后展示对应字段。</div>
+              </div>
+              <div class="field-source-strip">
+                <span v-for="field in store.ticketDraftResult?.keyFields || []" :key="field.name">
+                  {{ field.label }}：已从来电内容带入
+                </span>
+                <span v-if="!store.ticketDraftResult">生成草稿后展示已带入字段。</span>
+              </div>
+            </section>
+          </section>
+        </section>
+
+        <section v-else-if="routeMode === 'reply-list'" class="reply-list-view">
+          <div class="case-toolbar">
+            <div>
+              <h1>{{ selectedCategory ? `${selectedCategory.label}回单` : '回单工作台' }}</h1>
+              <div class="toolbar-meta">
+                <span>待接单处理与回单复核</span>
+                <span v-if="selectedCategory">编号段：{{ selectedCategory.code }}</span>
+              </div>
+            </div>
+            <button class="btn-primary" type="button" :disabled="!queueTickets.length" @click="queueTickets[0] && selectTicket(queueTickets[0].id)">处理下一张</button>
+          </div>
+
+          <section class="sys-panel">
+            <div class="sys-title">业务流转 <small>回单阶段</small></div>
+            <div class="business-flow compact">
+              <div v-for="stage in businessFlow.slice(3)" :key="stage.id" class="flow-node" :class="stage.status">
+                <span>{{ stage.label }}</span>
+                <strong>{{ stageLabel(stage.status) }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="case-query-bar">
+            <label>
+              <span>快速查询</span>
+              <input v-model="quickQuery" type="search" placeholder="工单号 / 客户号 / 姓名 / 分类" />
+            </label>
+            <label>
+              <span>处理状态</span>
+              <select v-model="statusFilter">
+                <option value="all">全部状态</option>
+                <option value="open">待处理</option>
+                <option value="in_progress">处理中</option>
+                <option value="pending_info">待补充</option>
+                <option value="pending_human_confirm">待确认</option>
+                <option value="pending_human_review">待复核</option>
+                <option value="closed">已结案</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="sys-panel">
+            <div class="sys-title">待回单队列 <small>{{ queueTickets.length }} 条</small></div>
             <table class="compact-table queue-table">
               <thead>
-                <tr>
-                  <th>工单编号</th>
-                  <th>客户号</th>
-                  <th>客户姓名</th>
-                  <th>分类</th>
-                  <th>优先级</th>
-                  <th>状态</th>
-                  <th>处理人</th>
-                  <th>到期时间</th>
-                  <th>最近处理记录</th>
-                </tr>
+                <tr><th>工单编号</th><th>客户号</th><th>客户姓名</th><th>分类</th><th>件别</th><th>状态</th><th>接单单位</th><th>规定回件日期</th></tr>
               </thead>
               <tbody>
                 <tr v-for="item in queueTickets" :key="item.id" @click="selectTicket(item.id)">
                   <td class="mono">{{ item.no }}</td>
                   <td class="mono">{{ item.customerId }}</td>
                   <td>{{ item.customerName }}</td>
-                  <td><span :class="statusClass(scenarioFamily(item).tone)">{{ item.subcategory || scenarioFamily(item).label }}</span></td>
-                  <td><span :class="statusClass(riskMeta(item.riskLevel, item.riskLabel).tone)">{{ item.priority }}</span></td>
-                  <td><span :class="statusClass(statusMeta(item.status).tone)">{{ statusMeta(item.status).label }}</span></td>
-                  <td>{{ item.assignee }}</td>
-                  <td>{{ item.dueAt || '-' }}</td>
-                  <td>{{ suggestedAction(item) }}</td>
+                  <td>{{ item.scene || item.subcategory }}</td>
+                  <td><span :class="statusClass(ticketRisk(item).tone)">{{ priorityLabel(item.priority) }}</span></td>
+                  <td><span :class="statusClass(ticketStatus(item).tone)">{{ ticketStatus(item).label }}</span></td>
+                  <td>{{ item.receiveUnit || item.department || '-' }}</td>
+                  <td>{{ item.deadline || item.dueAt || '-' }}</td>
                 </tr>
-                <tr v-if="!queueTickets.length">
-                  <td colspan="9" class="empty-cell">当前筛选下没有待处理工单。</td>
-                </tr>
+                <tr v-if="!queueTickets.length"><td colspan="8" class="empty-cell">当前分类暂无待回单。</td></tr>
               </tbody>
             </table>
           </section>
-
-          <section class="case-grid home-grid">
-            <section class="sys-panel">
-              <div class="sys-title">真实链路测评摘要 <small>40 条标注样本</small></div>
-              <div class="metric-grid">
-                <div>
-                  <label>状态/预期结果匹配率</label>
-                  <strong>{{ formatPercent(metrics?.closedLoopSuccessRate) }}</strong>
-                </div>
-                <div>
-                  <label>业务能力匹配率</label>
-                  <strong>{{ formatPercent(metrics?.toolCorrectness) }}</strong>
-                </div>
-                <div>
-                  <label>字段完整率</label>
-                  <strong>{{ formatPercent(metrics?.fieldCompleteness) }}</strong>
-                </div>
-                <div>
-                  <label>平均处理耗时</label>
-                  <strong>{{ formatMs(metrics?.avgProcessingMs) }}</strong>
-                </div>
-              </div>
-              <p class="system-note">这里的闭环指标表示状态/预期结果匹配，不代表真实生产客户结案率。</p>
-            </section>
-
-            <section class="sys-panel">
-              <div class="sys-title">生产约束 <small>人工发单后处理边界</small></div>
-              <ul class="constraint-list">
-                <li>高风险、投诉、盗刷、征信异议必须人工接管。</li>
-                <li>敏感资料变更必须人工确认后执行。</li>
-                <li>工具失败不能包装为成功，缺字段必须追问。</li>
-                <li>回单必须复核，结案必须单独点击主系统按钮。</li>
-              </ul>
-            </section>
-          </section>
         </section>
 
-        <section v-else-if="ticket" id="enterprise-ticket-detail" class="detail-view" data-page-agent-target="enterprise-ticket-detail">
+        <section v-else-if="ticket" id="enterprise-ticket-detail" class="reply-detail-view" data-page-agent-target="enterprise-ticket-detail">
           <div class="case-toolbar">
             <div>
               <h1>{{ ticket.title }}</h1>
               <div class="toolbar-meta">
                 <span class="mono">{{ ticket.no }}</span>
                 <span>客户：{{ ticket.customerName }}</span>
-                <span>来源：{{ ticketSourceLabel(ticket) }}</span>
-                <span v-if="risk" :class="statusClass(risk.tone)">{{ risk.label }}</span>
-                <span v-if="status" :class="statusClass(status.tone)">{{ status.label }}</span>
-                <span v-if="operationError" class="status red">{{ operationError }}</span>
+                <span>分类：{{ ticket.scene || ticket.subcategory }}</span>
+                <span :class="statusClass(ticketRisk(ticket).tone)">{{ ticket.riskLabel }}</span>
+                <span :class="statusClass(ticketStatus(ticket).tone)">{{ ticketStatus(ticket).label }}</span>
               </div>
             </div>
             <div class="toolbar-actions">
-              <button class="btn-primary" type="button" v-if="needsHumanConfirm" @click="openHumanConfirm">进入人工确认</button>
+              <button class="btn-primary" type="button" :disabled="store.isProcessing" @click="handleProcess">开始处理</button>
+              <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="handleSaveReply">保存回单</button>
+              <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">结案</button>
             </div>
           </div>
 
-          <section class="business-actions">
-            <label>
-              <span>标题</span>
-              <input v-model="editableTitle" type="text" />
-              <button class="btn-plain" type="button" :disabled="!canCancel" @click="handleEditTicket">保存</button>
-            </label>
-            <label>
-              <span>指派</span>
-              <input v-model="assignTo" type="text" />
-              <button class="btn-plain" type="button" :disabled="!canCancel" @click="handleAssignTicket">指派</button>
-            </label>
-            <label>
-              <span>作废原因</span>
-              <input v-model="cancelReason" type="text" />
-              <button class="btn-plain danger" type="button" :disabled="!canCancel || !cancelReason.trim()" @click="handleCancelTicket">作废</button>
-            </label>
-            <button class="btn-plain" type="button" :disabled="!canReopen" @click="handleReopenTicket">重开</button>
+          <section class="sys-panel">
+            <div class="sys-title">业务流转 <small>当前工单</small></div>
+            <div class="business-flow">
+              <div v-for="stage in businessFlow" :key="stage.id" class="flow-node" :class="stage.status">
+                <span>{{ stage.label }}</span>
+                <strong>{{ stageLabel(stage.status) }}</strong>
+              </div>
+            </div>
           </section>
 
           <section class="case-grid">
             <section class="sys-panel">
-              <div class="sys-title">基本信息 <small>原系统字段</small></div>
+              <div class="sys-title">工单详情 <small>发单信息</small></div>
               <div class="field-grid">
-                <div class="field"><label>工单编号</label><strong class="mono">{{ ticket.no }}</strong></div>
-                <div class="field"><label>当前状态</label><strong>{{ status?.label }}</strong></div>
-                <div class="field"><label>业务场景</label><strong>{{ family?.label }}</strong></div>
-                <div class="field"><label>紧急程度</label><strong>{{ ticket.riskLevel === 'high' ? '紧急' : ticket.riskLevel === 'medium' ? '普通加急' : '普通' }}</strong></div>
-                <div class="field"><label>创建时间</label><strong>{{ ticket.createdAt }}</strong></div>
-                <div class="field"><label>当前处理人</label><strong>坐席 A1027</strong></div>
-                <div class="field"><label>下一责任人</label><strong>{{ store.aiResult ? suggestion.title : '坐席处理' }}</strong></div>
-                <div class="field"><label>SLA 剩余</label><strong>{{ ticket.riskLevel === 'high' ? '1 小时 30 分' : '5 小时 20 分' }}</strong></div>
-              </div>
-            </section>
-
-            <section class="sys-panel">
-              <div class="sys-title">客户与卡片信息 <small>工单上下文派生</small></div>
-              <div class="field-grid two">
-                <div class="field"><label>客户姓名</label><strong>{{ ticket.customerName }}</strong></div>
+                <div class="field"><label>发单编号</label><strong class="mono">{{ ticket.no }}</strong></div>
                 <div class="field"><label>客户号</label><strong class="mono">{{ ticket.customerId }}</strong></div>
-                <div class="field"><label>预留手机</label><strong class="mono">{{ ticket.phone }}</strong></div>
-                <div class="field"><label>卡号后四位</label><strong class="mono">{{ ticket.cardLast4 }}</strong></div>
+                <div class="field"><label>客户姓名</label><strong>{{ ticket.customerName }}</strong></div>
+                <div class="field"><label>手机号</label><strong>{{ ticket.phone }}</strong></div>
+                <div class="field"><label>件别</label><strong>{{ priorityLabel(ticket.priority) }}</strong></div>
+                <div class="field"><label>处理状态</label><strong>{{ ticketStatus(ticket).label }}</strong></div>
+                <div class="field"><label>业务类型</label><strong>{{ ticket.bizType || ticket.category || ticket.scene }}</strong></div>
+                <div class="field"><label>业务细分类型</label><strong>{{ ticket.bizSubType || ticket.subcategory || '-' }}</strong></div>
+                <div class="field"><label>接单单位</label><strong>{{ ticket.receiveUnit || ticket.department || '-' }}</strong></div>
+                <div class="field"><label>规定回件日期</label><strong>{{ ticket.deadline || ticket.dueAt || '-' }}</strong></div>
               </div>
-              <table class="compact-table">
-                <thead><tr><th>卡产品</th><th>卡状态</th><th>权益状态</th><th>备注</th></tr></thead>
-                <tbody>
-                  <tr>
-                    <td>银联白金信用卡</td>
-                    <td>正常</td>
-                    <td>{{ family?.id === 'benefit-reissue' ? '活动达标' : '待核验' }}</td>
-                    <td>{{ family?.deskFocus }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            <section class="sys-panel full-row">
-              <div class="sys-title">发单内容 <small>人工客服转办后的原始工单描述</small></div>
               <div class="case-text">{{ ticket.content }}</div>
             </section>
 
             <section class="sys-panel">
-              <div class="sys-title">关联交易/权益/申请 <small>业务系统只展示必要上下文</small></div>
-              <table class="compact-table">
-                <thead><tr><th>业务域</th><th>当前结论</th><th>下一步</th></tr></thead>
-                <tbody>
-                  <tr>
-                    <td>{{ family?.label }}</td>
-                    <td>{{ store.aiResult?.toolResponse?.businessResult || family?.deskFocus || '等待核验' }}</td>
-                    <td>{{ suggestion.title }}</td>
-                  </tr>
-                  <tr>
-                    <td>状态流转</td>
-                    <td>{{ status?.description }}</td>
-                    <td>{{ store.aiResult ? '查看右侧 SunPilot 流转卡片' : '先生成处理建议' }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="sys-title">处理记录 <small>近期操作</small></div>
+              <ul class="log-list">
+                <li v-for="operation in store.operationLogs.slice(0, 6)" :key="operation.id">
+                  <span>{{ formatShortTime(operation.createdAt) }}</span>
+                  <strong>{{ operation.operation }}</strong>
+                  <small>{{ operation.operator }} / {{ statusLabelFor(operation.toStatus) }}</small>
+                </li>
+                <li v-if="!store.operationLogs.length">
+                  <span>{{ formatShortTime(ticket.createdAt) }}</span>
+                  <strong>工单登记</strong>
+                  <small>等待接单处理。</small>
+                </li>
+              </ul>
             </section>
 
-            <section class="sys-panel">
-              <div class="sys-title">处理依据/信息核验 <small>业务语言摘要</small></div>
+            <section id="mock-tool-process" class="sys-panel full-row">
+              <div class="sys-title">外部系统核验 <small>Mock Tools 过程</small></div>
+              <div v-if="mockToolSteps.length" class="mock-tool-flow">
+                <article v-for="step in mockToolSteps" :key="step.id" class="mock-tool-step" :class="step.status">
+                  <div>
+                    <span>{{ step.source }}</span>
+                    <strong>{{ step.title }}</strong>
+                  </div>
+                  <p>{{ step.detail }}</p>
+                  <small v-if="step.evidenceId" class="mono">{{ step.evidenceId }}</small>
+                </article>
+              </div>
+              <div v-else-if="store.aiResult?.missingFields?.length" class="empty-panel">本次记录未返回外部系统调用明细；请先补充缺失信息，再重新处理。</div>
+              <div v-else class="empty-panel">点击“开始处理”后展示客户、卡片、交易或权益系统核验过程。</div>
+            </section>
+
+            <section id="sunpilot-fields" class="sys-panel">
+              <div class="sys-title">核验结果 <small>客户、卡片、业务信息</small></div>
               <div class="verification-strip" v-if="verificationItems.length">
-                <button
-                  v-for="item in verificationItems.slice(0, 4)"
-                  :key="item.id"
-                  type="button"
-                  :class="`verification-chip ${item.status}`"
-                  @click="scrollToId('sunpilot-fields')"
-                >
-                  <span>{{ item.label }}</span>
+                <button v-for="item in verificationItems.slice(0, 6)" :key="item.id" :class="`verification-chip ${item.status}`" type="button">
+                  <span>{{ businessText(businessFieldLabel(item.label)) }}</span>
                   <strong>{{ item.value }}</strong>
-                  <small>{{ item.source }}</small>
+                  <small>{{ businessText(item.note) }}</small>
                 </button>
               </div>
-              <div v-else class="empty-panel">启动处理后展示客户、卡片、交易、权益系统的核验结果。</div>
+              <div v-else class="empty-panel">点击“开始处理”后展示核验结果。</div>
+            </section>
+
+            <section id="missing-info-panel" class="sys-panel missing-info-panel">
+              <div class="sys-title">待补充信息 <small>{{ missingFields.length ? '补齐后可重新处理' : '当前无缺失' }}</small></div>
+              <div v-if="missingFields.length" class="missing-editor">
+                <label v-for="field in missingFields" :key="field" class="missing-field">
+                  <span>{{ businessFieldLabel(field) }}</span>
+                  <input
+                    v-model="missingFieldDraft[field]"
+                    type="text"
+                    :placeholder="`填写${businessFieldLabel(field)}`"
+                  />
+                  <div class="missing-options">
+                    <button
+                      v-for="option in missingFieldOptions(field)"
+                      :key="`${field}-${option}`"
+                      class="assist-tab"
+                      type="button"
+                      @click="fillMissingField(field, option)"
+                    >
+                      {{ option }}
+                    </button>
+                  </div>
+                </label>
+                <div class="missing-actions">
+                  <button class="btn-plain" type="button" @click="generateSupplementQuestion">生成补充话术</button>
+                  <button class="btn-plain" type="button" :disabled="!hasMissingSupplementDraft" @click="saveMissingSupplement(false)">暂存补充信息</button>
+                  <button class="btn-primary" type="button" :disabled="!hasMissingSupplementDraft || store.isProcessing" @click="saveMissingSupplement(true)">补充后重新处理</button>
+                </div>
+                <p v-if="supplementStatus" class="supplement-status">{{ supplementStatus }}</p>
+              </div>
+              <div v-else class="empty-panel">外部系统和工单内容已满足当前处理所需字段。</div>
+            </section>
+
+            <section id="sunpilot-evidence" class="sys-panel">
+              <div class="sys-title">处理依据 <small>可带入回单</small></div>
+              <button v-for="item in evidence" :key="item.id" class="evidence-token" type="button" @click="insertEvidenceText(item.id)">
+                <span class="mono">{{ item.id }}</span>
+                <small>{{ item.summary }}</small>
+              </button>
+              <div v-if="!evidence.length" class="empty-panel">暂无处理依据。</div>
             </section>
 
             <section id="enterprise-reply" class="sys-panel full-row reply-workspace">
-              <div class="sys-title">回单工作区 <small>客户回单、内部备注、复核摘要和证据附件分窗口处理</small></div>
+              <div class="sys-title">回单工作区 <small>{{ replyWorkspaceStatus }}</small></div>
               <div class="reply-command-row">
                 <label>
-                  <span>模板</span>
+                  <span>回单模板</span>
                   <select v-model="replyTemplate">
                     <option value="standard">标准处理结果</option>
-                    <option value="benefit">权益/优惠券补发</option>
-                    <option value="dispute">交易争议/调单</option>
+                    <option value="benefit">权益活动</option>
+                    <option value="dispute">交易调单</option>
                   </select>
                 </label>
                 <button class="btn-plain" type="button" @click="applyTemplate">套用模板</button>
-                <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="copyReplyDraft">复制回单</button>
-                <button id="page-agent-save-draft" class="btn-plain" data-page-agent-target="page-agent-save-draft" type="button" :disabled="!store.replyDraft || !canCancel" @click="handleSaveDraft">保存草稿</button>
-                <button id="page-agent-close-ticket" class="btn-primary" data-page-agent-target="page-agent-close-ticket" type="button" :disabled="!canClose" @click="handleClose">提交复核并结案</button>
-                <span :class="statusClass(canClose ? 'green' : 'amber')">{{ replyWorkspaceStatus }}</span>
+                <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="handleSaveReply">保存回单</button>
+                <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">提交复核并结案</button>
+                <button v-if="needsHumanConfirm" class="btn-primary" type="button" @click="openHumanConfirm">人工确认</button>
+                <span :class="statusClass(canClose ? 'green' : 'amber')">{{ replyStatus }}</span>
               </div>
-
               <div class="reply-grid">
                 <section class="reply-pane customer-pane">
                   <header><strong>客户回单</strong><span>{{ replyStatus }}</span></header>
@@ -939,57 +1179,34 @@ function ticketSourceLabel(item?: Ticket | null) {
                     v-model="store.replyDraft"
                     class="reply-box"
                     data-page-agent-target="page-agent-reply-draft"
-                    placeholder="客户回单将在这里生成，坐席复核后再提交。"
+                    placeholder="回单内容由坐席复核后提交。"
                     @input="markReplyEdited"
                   />
                 </section>
-
                 <section class="reply-pane">
-                  <header><strong>内部处理意见</strong><span>{{ replySections.find(section => section.id === 'internal')?.status }}</span></header>
-                  <textarea v-model="internalNoteDraft" class="reply-small-box" placeholder="内部备注用于复核岗和后续处理人。" />
-                  <button class="btn-plain" type="button" :disabled="!internalNoteDraft" @click="applyReplyText(internalNoteDraft)">写入客户回单</button>
-                </section>
-
-                <section class="reply-pane">
-                  <header><strong>复核摘要</strong><span>{{ replySections.find(section => section.id === 'review')?.status }}</span></header>
-                  <textarea v-model="reviewSummaryDraft" class="reply-small-box" placeholder="复核摘要展示风险结论、证据和下一步。" />
-                  <button class="btn-plain" type="button" :disabled="!reviewSummaryDraft" @click="applyReplyText(reviewSummaryDraft)">写入客户回单</button>
-                </section>
-
-                <section class="reply-pane">
-                  <header><strong>客户追问</strong><span>{{ replySections.find(section => section.id === 'question')?.status }}</span></header>
-                  <textarea v-model="customerQuestionDraft" class="reply-small-box" placeholder="缺失字段追问话术。" />
-                  <button class="btn-plain" type="button" :disabled="!customerQuestionDraft" @click="applyReplyText(customerQuestionDraft)">生成客户追问</button>
-                </section>
-
-                <section class="reply-pane">
-                  <header><strong>跟进计划</strong><span>{{ replySections.find(section => section.id === 'followUp')?.status }}</span></header>
-                  <textarea v-model="followUpDraft" class="reply-small-box" placeholder="回访、时效和下一责任人。" />
-                  <button class="btn-plain" type="button" :disabled="!followUpDraft" @click="applyReplyText(followUpDraft)">写入跟进说明</button>
-                </section>
-
-                <section class="reply-pane evidence-pane">
-                  <header><strong>证据附件</strong><span>{{ evidence.length ? '可插入' : '暂无证据' }}</span></header>
-                  <button
-                    v-for="item in evidence"
-                    :key="item.id"
-                    class="evidence-token"
-                    type="button"
-                    @click="insertEvidenceText(item.id)"
-                  >
-                    <span class="mono">{{ item.id }}</span>
-                    <small>{{ item.summary }}</small>
-                  </button>
-                  <div v-if="!evidence.length" class="empty-panel">启动处理后可插入工具证据编号。</div>
+                  <header><strong>{{ activeReplyAssistMeta.label }}</strong><span>{{ activeReplyAssistMeta.status }}</span></header>
+                  <div class="assist-switcher">
+                    <button
+                      v-for="option in replyAssistOptions"
+                      :key="option.id"
+                      class="assist-tab"
+                      :class="{ active: activeReplyAssist === option.id }"
+                      type="button"
+                      @click="activeReplyAssist = option.id"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                  <textarea
+                    class="reply-small-box assist-box"
+                    :value="replyAssistValue()"
+                    @input="updateReplyAssist(($event.target as HTMLTextAreaElement).value)"
+                  />
+                  <button class="btn-plain" type="button" :disabled="!replyAssistValue()" @click="applyReplyText(replyAssistValue())">写入回单</button>
                 </section>
               </div>
             </section>
           </section>
-        </section>
-
-        <section v-else class="detail-empty">
-          <strong>未找到工单</strong>
-          <button class="btn-primary" type="button" @click="router.push('/tickets')">返回工作首页</button>
         </section>
       </main>
 
@@ -1011,15 +1228,9 @@ function ticketSourceLabel(item?: Ticket | null) {
           @submit-draft="handleSubmitDraft"
           @start-ai-process="handleProcess"
           @scroll-reply="scrollToId('enterprise-reply')"
-          @scroll-missing="scrollToId('sunpilot-fields')"
+          @scroll-missing="scrollToId('missing-info-panel')"
           @open-human-confirm="openHumanConfirm"
         />
-        <div class="page-agent-hidden-targets" aria-hidden="true" data-page-agent-not-interactive="true">
-          <div id="sunpilot-flow" data-page-agent-target="sunpilot-flow"></div>
-          <div id="sunpilot-fields" data-page-agent-target="sunpilot-fields"></div>
-          <div id="sunpilot-evidence" data-page-agent-target="sunpilot-evidence"></div>
-          <div id="sunpilot-audit" data-page-agent-target="sunpilot-audit"></div>
-        </div>
       </aside>
     </div>
 
@@ -1066,32 +1277,158 @@ function ticketSourceLabel(item?: Ticket | null) {
   font-family: var(--mono);
   font-size: 12px;
 }
-.top-actions {
+.top-actions,
+.toolbar-meta,
+.toolbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 0 10px;
   color: var(--ink-soft);
   font-size: 12px;
 }
 .layout-core {
-  min-height: calc(100vh - 42px);
+  height: calc(100vh - 42px);
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr) 0;
+  grid-template-columns: 230px minmax(0, 1fr) 0;
   grid-template-areas: "nav workspace copilot";
   transition: grid-template-columns 180ms ease;
 }
 .layout-core.copilot-expanded {
-  grid-template-columns: 264px minmax(0, 1fr) 356px;
+  grid-template-columns: 230px minmax(0, 1fr) 376px;
 }
 .nav-tree {
   grid-area: nav;
-  min-width: 0;
-  border-right: 1px solid var(--line-dark);
-  background: #fbfcfd;
   overflow: auto;
+  border-right: 1px solid var(--line-dark);
+  background: #f8fafc;
 }
-.tree-head,
+.tree-head {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+.tree-group {
+  display: grid;
+  gap: 1px;
+  padding: 8px;
+}
+.tree-title {
+  padding: 7px 6px 5px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 900;
+}
+.tree-root,
+.tree-item {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-root {
+  margin: 8px;
+  width: calc(100% - 16px);
+  font-weight: 900;
+}
+.tree-item.sub {
+  padding-left: 18px;
+}
+.tree-root.active,
+.tree-item.active {
+  background: #edf7f4;
+  box-shadow: inset 3px 0 0 var(--green);
+}
+.tree-root strong,
+.tree-item strong {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.workspace {
+  grid-area: workspace;
+  min-width: 0;
+  overflow: auto;
+  background: var(--page);
+}
+.tabbar {
+  min-height: 36px;
+  display: flex;
+  gap: 1px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--line-dark);
+  background: #f5f7fa;
+}
+.tab {
+  min-width: 92px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  background: #eef2f6;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 900;
+}
+.tab.active {
+  background: #fff;
+  color: var(--brand);
+}
+.case-toolbar {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.case-toolbar h1 {
+  margin: 0;
+  font-size: 17px;
+}
+.btn-primary,
+.btn-plain {
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-dark);
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+}
+.btn-primary {
+  border-color: var(--brand-dark);
+  background: var(--brand);
+  color: #fff;
+}
+.btn-primary:disabled,
+.btn-plain:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+.sys-panel {
+  min-width: 0;
+  margin: 8px;
+  border: 1px solid var(--line-dark);
+  background: #fff;
+}
 .sys-title {
   min-height: 31px;
   display: flex;
@@ -1101,195 +1438,93 @@ function ticketSourceLabel(item?: Ticket | null) {
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--section);
-  color: var(--ink);
   font-size: 13px;
   font-weight: 900;
 }
-.tree-group {
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
+.sys-title small,
+.draft-section-title small {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
 }
-.tree-title {
-  display: block;
-  margin: 2px 6px 7px;
+.dashboard-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  margin: 8px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+.dashboard-strip button {
+  min-height: 74px;
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 0;
+  background: #fff;
+  text-align: left;
+}
+.dashboard-strip strong {
+  font-family: var(--mono);
+  font-size: 22px;
+}
+.dashboard-strip small {
   color: var(--muted);
   font-size: 12px;
+}
+.business-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.business-flow.compact {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.flow-node {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 9px;
+  background: #fff;
+  box-shadow: inset 0 3px 0 var(--line-dark);
+}
+.flow-node.done { box-shadow: inset 0 3px 0 var(--green); }
+.flow-node.running { box-shadow: inset 0 3px 0 var(--blue); background: #f2f8fc; }
+.flow-node.blocked { box-shadow: inset 0 3px 0 var(--amber); background: #fff8ea; }
+.flow-node span {
+  font-size: 12px;
   font-weight: 900;
 }
-.tree-item {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
+.flow-node strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.home-grid,
+.case-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.82fr);
   gap: 8px;
-  min-height: 28px;
-  margin: 2px 0;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  text-align: left;
-  font-size: 12px;
+  padding: 0 8px 8px;
 }
-.tree-item.sub {
-  padding-left: 18px;
-  color: var(--ink-soft);
-}
-.tree-item.active {
-  border-color: rgba(205, 44, 66, 0.32);
-  border-left: 4px solid var(--brand);
-  background: #fff5f6;
-  color: var(--brand);
-  font-weight: 900;
-}
-.workspace {
-  grid-area: workspace;
-  min-width: 0;
-  overflow: auto;
-  background: var(--page);
-}
-.tabbar {
-  height: 34px;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding-left: 8px;
-  border-bottom: 1px solid var(--line-dark);
-  background: #f7f9fb;
-}
-.tab {
-  min-width: 118px;
-  min-height: 29px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  background: #fff;
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-.tab.active {
-  border-top: 3px solid var(--brand);
-  color: var(--brand);
-  font-weight: 900;
-}
-.case-toolbar {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--line);
-  background: #fff;
-}
-.case-toolbar h1 {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.3;
-}
-.toolbar-meta,
-.toolbar-actions,
-.reply-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-.toolbar-actions {
-  justify-content: flex-end;
-}
-.btn-primary,
-.btn-plain {
-  min-height: 28px;
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 900;
-}
-.btn-primary {
-  border-color: var(--brand-dark);
-  background: var(--brand);
-  color: #fff;
-}
-.btn-plain {
-  background: #fff;
-}
-.btn-plain.danger {
-  border-color: #c4263c;
-  color: #b31f34;
-}
-.business-actions {
+.dispatch-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.1fr) minmax(180px, 0.8fr) auto minmax(220px, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  background: #fff;
-}
-.business-actions label {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 900;
-}
-.business-actions input {
-  min-width: 0;
-  height: 28px;
-  padding: 4px 7px;
-  border: 1px solid var(--line-dark);
-  background: #fff;
-  color: var(--ink);
-  font-size: 12px;
-}
-.call-intake-workspace {
-  margin: 0 8px 8px;
-}
-.call-intake-grid {
-  display: grid;
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
   grid-template-areas:
     "calls transcript"
     "calls draft";
   gap: 8px;
-  padding: 8px;
+  padding: 0 8px 8px;
 }
 .call-list-pane {
   grid-area: calls;
+  max-height: calc(100vh - 190px);
+  overflow: auto;
 }
-.call-transcript-pane {
-  grid-area: transcript;
-}
-.ticket-draft-form {
-  grid-area: draft;
-}
-.call-list-pane,
-.call-transcript-pane,
-.ticket-draft-form {
-  min-width: 0;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-}
-.call-list-pane header,
-.call-transcript-pane header,
-.ticket-draft-form header {
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-}
-.call-list-pane header span,
-.call-transcript-pane header span,
-.ticket-draft-form header span {
-  color: var(--ink-soft);
-}
+.call-transcript-pane { grid-area: transcript; }
+.ticket-draft-form { grid-area: draft; }
 .call-record-item {
   width: 100%;
   display: grid;
@@ -1300,49 +1535,42 @@ function ticketSourceLabel(item?: Ticket | null) {
   background: transparent;
   color: var(--ink);
   text-align: left;
-  cursor: pointer;
 }
 .call-record-item.active {
   background: #eef7f4;
   box-shadow: inset 3px 0 0 var(--green);
 }
-.call-record-item strong {
-  font-size: 12px;
+.call-record-item strong,
+.call-record-item small {
   overflow-wrap: anywhere;
+  font-size: 12px;
 }
 .call-record-item small {
-  color: var(--ink-soft);
-  font-size: 11px;
+  color: var(--muted);
 }
 .transcript-box,
 .draft-content-box,
-.agent-command textarea {
+.reply-box,
+.reply-small-box {
   width: 100%;
   min-height: 150px;
   resize: vertical;
-  border: 0;
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
   background: #fff;
   color: var(--ink);
   padding: 10px;
   line-height: 1.55;
   font-size: 12px;
 }
-.draft-content-box {
-  min-height: 86px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-.call-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 9px 10px;
+.draft-section-title {
+  padding: 9px 10px 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 900;
 }
 .draft-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
   padding: 10px;
 }
@@ -1355,26 +1583,28 @@ function ticketSourceLabel(item?: Ticket | null) {
   grid-column: 1 / -1;
 }
 .draft-form-grid span,
-.agent-command span {
+.case-query-bar span {
   color: var(--ink-soft);
   font-size: 11px;
   font-weight: 800;
 }
 .draft-form-grid input,
-.draft-form-grid select {
+.draft-form-grid select,
+.case-query-bar input,
+.case-query-bar select {
   min-width: 0;
   height: 30px;
   border: 1px solid var(--line);
-  border-radius: 6px;
   padding: 0 8px;
   background: #fff;
   color: var(--ink);
+  font-size: 12px;
 }
 .field-source-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 10px 9px;
+  padding: 0 10px 10px;
 }
 .field-source-strip span {
   padding: 4px 7px;
@@ -1383,46 +1613,12 @@ function ticketSourceLabel(item?: Ticket | null) {
   color: var(--ink-2);
   font-size: 11px;
 }
-.home-view,
-.detail-view {
-  min-width: 0;
-}
-.bucket-strip {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 1px;
-  margin: 8px;
-  border: 1px solid var(--line);
-  background: var(--line);
-}
-.bucket-strip button {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  min-height: 68px;
-  padding: 8px;
-  border: 0;
-  background: #fff;
-  text-align: left;
-}
-.bucket-strip button.active {
-  box-shadow: inset 0 3px 0 var(--brand);
-  color: var(--brand);
-}
-.bucket-strip strong {
-  font-family: var(--mono);
-  font-size: 20px;
-}
-.bucket-strip small {
-  color: var(--muted);
-  font-size: 12px;
-}
 .case-query-bar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px) auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px);
   gap: 8px;
   align-items: end;
-  margin: 0 8px 8px;
+  margin: 8px;
   padding: 8px;
   border: 1px solid var(--line-dark);
   background: #fff;
@@ -1431,68 +1627,6 @@ function ticketSourceLabel(item?: Ticket | null) {
   min-width: 0;
   display: grid;
   gap: 4px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 900;
-}
-.case-query-bar input,
-.case-query-bar select {
-  min-width: 0;
-  height: 30px;
-  padding: 4px 7px;
-  border: 1px solid var(--line-dark);
-  background: #fff;
-  color: var(--ink);
-  font-size: 12px;
-}
-.case-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-  gap: 8px;
-  padding: 8px;
-}
-.home-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
-}
-.full-row {
-  grid-column: 1 / -1;
-}
-.sys-panel {
-  min-width: 0;
-  border: 1px solid var(--line-dark);
-  background: #fff;
-}
-.sys-title small {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 500;
-}
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-.field-grid.two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.field {
-  min-width: 0;
-  min-height: 54px;
-  padding: 8px 10px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-.field label,
-.metric-grid label {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.field strong {
-  display: block;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.45;
 }
 .compact-table {
   width: 100%;
@@ -1514,37 +1648,46 @@ function ticketSourceLabel(item?: Ticket | null) {
   color: var(--ink-soft);
   font-weight: 900;
 }
-.queue-table tbody tr {
+.queue-table tbody tr,
+.home-grid tbody tr {
   cursor: pointer;
 }
-.queue-table tbody tr:hover {
+.queue-table tbody tr:hover,
+.home-grid tbody tr:hover {
   background: #fff5f6;
 }
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.field {
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.field label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.field strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.45;
+}
 .case-text {
-  min-height: 112px;
+  min-height: 100px;
   padding: 10px;
   color: var(--ink);
   font-size: 13px;
   line-height: 1.75;
 }
-.case-text.compact {
-  min-height: 0;
-}
-.reply-box {
-  width: calc(100% - 16px);
-  min-height: 120px;
-  margin: 8px;
-  padding: 10px;
-  border: 1px solid var(--line-dark);
-  background: #fff;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.7;
-  resize: vertical;
-}
-.reply-actions {
-  justify-content: space-between;
-  padding: 0 8px 8px;
+.full-row {
+  grid-column: 1 / -1;
 }
 .verification-strip {
   display: grid;
@@ -1562,35 +1705,116 @@ function ticketSourceLabel(item?: Ticket | null) {
   background: #fff;
   text-align: left;
 }
-.verification-chip span,
+.verification-chip strong,
+.verification-chip small {
+  overflow-wrap: anywhere;
+}
 .verification-chip small {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
 }
-.verification-chip strong {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-.verification-chip.enriched {
-  box-shadow: inset 3px 0 0 var(--blue);
-}
-.verification-chip.verified {
-  box-shadow: inset 3px 0 0 var(--green);
-}
+.verification-chip.verified,
+.verification-chip.enriched { box-shadow: inset 3px 0 0 var(--green); }
 .verification-chip.missing,
 .verification-chip.conflict,
-.verification-chip.review {
-  box-shadow: inset 3px 0 0 var(--amber);
+.verification-chip.review { box-shadow: inset 3px 0 0 var(--amber); }
+.mock-tool-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1px;
+  background: var(--line);
 }
-.empty-panel {
-  padding: 18px 12px;
+.mock-tool-step {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  min-height: 106px;
+  padding: 10px;
+  background: #fff;
+  box-shadow: inset 3px 0 0 var(--line-dark);
+}
+.mock-tool-step.done { box-shadow: inset 3px 0 0 var(--green); }
+.mock-tool-step.running { box-shadow: inset 3px 0 0 var(--blue); background: #f2f8fc; }
+.mock-tool-step.blocked { box-shadow: inset 3px 0 0 var(--amber); background: #fffaf0; }
+.mock-tool-step div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mock-tool-step span,
+.mock-tool-step small {
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.6;
 }
-.reply-workspace {
+.mock-tool-step strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.mock-tool-step p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.missing-info-panel {
+  align-self: start;
+}
+.missing-editor {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+.missing-field {
+  display: grid;
+  gap: 6px;
+}
+.missing-field > span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 900;
+}
+.missing-field input {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--line);
+  padding: 0 8px;
   background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+.missing-options,
+.missing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.supplement-status {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.log-list {
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+}
+.log-list li {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.log-list span,
+.log-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.log-list strong {
+  display: block;
+  margin: 3px 0;
+  font-size: 12px;
 }
 .reply-command-row {
   display: flex;
@@ -1617,7 +1841,7 @@ function ticketSourceLabel(item?: Ticket | null) {
 }
 .reply-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(250px, 0.8fr) minmax(250px, 0.8fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
   gap: 1px;
   background: var(--line);
 }
@@ -1634,41 +1858,46 @@ function ticketSourceLabel(item?: Ticket | null) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: var(--ink);
   font-size: 13px;
 }
 .reply-pane header span {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
-}
-.customer-pane {
-  grid-row: span 2;
 }
 .reply-pane .reply-box {
-  width: 100%;
   min-height: 260px;
-  margin: 0;
 }
 .reply-small-box {
-  width: 100%;
-  min-height: 96px;
-  padding: 9px;
-  border: 1px solid var(--line-dark);
+  min-height: 190px;
   background: var(--panel-2);
-  color: var(--ink);
-  font-size: 12px;
-  line-height: 1.65;
-  resize: vertical;
 }
-.evidence-pane {
-  max-height: 260px;
-  overflow: auto;
+.assist-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.assist-tab {
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 900;
+}
+.assist-tab.active {
+  border-color: var(--brand);
+  background: #eef7f4;
+  color: var(--brand);
+}
+.assist-box {
+  min-height: 232px;
 }
 .evidence-token {
   min-width: 0;
   display: grid;
   gap: 4px;
+  margin: 8px;
   padding: 8px;
   border: 1px solid var(--line);
   background: var(--panel-2);
@@ -1683,6 +1912,13 @@ function ticketSourceLabel(item?: Ticket | null) {
   font-size: 12px;
   line-height: 1.45;
 }
+.empty-panel,
+.empty-cell {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
 .status {
   display: inline-flex;
   align-items: center;
@@ -1694,86 +1930,11 @@ function ticketSourceLabel(item?: Ticket | null) {
   font-weight: 900;
   white-space: nowrap;
 }
-.status.red {
-  border-color: rgba(180, 35, 53, 0.3);
-  background: #fff0f2;
-  color: var(--danger);
-}
-.status.amber {
-  border-color: rgba(196, 123, 24, 0.34);
-  background: #fff7e8;
-  color: var(--warn);
-}
-.status.green {
-  border-color: rgba(31, 138, 91, 0.28);
-  background: #edf9f2;
-  color: var(--ok);
-}
-.status.blue {
-  border-color: rgba(33, 108, 158, 0.25);
-  background: #eef7fd;
-  color: var(--blue);
-}
-.status.neutral {
-  background: var(--table);
-  color: var(--ink-soft);
-}
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--line);
-}
-.metric-grid > div {
-  min-width: 0;
-  padding: 12px;
-  background: #fff;
-}
-.metric-grid strong {
-  font-family: var(--mono);
-  font-size: 22px;
-}
-.system-note {
-  padding: 10px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.constraint-list {
-  margin: 0;
-  padding: 10px 26px 12px;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.9;
-}
-.audit-bottom {
-  margin: 0 8px 8px;
-  border: 1px dashed var(--line-dark);
-  background: #fff;
-}
-.audit-bottom summary {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 900;
-}
-.timeline {
-  margin: 0;
-  padding: 0 10px 10px;
-  list-style: none;
-}
-.timeline li {
-  display: grid;
-  grid-template-columns: 150px 1fr;
-  gap: 8px;
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.45;
-}
+.status.red { border-color: rgba(180, 35, 53, 0.3); background: #fff0f2; color: var(--danger); }
+.status.amber { border-color: rgba(196, 123, 24, 0.34); background: #fff7e8; color: var(--warn); }
+.status.green { border-color: rgba(31, 138, 91, 0.28); background: #edf9f2; color: var(--ok); }
+.status.blue { border-color: rgba(33, 108, 158, 0.25); background: #eef7fd; color: var(--blue); }
+.status.neutral { background: var(--table); color: var(--ink-soft); }
 .copilot-toggle {
   position: fixed;
   top: 50%;
@@ -1789,375 +1950,20 @@ function ticketSourceLabel(item?: Ticket | null) {
   border-radius: 12px 0 0 12px;
   background: rgba(255, 255, 255, 0.92);
   color: #475569;
-  box-shadow: -4px 0 14px rgba(31, 41, 51, 0.08);
   font-size: 22px;
   font-weight: 900;
-  line-height: 1;
   transform: translateY(-50%);
-  transition: width 140ms ease, background 140ms ease, color 140ms ease;
-}
-.copilot-toggle:hover {
-  width: 28px;
-  background: #f8fbff;
-  color: #0e7490;
 }
 .copilot {
   grid-area: copilot;
   position: sticky;
   top: 0;
-  z-index: 2;
   align-self: start;
-  width: 356px;
+  width: 376px;
   height: calc(100vh - 42px);
   overflow: hidden;
   border-left: 1px solid #dfe5ec;
   background: #fff;
-  box-shadow: -10px 0 24px rgba(31, 41, 51, 0.08);
-}
-.page-agent-chat {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.page-agent-chat-head {
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e6ebf1;
-  background: #fff;
-}
-.page-agent-brand,
-.page-agent-head-actions {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.page-agent-brand > div {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-.page-agent-brand strong {
-  color: var(--ink);
-  font-size: 14px;
-}
-.page-agent-brand small,
-.page-agent-head-actions {
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-.page-agent-mark {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #d4dce6;
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #26394d;
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 900;
-}
-.page-agent-status-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: #9aa7b5;
-}
-.page-agent-status-dot.ready {
-  background: #22a06b;
-}
-.page-agent-status-dot.running {
-  background: #2f6fed;
-  box-shadow: 0 0 0 4px rgba(47, 111, 237, 0.12);
-}
-.page-agent-status-dot.warning {
-  background: #c8861a;
-}
-.page-agent-status-dot.danger {
-  background: #d64545;
-}
-.page-agent-mini-btn {
-  min-height: 26px;
-  padding: 0 9px;
-  border: 1px solid #d7dde5;
-  border-radius: 7px;
-  background: #fff;
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 800;
-}
-.page-agent-mini-btn:disabled {
-  color: #a3adba;
-  cursor: not-allowed;
-}
-.page-agent-thread {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  padding: 18px 14px;
-  background: #f7f9fb;
-}
-.page-agent-message {
-  max-width: 100%;
-  display: grid;
-  gap: 7px;
-  padding: 10px 11px;
-  border: 1px solid #e1e7ee;
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-}
-.page-agent-message.user {
-  width: fit-content;
-  max-width: 88%;
-  margin-left: auto;
-  border-color: #bfd4ef;
-  background: #eef6ff;
-}
-.page-agent-message.accent {
-  border-color: #c9d8ee;
-  background: #f4f8ff;
-}
-.page-agent-message.success {
-  border-color: #b8dfc3;
-  background: #f2fbf5;
-}
-.page-agent-message.warning {
-  border-color: #ead5a8;
-  background: #fff9ed;
-}
-.page-agent-message.danger {
-  border-color: #efc2c2;
-  background: #fff5f5;
-}
-.page-agent-message-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.page-agent-message-head strong {
-  min-width: 0;
-  color: var(--ink);
-  font-size: 13px;
-}
-.page-agent-message-head span {
-  flex: 0 0 auto;
-  color: #7d8896;
-  font-family: var(--mono);
-  font-size: 10px;
-}
-.page-agent-message p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-.page-agent-chip-row,
-.page-agent-quick-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.page-agent-chip-row span {
-  min-height: 20px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-  border: 1px solid #dbe2ea;
-  border-radius: 999px;
-  background: #fff;
-  color: #536071;
-  font-size: 11px;
-  font-weight: 800;
-}
-.page-agent-line-list {
-  display: grid;
-  gap: 5px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.page-agent-line-list li {
-  padding: 6px 7px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #465365;
-  font-size: 11px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-.page-agent-composer {
-  flex: 0 0 auto;
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid #e4e9ef;
-  background: #fff;
-}
-.page-agent-pill {
-  min-height: 26px;
-  padding: 0 9px;
-  border: 1px solid #d8e0e8;
-  border-radius: 999px;
-  background: #fff;
-  color: #344154;
-  font-size: 12px;
-  font-weight: 800;
-}
-.page-agent-pill:hover:not(:disabled) {
-  border-color: #9bb6d6;
-  background: #f3f7fb;
-}
-.page-agent-pill:disabled {
-  color: #a3adba;
-  background: #f7f8fa;
-  cursor: not-allowed;
-}
-.page-agent-input-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: end;
-  padding: 8px;
-  border: 1px solid #cfd8e3;
-  border-radius: 8px;
-  background: #fff;
-}
-.page-agent-input {
-  min-height: 58px;
-  max-height: 120px;
-  resize: vertical;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.page-agent-input::placeholder {
-  color: #99a4b2;
-}
-.page-agent-send {
-  min-width: 56px;
-  min-height: 34px;
-  border: 1px solid #26394d;
-  border-radius: 8px;
-  background: #26394d;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 900;
-}
-.page-agent-send:disabled {
-  border-color: #d4dbe4;
-  background: #eef1f5;
-  color: #9aa6b4;
-  cursor: not-allowed;
-}
-.page-agent-hidden-targets {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-.page-agent-hidden-target {
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  border: 0;
-}
-.flow-list,
-.log-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.flow-step {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 8px;
-  padding: 9px 0 9px 18px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-}
-.flow-step::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 13px;
-  width: 9px;
-  height: 9px;
-  border: 2px solid var(--line-dark);
-  background: #fff;
-}
-.flow-step.done::before {
-  border-color: var(--green);
-  background: var(--green);
-}
-.flow-step.running::before {
-  border-color: var(--blue);
-  background: var(--blue);
-}
-.flow-step.blocked::before {
-  border-color: var(--red);
-  background: var(--red);
-}
-.flow-step span,
-.flow-step strong {
-  font-size: 12px;
-}
-.flow-step small {
-  grid-column: 1 / -1;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.log-list li {
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line);
-}
-.log-list span,
-.log-list small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.log-list strong {
-  display: block;
-  margin: 3px 0;
-  font-size: 12px;
-}
-.log-list p {
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.55;
-}
-.audit-table {
-  margin-bottom: 10px;
-}
-.empty-cell,
-.detail-empty {
-  color: var(--muted);
-  text-align: center;
-}
-.detail-empty {
-  display: grid;
-  place-content: center;
-  gap: 12px;
-  min-height: 420px;
 }
 .mono {
   font-family: var(--mono);
@@ -2165,6 +1971,8 @@ function ticketSourceLabel(item?: Ticket | null) {
 @media (max-width: 1180px) {
   .layout-core,
   .layout-core.copilot-expanded {
+    height: auto;
+    min-height: calc(100vh - 42px);
     grid-template-columns: 1fr;
     grid-template-areas:
       "workspace"
@@ -2176,43 +1984,24 @@ function ticketSourceLabel(item?: Ticket | null) {
     position: static;
     width: auto;
     height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line-dark);
-  }
-  .nav-tree {
-    max-height: 220px;
-  }
-  .copilot {
     max-height: 360px;
   }
+  .home-grid,
   .case-grid,
-  .home-grid {
-    grid-template-columns: 1fr;
-  }
-  .call-intake-grid {
+  .dispatch-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
       "calls"
       "transcript"
       "draft";
   }
-  .reply-grid {
-    grid-template-columns: 1fr;
-  }
-  .case-query-bar {
-    grid-template-columns: 1fr;
-  }
-  .bucket-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .field-grid,
-  .field-grid.two,
-  .metric-grid {
+  .dashboard-strip,
+  .business-flow,
+  .field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .copilot-toggle {
-    position: fixed;
-    margin: 0;
+  .reply-grid {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 720px) {
@@ -2226,28 +2015,17 @@ function ticketSourceLabel(item?: Ticket | null) {
     width: 100%;
     border-right: 0;
   }
-  .top-actions {
-    flex-wrap: wrap;
-    padding: 8px 10px;
-  }
   .tabbar {
     overflow-x: auto;
   }
-  .case-grid,
-  .home-grid {
-    padding: 6px;
-  }
-  .draft-form-grid {
-    grid-template-columns: 1fr;
-  }
-  .bucket-strip,
-  .verification-strip,
+  .dashboard-strip,
+  .business-flow,
+  .draft-form-grid,
   .field-grid,
-  .field-grid.two,
-  .metric-grid {
+  .verification-strip {
     grid-template-columns: 1fr;
   }
-  .timeline li {
+  .case-query-bar {
     grid-template-columns: 1fr;
   }
 }

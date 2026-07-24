@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload } from '../types';
-import { ticketApi } from '../api';
+import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload, WorkflowConfig } from '../types';
+import { ticketApi, workflowApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
   const tickets = ref<Ticket[]>([]);
@@ -12,6 +12,7 @@ export const useTicketStore = defineStore('ticket', () => {
   const toolCalls = ref<ToolCallLog[]>([]);
   const operationLogs = ref<TicketOperationLog[]>([]);
   const callRecords = ref<CallRecordSample[]>([]);
+  const workflowConfig = ref<WorkflowConfig | null>(null);
   const ticketDraftResult = ref<TicketDraftResult | null>(null);
   const pageActionLogs = ref<PageActionLogEntry[]>([]);
   const pageAgentStatus = ref<PageActionStatus>('done');
@@ -31,6 +32,10 @@ export const useTicketStore = defineStore('ticket', () => {
 
   async function fetchCallRecords() {
     callRecords.value = await ticketApi.listCallRecords();
+  }
+
+  async function fetchWorkflowConfig() {
+    workflowConfig.value = await workflowApi.getConfig();
   }
 
   async function generateTicketDraft(payload: GenerateTicketDraftPayload) {
@@ -252,6 +257,7 @@ export const useTicketStore = defineStore('ticket', () => {
     toolCalls,
     operationLogs,
     callRecords,
+    workflowConfig,
     ticketDraftResult,
     pageActionLogs,
     pageAgentStatus,
@@ -263,6 +269,7 @@ export const useTicketStore = defineStore('ticket', () => {
     closedCount,
     fetchTickets,
     fetchCallRecords,
+    fetchWorkflowConfig,
     generateTicketDraft,
     setPageAgentStatus,
     appendPageActionLog,

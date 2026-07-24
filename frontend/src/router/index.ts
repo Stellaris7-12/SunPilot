@@ -5,18 +5,46 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/tickets'
+      name: 'Workbench',
+      component: () => import('../views/EnterpriseTicketShellView.vue'),
+    },
+    {
+      path: '/dispatch',
+      name: 'Dispatch',
+      component: () => import('../views/EnterpriseTicketShellView.vue'),
+    },
+    {
+      path: '/dispatch/:category',
+      name: 'DispatchCategory',
+      component: () => import('../views/EnterpriseTicketShellView.vue'),
+      props: true,
+    },
+    {
+      path: '/reply',
+      name: 'Reply',
+      component: () => import('../views/EnterpriseTicketShellView.vue'),
+    },
+    {
+      path: '/reply/:category',
+      name: 'ReplyCategory',
+      component: () => import('../views/EnterpriseTicketShellView.vue'),
+      props: true,
+    },
+    {
+      path: '/reply/tickets/:id',
+      name: 'ReplyTicketDetail',
+      component: () => import('../views/EnterpriseTicketShellView.vue'),
+      props: true,
     },
     {
       path: '/tickets',
       name: 'TicketList',
-      component: () => import('../views/TicketListView.vue'),
+      redirect: '/reply',
     },
     {
       path: '/tickets/:id',
       name: 'TicketDetail',
-      component: () => import('../views/TicketDetailView.vue'),
-      props: true,
+      redirect: to => `/reply/tickets/${to.params.id}`,
     },
     {
       path: '/legacy/tickets',

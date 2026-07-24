@@ -30,6 +30,8 @@
 | 42xxxx | 征信 | 账户类型、是否敏感、逾期状态 |
 | 11/71xxxx | 协商还款 | 账户类型、客助标签 |
 
+[详细信息](file:///C:/Users/heyunhui/Downloads/资料-工单多Agent系统/工单系统案例/ocr_output)
+
 ### 2.2 数据库
 
 tickets 表当前 30 个字段全部平铺，所有类型通用。改造：

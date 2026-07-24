@@ -15,15 +15,22 @@ export interface Ticket {
   scene: string;
   category: string;
   subcategory: string;
+  extJson: Record<string, unknown>;
+  orderPrefix: string;
+  bizType: string;
+  bizSubType: string;
   priority: 'low' | 'normal' | 'urgent' | 'critical';
   channel: string;
   assignee: string;
   department: string;
   createdAt: string;
   dueAt: string;
+  deadline: string;
   updatedAt: string;
   riskLabel: string;
   riskLevel: RiskLevel;
+  receiveUnit: string;
+  needReply: boolean;
   status: TicketStatus;
   content: string;
   closedAt: string;
@@ -198,13 +205,20 @@ export interface UpdateTicketPayload {
   scene?: string;
   category?: string;
   subcategory?: string;
+  extJson?: Record<string, unknown>;
+  orderPrefix?: string;
+  bizType?: string;
+  bizSubType?: string;
   priority?: Ticket['priority'];
   channel?: string;
   assignee?: string;
   department?: string;
   dueAt?: string;
+  deadline?: string;
   riskLabel?: string;
   riskLevel?: RiskLevel;
+  receiveUnit?: string;
+  needReply?: boolean;
   content?: string;
   operator?: string;
 }
@@ -220,14 +234,46 @@ export interface CreateTicketPayload {
   scene: string;
   category?: string;
   subcategory?: string;
+  extJson?: Record<string, unknown>;
+  orderPrefix?: string;
+  bizType?: string;
+  bizSubType?: string;
   priority?: Ticket['priority'];
   channel?: string;
   assignee?: string;
   department?: string;
   dueAt?: string;
+  deadline?: string;
   riskLabel?: string;
   riskLevel?: RiskLevel;
+  receiveUnit?: string;
+  needReply?: boolean;
   content: string;
+}
+
+export interface WorkflowField {
+  name: string;
+  label: string;
+  type?: 'text' | 'textarea' | 'select' | string;
+  options?: string[];
+}
+
+export interface WorkflowScenarioConfig {
+  workflowName?: string;
+  label: string;
+  orderPrefix?: string;
+  slaDays?: number;
+  fields?: WorkflowField[];
+  specificFields?: WorkflowField[];
+  requiredFields?: string[];
+  recommendedTool?: string;
+  requiresHumanConfirmation?: boolean;
+  notificationTemplate?: string;
+}
+
+export interface WorkflowConfig {
+  defaultWorkflow: string;
+  scenarios: Record<string, WorkflowScenarioConfig>;
 }
 
 export interface CallRecordSample {

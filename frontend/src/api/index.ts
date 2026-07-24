@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload, CallRecordSample, GenerateTicketDraftPayload, TicketDraftResult, PageActionLogPayload, PageActionLogRecord } from '../types';
+import type { Ticket, AiProcessResult, TraceStep, AgentCard, ToolDefinition, ToolResult, ToolCallLog, EvaluationMetrics, ProcessTicketResponse, TicketListFilters, TicketOperationLog, UpdateTicketPayload, CreateTicketPayload, CallRecordSample, GenerateTicketDraftPayload, TicketDraftResult, PageActionLogPayload, PageActionLogRecord, WorkflowConfig } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api').replace(/\/$/, '');
 
@@ -26,6 +26,10 @@ export const ticketApi = {
   listCallRecords: () => api.get<CallRecordSample[]>('/call-records').then(r => r.data),
   generateTicketDraft: (payload: GenerateTicketDraftPayload) => api.post<TicketDraftResult>('/call-records/generate-ticket-draft', payload).then(r => r.data),
   recordPageActionLog: (payload: PageActionLogPayload) => api.post<PageActionLogRecord>('/page-action-logs', payload).then(r => r.data),
+};
+
+export const workflowApi = {
+  getConfig: () => api.get<WorkflowConfig>('/workflow-config').then(r => r.data),
 };
 
 export const agentApi = {

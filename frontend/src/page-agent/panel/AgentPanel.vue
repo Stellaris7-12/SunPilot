@@ -44,6 +44,19 @@ interface QuickAction {
   disabled?: boolean
 }
 
+const businessFieldLabels: Record<string, string> = {
+  couponType: '券种',
+  reason: '补发原因',
+  customerId: '客户号',
+  customerName: '客户姓名',
+  phone: '手机号',
+  cardLast4: '卡号后四位',
+  transactionDate: '交易日期',
+  transactionAmount: '交易金额',
+  merchantName: '商户名称',
+  activityName: '活动名称',
+}
+
 const emit = defineEmits<{
   generateDraft: []
   submitDraft: []
@@ -97,10 +110,11 @@ const latestPageTaskDirective = ref<PageTaskDirective | null>(null)
 let unbindBridge: (() => void) | null = null
 let deterministicAbort: AbortController | null = null
 
-const modeLabel = computed(() => route.params.id ? '工单回单' : '通话发单')
+const isDispatchPage = computed(() => route.path.startsWith('/dispatch'))
+const modeLabel = computed(() => isDispatchPage.value ? '发单辅助' : '回单辅助')
 const placeholder = computed(() => {
-  if (composerMode.value === 'qa') return route.params.id ? '问我当前工单、证据或下一步，不会执行页面动作' : '问我发单草稿、字段含义或 SunPilot 能做什么'
-  return route.params.id ? '任务模式：例如处理当前工单并准备回单' : '任务模式：例如根据这通电话帮我发单'
+  if (composerMode.value === 'qa') return isDispatchPage.value ? '可询问发单字段、客户诉求或下一步' : '可询问当前工单、处理依据或下一步'
+  return isDispatchPage.value ? '例如：根据这通电话整理发单内容' : '例如：整理处理意见并带入回单'
 })
 const statusLabel = computed(() => {
   const labels: Record<AgentStatus, string> = {
@@ -119,27 +133,37 @@ const statusTone = computed(() => {
   return 'ready'
 })
 const quickActions = computed<QuickAction[]>(() => {
-  if (!route.params.id) {
+  if (isDispatchPage.value) {
     return [
       { label: '生成发单草稿', emit: 'generateDraft' },
-      { label: '填入发单表单', command: '根据最新发单Agent草稿，填入当前标准工单草稿表单。', disabled: !store.ticketDraftResult },
-      { label: '提交标准工单', emit: 'submitDraft', disabled: !store.ticketDraftResult },
-      { label: '定位通话全文', command: '定位当前通话全文区域，检查通话文本是否完整。' },
+      { label: '带入来电信息', command: '根据最新发单草稿，填入当前标准工单表单。', disabled: !store.ticketDraftResult },
+      { label: '发送工单', emit: 'submitDraft', disabled: !store.ticketDraftResult },
     ]
   }
   const needsConfirm = store.selectedTicket?.status === 'pending_human_confirm'
+  const hasMissing = Boolean(store.aiResult?.missingFields?.length)
+  if (!store.aiResult) {
+    return [
+      { label: '开始处理', emit: 'startAiProcess', disabled: !store.selectedTicket || store.isProcessing },
+      { label: '查看待补充', emit: 'scrollMissing', disabled: !store.selectedTicket },
+    ]
+  }
+  if (hasMissing) {
+    return [
+      { label: '补充缺失信息', emit: 'scrollMissing' },
+      { label: '查看核验记录', command: '定位外部系统核验过程和核验结果。' },
+      { label: needsConfirm ? '人工确认' : '进入复核', emit: needsConfirm ? 'openHumanConfirm' : 'scrollReply', disabled: needsConfirm ? false : !store.replyDraft },
+    ]
+  }
   return [
-    { label: store.isProcessing ? 'AI处理中' : store.aiResult ? '重新 AI 处理' : '启动 AI 处理', emit: 'startAiProcess', disabled: store.isProcessing },
-    { label: '填入回单草稿', command: '根据最新后端AI处理结果，填入客户回单编辑器。', disabled: !store.aiResult },
-    { label: '定位证据', command: '根据最新后端AI处理结果，定位证据编号、工具审计和处理依据。', disabled: !store.aiResult },
-    { label: '进入复核区', command: '滚动到回单复核区，等待坐席人工复核结案。', disabled: !store.aiResult },
-    { label: '查看缺失字段', emit: 'scrollMissing', disabled: !store.aiResult?.missingFields?.length },
-    { label: '人工确认区', emit: 'openHumanConfirm', disabled: !needsConfirm },
+    { label: '带入回单内容', command: '根据最新处理结果，填入客户回单编辑器。', disabled: !store.aiResult },
+    { label: '查看核验记录', command: '定位处理依据和核验记录。', disabled: !store.aiResult },
+    { label: needsConfirm ? '人工确认' : '进入复核', emit: needsConfirm ? 'openHumanConfirm' : 'scrollReply', disabled: needsConfirm ? false : !store.aiResult },
   ]
 })
 const configSummary = computed(() => {
-  if (!llmConfig.value) return '配置读取中'
-  const keyLabel = llmConfig.value.apiKeyConfigured ? `Key ${llmConfig.value.apiKeyPreview || '已配置'}` : 'Key 未配置'
+  if (!llmConfig.value) return '读取中'
+  const keyLabel = llmConfig.value.apiKeyConfigured ? `凭据 ${llmConfig.value.apiKeyPreview || '已配置'}` : '凭据未配置'
   return `${llmConfig.value.model} · ${keyLabel}`
 })
 const modelOptions = computed(() => {
@@ -154,8 +178,69 @@ const modelOptions = computed(() => {
 const isAgentRunning = computed(() => running.value || status.value === 'running')
 const currentPageTaskLabel = computed(() => {
   if (!latestPageTask.value) return ''
-  return latestPageTaskDirective.value?.summary || `${latestPageTask.value.scene} · ${latestPageTask.value.mode} · ${latestPageTask.value.actions.length}步`
+  return cleanBusinessText(latestPageTaskDirective.value?.summary || `待执行 ${latestPageTask.value.actions.length} 步`)
 })
+const missingFieldLabels = computed(() =>
+  (store.aiResult?.missingFields || []).map(field => businessFieldLabel(field))
+)
+const externalSystemRows = computed(() => {
+  const rows: Array<{ label: string; status: string }> = []
+  const enrichment = store.aiResult?.fieldEnrichment
+  enrichment?.sourceTools?.forEach(tool => {
+    rows.push({
+      label: toolBusinessLabel(tool),
+      status: enrichment.unresolvedFields?.length ? '需补充' : '已核验',
+    })
+  })
+  store.toolCalls.forEach(call => {
+    rows.push({
+      label: toolBusinessLabel(call.toolName),
+      status: call.success ? '已完成' : '未通过',
+    })
+  })
+  return rows.slice(0, 5)
+})
+const pilotFlowSteps = computed(() => {
+  if (isDispatchPage.value) {
+    return [
+      { label: '读取来电', status: '已完成' },
+      { label: store.ticketDraftResult ? '草稿已生成' : '整理草稿', status: store.ticketDraftResult ? '已完成' : '待处理' },
+      { label: currentPageTaskLabel.value || '等待发送', status: currentPageTaskLabel.value ? '办理中' : '待处理' },
+    ]
+  }
+  return [
+    { label: store.selectedTicket ? '读取工单' : '选择工单', status: store.selectedTicket ? '已完成' : '待处理' },
+    { label: store.isProcessing ? '接单处理' : store.aiResult ? '接单处理完成' : '等待处理', status: store.isProcessing ? '办理中' : store.aiResult ? '已完成' : '待处理' },
+    { label: externalSystemRows.value.length ? '外部系统核验' : '等待核验', status: store.isProcessing ? '办理中' : externalSystemRows.value.length ? '已完成' : '待处理' },
+    { label: missingFieldLabels.value.length ? '信息补充' : (store.replyDraft ? '回单待复核' : '整理回单'), status: missingFieldLabels.value.length ? '需补充' : currentPageTaskLabel.value || store.replyDraft ? '办理中' : '待处理' },
+  ]
+})
+
+function businessFieldLabel(field: string) {
+  return businessFieldLabels[field] || field
+}
+
+function toolBusinessLabel(toolName?: string) {
+  const name = toolName || ''
+  if (/coupon|benefit|权益|优惠|activity/i.test(name)) return '权益活动系统'
+  if (/transaction|trade|交易|dispute|chargeback/i.test(name)) return '交易查询系统'
+  if (/customer|profile|客户|资料/i.test(name)) return '客户资料系统'
+  if (/card|account|卡片|账户/i.test(name)) return '卡片账户系统'
+  if (/credit|征信/i.test(name)) return '征信业务系统'
+  if (/application|申请/i.test(name)) return '申请进度系统'
+  return name || '外部业务系统'
+}
+
+function cleanBusinessText(text: string) {
+  const withoutTech = text
+    .replace(/ticket-reply\s*\/\s*suggest\s*\/\s*\d+\s*个动作[；;]?\s*/gi, '')
+    .replace(/PageTask|trace|workflow|tool|confidence|prompt/gi, '')
+    .replace(/字段不足/g, '信息不足')
+  return Object.entries(businessFieldLabels).reduce(
+    (current, [key, label]) => current.replace(new RegExp(key, 'gi'), label),
+    withoutTech,
+  ).trim()
+}
 
 function messageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
@@ -175,13 +260,13 @@ function summarizeInput(inputValue: unknown) {
 
 function appendActivity(activity: AgentActivity) {
   if (activity.type === 'thinking') {
-    pushMessage({ kind: 'activity', title: '思考中', body: '正在观察页面并规划下一步。', tone: 'accent' })
+    pushMessage({ kind: 'activity', title: '处理中', body: '正在整理当前页面信息。', tone: 'accent' })
     return
   }
   if (activity.type === 'executing') {
     pushMessage({
       kind: 'activity',
-      title: `执行 ${activity.tool}`,
+      title: '执行操作',
       body: summarizeInput(activity.input),
       tone: 'neutral',
     })
@@ -190,7 +275,7 @@ function appendActivity(activity: AgentActivity) {
   if (activity.type === 'executed') {
     pushMessage({
       kind: 'activity',
-      title: `${activity.tool} 已完成`,
+      title: '操作完成',
       body: activity.output,
       tone: 'success',
       meta: [`${activity.duration}ms`],
@@ -200,8 +285,8 @@ function appendActivity(activity: AgentActivity) {
   if (activity.type === 'retrying') {
     pushMessage({
       kind: 'activity',
-      title: 'LLM 重试',
-      body: `第 ${activity.attempt}/${activity.maxAttempts} 次重试。`,
+      title: '重新尝试',
+      body: `第 ${activity.attempt}/${activity.maxAttempts} 次尝试。`,
       tone: 'warning',
     })
     return
@@ -219,25 +304,25 @@ function answerQuestion(question: string) {
   const hasGreeting = /^(你好|您好|hello|hi|在吗|嗨)[!！。,.，\s]*$/i.test(question.trim())
   let body = ''
   if (hasGreeting) {
-    body = '你好，我在。当前是问答模式，我只回答问题，不会操作页面。要填表、定位证据或执行回单，请切到任务模式或点上方快捷按钮。'
+    body = '你好，我在。当前只回答问题，不会改动页面。要填表、定位依据或整理回单，请点上方快捷按钮。'
   } else if (/能做什么|怎么用|帮助|help/.test(normalized)) {
-    body = '我可以解释当前工单、说明缺失字段、梳理证据和下一步；切到任务模式后，才会执行填表、定位证据、滚动到复核区等页面动作。'
+    body = '我可以说明当前工单、提示缺失字段、梳理处理依据和下一步，也可以按坐席确认带入表单或回单内容。'
   } else if (/当前|工单|案件|客户/.test(question)) {
     body = ticket
-      ? `当前工单是 ${ticket.no}：${ticket.title}。客户 ${ticket.customerName || ticket.customerId || '未知'}，状态为 ${ticket.status}，风险等级为 ${ticket.riskLevel}。`
+      ? `当前工单是 ${ticket.no}：${ticket.title}。客户 ${ticket.customerName || ticket.customerId || '未知'}，状态为 ${ticket.status}。`
       : '当前没有选中的工单。可以先在左侧队列选择一张工单，或在通话发单区选择通话样本。'
   } else if (/证据|依据|审计/.test(question)) {
     body = evidenceIds.length
       ? `当前可见证据编号：${Array.from(new Set(evidenceIds)).join('、')}。`
-      : '当前还没有可见证据编号。通常需要先启动 AI 处理或完成工具调用后，证据会出现在业务信息流和工具审计中。'
+      : '当前还没有可见依据编号。通常需要先处理当前工单，依据会出现在处理记录中。'
   } else if (/下一步|怎么办|建议/.test(question)) {
     body = ticket
-      ? `建议下一步：${store.isProcessing ? '等待 AI 流程返回' : store.aiResult?.missingFields?.length ? `先补充 ${store.aiResult.missingFields.join('、')}` : store.aiResult ? '复核回单、证据和结案建议' : '在 SunPilot 中启动 AI 处理'}。`
+      ? `建议下一步：${store.isProcessing ? '等待处理完成' : store.aiResult?.missingFields?.length ? `先补充 ${store.aiResult.missingFields.join('、')}` : store.aiResult ? '复核回单、处理依据和结案建议' : '先开始处理当前工单'}。`
       : '建议先选择工单或通话样本，再根据页面上方快捷按钮推进。'
   } else {
     body = '我先按问答处理，不会执行页面动作。你可以问“当前工单是什么”“证据有哪些”“下一步怎么办”；需要操作页面时，请切到任务模式。'
   }
-  pushMessage({ kind: 'result', title: 'SunPilot 问答', body, tone: 'accent', meta: ['问答模式'] })
+  pushMessage({ kind: 'result', title: 'SunPilot 回复', body, tone: 'accent' })
 }
 
 async function loadLlmConfig() {
@@ -284,7 +369,7 @@ async function saveLlmConfig() {
 
 async function saveSelectedModel() {
   savingSettings.value = true
-  settingsStatus.value = '模型保存中...'
+    settingsStatus.value = '保存中...'
   try {
     const response = await fetch(`${apiBaseUrl}/llm/proxy/config`, {
       method: 'POST',
@@ -300,8 +385,8 @@ async function saveSelectedModel() {
     selectedModel.value = data.model
     settingsStatus.value = `已切换到 ${data.model}`
   } catch (error) {
-    const message = error instanceof Error ? error.message : '模型保存失败'
-    settingsStatus.value = `模型保存失败：${message}`
+    const message = error instanceof Error ? error.message : '保存失败'
+    settingsStatus.value = `保存失败：${message}`
   } finally {
     savingSettings.value = false
   }
@@ -311,7 +396,7 @@ function appendLatestHistory(history: HistoricalEvent[]) {
   const latest = history.at(-1)
   if (!latest) return
   if (latest.type === 'observation') {
-    pushMessage({ kind: 'observation', title: '后端 observation', body: latest.content, tone: 'accent' })
+    pushMessage({ kind: 'observation', title: '业务提示', body: cleanBusinessText(latest.content), tone: 'accent' })
   }
 }
 
@@ -339,15 +424,15 @@ async function runTask(command = input.value) {
     if (deterministicResult) {
       pushMessage({
         kind: 'result',
-        title: deterministicResult.success ? '确定性执行完成' : deterministicResult.stopped ? '已停在人工节点' : '确定性执行未完成',
+      title: deterministicResult.success ? '执行完成' : deterministicResult.stopped ? '等待人工处理' : '执行未完成',
         body: deterministicResult.summary,
         tone: deterministicResult.success ? 'success' : deterministicResult.stopped ? 'warning' : 'danger',
       })
       if (deterministicResult.success || deterministicResult.stopped) return
       pushMessage({
         kind: 'activity',
-        title: '切换 ReAct 兜底',
-        body: '确定性 PageTask 未完成，转入页面观察与布局恢复。',
+        title: '继续尝试',
+        body: '当前操作未完成，继续根据页面情况处理。',
         tone: 'warning',
       })
     }
@@ -375,7 +460,7 @@ async function maybeRunPageTask(task: string) {
   const isStructuredTask =
     task === suggestedCommand.value ||
     task === directive.instruction ||
-    task.startsWith('执行当前结构化 PageTask')
+    task.startsWith('执行当前建议')
   if (!isStructuredTask) return null
 
   deterministicAbort = new AbortController()
@@ -415,7 +500,7 @@ async function recordDeterministicActionLog(entry: PageTaskActionAuditEntry) {
     pushMessage({
       kind: 'activity',
       title: '审计日志暂存失败',
-      body: `${entry.toolName} 的页面操作已执行，但未能写入后端 page_action_logs。`,
+      body: '页面操作已执行，但处理记录暂未保存。',
       tone: 'warning',
     })
   }
@@ -435,7 +520,7 @@ function submit() {
   if (!task || isAgentRunning.value) return
   input.value = ''
   if (composerMode.value === 'qa') {
-    pushMessage({ kind: 'task', title: '坐席提问', body: task, tone: 'neutral', meta: ['问答模式'] })
+    pushMessage({ kind: 'task', title: '坐席提问', body: task, tone: 'neutral' })
     answerQuestion(task)
     return
   }
@@ -474,8 +559,8 @@ function runQuickAction(action: QuickAction | string) {
 
 function setSuggestedCommand(kind: string) {
   const commands: Record<string, string> = {
-    draft: '根据刚收到的发单Agent草稿，填入发单表单并提交标准工单。',
-    ai_result: '根据刚收到的后端AI处理结果，填入回单编辑器，定位证据链，并滚动到复核区。',
+    draft: '根据刚收到的发单草稿，填入发单表单并提交标准工单。',
+    ai_result: '根据刚收到的处理结果，填入回单编辑器，定位处理依据，并滚动到复核区。',
     paused: '根据刚收到的高风险或人工确认信息，定位风险原因和人工确认区域，然后停止等待坐席处理。',
   }
   suggestedCommand.value = commands[kind] || ''
@@ -486,8 +571,8 @@ onMounted(() => {
   messages.value = [{
     id: messageId('welcome'),
     kind: 'result',
-    title: 'SunPilot ready',
-    body: route.params.id ? '默认问答模式，我只解释当前工单和下一步；切到任务模式后才执行回单、证据定位或复核准备。' : '默认问答模式，我只解释发单草稿和字段；切到任务模式后才填表或提交标准工单。',
+    title: 'SunPilot',
+    body: route.path.startsWith('/dispatch') ? '我可以协助整理来电内容、带入发单字段，并在坐席确认后发送工单。' : '我可以协助梳理当前工单、带入回单内容，并提示复核前需要确认的事项。',
     tone: 'neutral',
   }]
 
@@ -500,7 +585,7 @@ onMounted(() => {
   unbindBridge = bindTicketPageAgentBridge(agent, store, {
     onObservation: (content, kind) => {
       if (kind !== 'trace' && kind !== 'processing') latestBusinessContext.value = content
-      pushMessage({ kind: 'observation', title: '业务信息流', body: content, tone: kind === 'paused' ? 'warning' : 'accent' })
+      pushMessage({ kind: 'observation', title: '业务提示', body: content, tone: kind === 'paused' ? 'warning' : 'accent' })
       setSuggestedCommand(kind)
     },
     onPageTask: (task, kind) => {
@@ -508,11 +593,11 @@ onMounted(() => {
       latestPageTask.value = task
       latestPageTaskDirective.value = directive
       latestBusinessContext.value = directive.instruction
-      suggestedCommand.value = directive.shouldStop ? directive.instruction : `执行当前结构化 PageTask：${directive.summary}`
+      suggestedCommand.value = directive.shouldStop ? directive.instruction : `执行当前建议：${directive.summary}`
       pushMessage({
         kind: 'observation',
-        title: '结构化 PageTask',
-        body: directive.summary,
+        title: '操作建议',
+        body: cleanBusinessText(directive.summary),
         tone: kind === 'paused' ? 'warning' : 'accent',
       })
     },
@@ -547,46 +632,106 @@ defineExpose({ runTask, stopAgent })
 
     <section v-if="settingsOpen" class="pilot-settings">
       <div class="settings-line">
-        <span>LLM</span>
+        <span>连接状态</span>
         <strong>{{ configSummary }}</strong>
       </div>
       <label class="settings-field">
-        <span>API Key</span>
-        <input v-model="apiKeyInput" :disabled="savingSettings" type="password" placeholder="留空则继续使用后端当前 Key" autocomplete="off" />
+        <span>访问凭据</span>
+        <input v-model="apiKeyInput" :disabled="savingSettings" type="password" placeholder="留空则继续使用当前连接" autocomplete="off" />
+      </label>
+      <label class="settings-field">
+        <span>处理通道</span>
+        <select
+          v-model="selectedModel"
+          :disabled="savingSettings || isAgentRunning"
+          @change="saveSelectedModel"
+        >
+          <option v-for="model in modelOptions" :key="model.value" :value="model.value">
+            {{ model.shortLabel }}
+          </option>
+        </select>
       </label>
       <div class="settings-actions">
         <button class="mini-btn" type="button" :disabled="savingSettings" @click="loadLlmConfig">刷新</button>
-        <button class="save-config-btn" type="button" :disabled="savingSettings || !selectedModel" @click="saveLlmConfig">保存配置</button>
+        <button class="save-config-btn" type="button" :disabled="savingSettings || !selectedModel" @click="saveLlmConfig">保存</button>
       </div>
       <p v-if="settingsStatus" class="settings-status">{{ settingsStatus }}</p>
     </section>
 
-    <section ref="thread" class="agent-thread" aria-label="SunPilot 对话流">
-      <article v-for="message in messages" :key="message.id" class="agent-message" :class="[message.kind, message.tone]">
+    <section class="pilot-summary">
+      <article class="summary-card" :class="{ warning: Boolean(store.aiResult?.missingFields?.length || store.workflowPaused) }">
+        <span>当前建议</span>
+        <strong>{{ store.isProcessing ? '正在处理，请稍候' : store.aiResult?.missingFields?.length ? '先补充缺失信息' : store.aiResult ? '复核回单内容' : isDispatchPage ? '先整理发单草稿' : '先开始处理工单' }}</strong>
+        <p>{{ missingFieldLabels.length ? `待补充：${missingFieldLabels.join('、')}` : store.selectedTicket?.title || '选择左侧业务后继续办理。' }}</p>
+      </article>
+    </section>
+
+    <section class="quick-card">
+      <div class="card-title">快捷操作</div>
+      <div class="quick-row">
+        <button v-for="action in quickActions" :key="action.label" class="quick-btn" type="button" :disabled="isAgentRunning || action.disabled" @click="runQuickAction(action)">
+          {{ action.label }}
+        </button>
+      </div>
+    </section>
+
+    <section class="flow-card">
+      <div class="card-title">业务流</div>
+      <ol class="pilot-flow">
+        <li v-for="step in pilotFlowSteps" :key="step.label">
+          <span>{{ step.label }}</span>
+          <strong>{{ step.status }}</strong>
+        </li>
+      </ol>
+    </section>
+
+    <details class="fold-card" :open="Boolean(externalSystemRows.length && (store.aiResult?.missingFields?.length || store.workflowPaused))">
+      <summary>外部系统核验 <strong>{{ externalSystemRows.length }}</strong></summary>
+      <ul v-if="externalSystemRows.length" class="fold-list compact">
+        <li v-for="row in externalSystemRows" :key="`${row.label}-${row.status}`">
+          <span>{{ row.label }}</span>
+          <strong>{{ row.status }}</strong>
+        </li>
+      </ul>
+      <p v-else>开始处理后展示客户、卡片、交易或权益系统核验过程。</p>
+    </details>
+
+    <details class="fold-card" :open="Boolean(missingFieldLabels.length)">
+      <summary>补充信息 <strong>{{ missingFieldLabels.length }}</strong></summary>
+      <ul v-if="missingFieldLabels.length" class="fold-list">
+        <li v-for="field in missingFieldLabels" :key="field">{{ field }}</li>
+      </ul>
+      <p v-else>当前暂无必须补充的字段。</p>
+    </details>
+
+    <details class="fold-card" :open="Boolean(!missingFieldLabels.length && collectEvidenceIds(store.aiResult).length)">
+      <summary>处理依据 <strong>{{ collectEvidenceIds(store.aiResult).length }}</strong></summary>
+      <ul v-if="collectEvidenceIds(store.aiResult).length" class="fold-list">
+        <li v-for="id in collectEvidenceIds(store.aiResult)" :key="id" class="mono">{{ id }}</li>
+      </ul>
+      <p v-else>处理后会在这里显示依据编号。</p>
+    </details>
+
+    <details class="fold-card">
+      <summary>操作记录 <strong>{{ messages.length }}</strong></summary>
+      <section ref="thread" class="agent-thread" aria-label="SunPilot 对话记录">
+        <article v-for="message in messages" :key="message.id" class="agent-message" :class="[message.kind, message.tone]">
         <div class="message-head">
           <strong>{{ message.title }}</strong>
-          <span>{{ message.kind }}</span>
+          <span>{{ message.meta?.[0] || '' }}</span>
         </div>
         <p>{{ message.body }}</p>
         <div v-if="message.meta?.length" class="meta-row">
           <span v-for="item in message.meta" :key="item">{{ item }}</span>
         </div>
-      </article>
-    </section>
+        </article>
+      </section>
+    </details>
 
     <footer class="agent-composer">
-      <div v-if="currentPageTaskLabel" class="page-task-strip">
-        <span>PageTask</span>
-        <strong>{{ currentPageTaskLabel }}</strong>
-      </div>
       <div v-if="suggestedCommand" class="manual-suggestion">
         <span>收到业务信息，等待坐席唤起</span>
         <button type="button" :disabled="isAgentRunning" @click="runQuickAction(suggestedCommand)">执行建议</button>
-      </div>
-      <div class="quick-row">
-        <button v-for="action in quickActions" :key="action.label" class="quick-btn" type="button" :disabled="isAgentRunning || action.disabled" @click="runQuickAction(action)">
-          {{ action.label }}
-        </button>
       </div>
       <div class="input-shell">
         <textarea v-model="input" class="agent-input" :placeholder="placeholder" data-page-agent-target="page-agent-command" @keydown="handleKeydown" />
@@ -599,33 +744,22 @@ defineExpose({ runTask, stopAgent })
               title="只回答问题，不执行页面动作"
               @click="composerMode = 'qa'"
             >
-              问答
+              询问
             </button>
             <button
               type="button"
               :class="{ active: composerMode === 'task' }"
               :disabled="isAgentRunning"
-              title="允许执行 PageTask 或 ReAct 页面任务"
+              title="按坐席确认办理页面操作"
               @click="composerMode = 'task'"
             >
-              任务
+              办理
             </button>
           </div>
           <div class="composer-spacer"></div>
-          <button class="key-chip" type="button" title="配置 API Key" @click="settingsOpen = !settingsOpen">
-            Key
+          <button class="key-chip" type="button" title="连接设置" @click="settingsOpen = !settingsOpen">
+            设置
           </button>
-          <select
-            v-model="selectedModel"
-            class="model-select"
-            :disabled="savingSettings || isAgentRunning"
-            title="选择模型"
-            @change="saveSelectedModel"
-          >
-            <option v-for="model in modelOptions" :key="model.value" :value="model.value">
-              {{ model.shortLabel }}
-            </option>
-          </select>
           <button class="send-btn" type="button" :disabled="!input.trim() || isAgentRunning" @click="submit">↑</button>
         </div>
       </div>
@@ -640,6 +774,7 @@ defineExpose({ runTask, stopAgent })
   min-width: 0;
   height: 100%;
   background: #fbfcfe;
+  overflow-y: auto;
 }
 .agent-head {
   min-height: 54px;
@@ -776,15 +911,168 @@ defineExpose({ runTask, stopAgent })
   color: #64748b;
   font-size: 12px;
 }
+.pilot-summary,
+.quick-card,
+.flow-card,
+.fold-card {
+  margin: 10px 12px 0;
+}
+.summary-card,
+.quick-card,
+.flow-card,
+.fold-card {
+  border: 1px solid #dbe3eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+.summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+.summary-card.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.summary-card span,
+.card-title {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+.summary-card strong {
+  color: #142033;
+  font-size: 15px;
+}
+.summary-card p,
+.fold-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.quick-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+.flow-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+.pilot-flow {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pilot-flow li {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0 7px 16px;
+  border-top: 1px solid #edf1f5;
+  position: relative;
+}
+.pilot-flow li:first-child {
+  border-top: 0;
+}
+.pilot-flow li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 13px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #0e7490;
+}
+.pilot-flow span {
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+.pilot-flow strong {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.fold-card {
+  overflow: hidden;
+}
+.fold-card summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.fold-card summary strong {
+  color: #64748b;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.fold-card p {
+  padding: 0 10px 10px;
+}
+.fold-subtitle {
+  padding: 2px 10px 7px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+}
+.fold-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+}
+.fold-list li {
+  padding: 6px 7px;
+  border: 1px solid #edf1f5;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.fold-list.compact li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.fold-list.compact span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fold-list.compact strong {
+  color: #0e7490;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .agent-thread {
-  flex: 1;
+  max-height: 240px;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   overflow-y: auto;
-  padding: 14px 12px;
-  background: #f6f8fb;
+  padding: 0 10px 10px;
+  background: #fff;
 }
 .agent-message {
   max-width: 100%;
@@ -864,8 +1152,12 @@ defineExpose({ runTask, stopAgent })
 }
 .agent-composer {
   flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: grid;
   gap: 8px;
+  margin-top: auto;
   padding: 10px 12px 12px;
   border-top: 1px solid #dce3ea;
   background: #fff;

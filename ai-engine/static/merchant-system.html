@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>商户交易查询系统 v2.1</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; background: #f5f5f5; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px; margin-bottom: 16px; }
+  h2 { font-size: 16px; color: #333; margin: 0 0 12px 0; }
+  label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; }
+  input, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box; margin-bottom: 12px; }
+  button { padding: 8px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; }
+  th { color: #666; font-weight: normal; }
+  .result { display: none; margin-top: 12px; }
+  .result.show { display: block; }
+  .error { color: #d93025; font-size: 13px; }
+  .warning { background: #fef7e0; border: 1px solid #f9ab00; padding: 8px 12px; border-radius: 4px; font-size: 12px; color: #5f4b00; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<div class="warning">此系统为旧版商户管理平台（v2.1），不再维护。请使用新版综合业务处理门户 FITS。</div>
+
+<div class="card">
+  <h2>交易流水查询</h2>
+  <label>交易编号</label>
+  <input id="txnId" type="text" placeholder="如 TXN20260715001" />
+
+  <label>商户名称（可选）</label>
+  <input id="merchantName" type="text" placeholder="如 星河商场" />
+
+  <label>查询类型</label>
+  <select id="queryType">
+    <option value="detail">交易详情</option>
+    <option value="dispute">争议记录</option>
+    <option value="refund">退款记录</option>
+  </select>
+
+  <button id="searchBtn" onclick="search()">查询</button>
+  <span id="status" style="margin-left: 12px; font-size: 13px; color: #999;"></span>
+</div>
+
+<div class="card result" id="resultCard">
+  <h2>查询结果</h2>
+  <table>
+    <tr><th>交易编号</th><td id="rTxnId">-</td></tr>
+    <tr><th>交易金额</th><td id="rAmount">-</td></tr>
+    <tr><th>商户名称</th><td id="rMerchant">-</td></tr>
+    <tr><th>交易时间</th><td id="rTime">-</td></tr>
+    <tr><th>交易状态</th><td id="rStatus">-</td></tr>
+    <tr><th>风险标记</th><td id="rRisk">-</td></tr>
+  </table>
+</div>
+
+<div class="card result" id="disputeCard">
+  <h2>争议记录</h2>
+  <table>
+    <tr><th>争议编号</th><td id="dId">-</td></tr>
+    <tr><th>争议金额</th><td id="dAmount">-</td></tr>
+    <tr><th>争议原因</th><td id="dReason">-</td></tr>
+    <tr><th>当前状态</th><td id="dStatus">-</td></tr>
+  </table>
+</div>
+
+<script>
+  const mockData = {
+    'TXN20260715001': { amount:'128.00', merchant:'星河商场', time:'2026-07-15 12:00:00', status:'已入账', risk:'⚠ 该商户近30天争议率高于行业均值2.3倍' },
+    'TXN20260718002': { amount:'56.00', merchant:'麦当劳(南京西路店)', time:'2026-07-18 14:30:00', status:'已入账', risk:'正常' },
+    'TXN20260720003': { amount:'15800.00', merchant:'EXPEDIA TRAVEL', time:'2026-07-20 09:15:00', status:'待清算', risk:'⚠ 境外大额交易，建议核实持卡人身份' },
+    'TXN20260722004': { amount:'328.50', merchant:'苏宁电器', time:'2026-07-22 16:45:00', status:'已入账', risk:'正常' },
+  }
+  const disputes = {
+    'TXN20260720003': { id:'DSP20260721001', amount:'15800.00', reason:'持卡人称非本人交易，已报警', status:'调查中' },
+    'TXN20260715001': { id:'DSP20260716002', amount:'128.00', reason:'商户未按约定提供服务', status:'已调解' },
+  }
+
+  function search() {
+    const txnId = document.getElementById('txnId').value.trim()
+    const statusEl = document.getElementById('status')
+    const resultCard = document.getElementById('resultCard')
+    const disputeCard = document.getElementById('disputeCard')
+
+    resultCard.classList.remove('show')
+    disputeCard.classList.remove('show')
+
+    if (!txnId) {
+      statusEl.textContent = '请输入交易编号'
+      return
+    }
+
+    statusEl.textContent = '查询中...'
+    document.getElementById('searchBtn').disabled = true
+
+    setTimeout(() => {
+      const data = mockData[txnId]
+      const dispute = disputes[txnId]
+
+      if (data) {
+        document.getElementById('rTxnId').textContent = txnId
+        document.getElementById('rAmount').textContent = '¥' + data.amount
+        document.getElementById('rMerchant').textContent = data.merchant
+        document.getElementById('rTime').textContent = data.time
+        document.getElementById('rStatus').textContent = data.status
+        document.getElementById('rRisk').textContent = data.risk
+        resultCard.classList.add('show')
+        statusEl.textContent = '查询完成'
+      } else {
+        statusEl.textContent = '未找到该交易记录'
+      }
+
+      if (dispute && document.getElementById('queryType').value !== 'detail') {
+        document.getElementById('dId').textContent = dispute.id
+        document.getElementById('dAmount').textContent = '¥' + dispute.amount
+        document.getElementById('dReason').textContent = dispute.reason
+        document.getElementById('dStatus').textContent = dispute.status
+        disputeCard.classList.add('show')
+      }
+
+      document.getElementById('searchBtn').disabled = false
+    }, 800)
+  }
+</script>
+</body>
+</html>
