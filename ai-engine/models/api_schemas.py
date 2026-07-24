@@ -17,13 +17,20 @@ class CreateTicketRequest(ApiModel):
     scene: str
     category: str = ""
     subcategory: str = ""
+    ext_json: dict = Field(default_factory=dict)
+    order_prefix: str = ""
+    biz_type: str = ""
+    biz_sub_type: str = ""
     priority: str = "normal"
     channel: str = ""
     assignee: str = ""
     department: str = ""
     due_at: str = ""
+    deadline: str = ""
     risk_label: str = "低风险"
     risk_level: str = "low"
+    receive_unit: str = ""
+    need_reply: bool = True
     content: str
 
 
@@ -83,13 +90,20 @@ class UpdateTicketRequest(ApiModel):
     scene: str | None = None
     category: str | None = None
     subcategory: str | None = None
+    ext_json: dict | None = None
+    order_prefix: str | None = None
+    biz_type: str | None = None
+    biz_sub_type: str | None = None
     priority: str | None = None
     channel: str | None = None
     assignee: str | None = None
     department: str | None = None
     due_at: str | None = None
+    deadline: str | None = None
     risk_label: str | None = None
     risk_level: str | None = None
+    receive_unit: str | None = None
+    need_reply: bool | None = None
     content: str | None = None
     operator: str = "operator"
 
@@ -142,15 +156,22 @@ class TicketResponse(ApiModel):
     scene: str
     category: str = ""
     subcategory: str = ""
+    ext_json: dict = Field(default_factory=dict)
+    order_prefix: str = ""
+    biz_type: str = ""
+    biz_sub_type: str = ""
     priority: str = "normal"
     channel: str = ""
     assignee: str = ""
     department: str = ""
     created_at: str
     due_at: str = ""
+    deadline: str = ""
     updated_at: str = ""
     risk_label: str
     risk_level: str
+    receive_unit: str = ""
+    need_reply: bool = True
     status: str
     content: str
     closed_at: str = ""

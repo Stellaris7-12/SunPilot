@@ -30,8 +30,15 @@ class TicketContext(ApiModel):
     scene: str = ""
     category: str = ""
     subcategory: str = ""
+    ext_json: dict[str, Any] = Field(default_factory=dict)
+    order_prefix: str = ""
+    biz_type: str = ""
+    biz_sub_type: str = ""
     priority: str = "normal"
     channel: str = ""
+    receive_unit: str = ""
+    deadline: str = ""
+    need_reply: bool = True
     risk_label: str = ""
     risk_level: str = "low"
     status: str = ""
@@ -51,8 +58,15 @@ class TicketContext(ApiModel):
             scene=ticket.scene,
             category=ticket.category,
             subcategory=ticket.subcategory,
+            ext_json=ticket.ext_json,
+            order_prefix=ticket.order_prefix,
+            biz_type=ticket.biz_type,
+            biz_sub_type=ticket.biz_sub_type,
             priority=ticket.priority,
             channel=ticket.channel,
+            receive_unit=ticket.receive_unit,
+            deadline=ticket.deadline,
+            need_reply=ticket.need_reply,
             risk_label=ticket.risk_label,
             risk_level=ticket.risk_level,
             status=status,
@@ -65,13 +79,23 @@ class TicketContext(ApiModel):
             ("场景", self.scene),
             ("类目", self.category),
             ("子类目", self.subcategory),
+            ("编号前缀", self.order_prefix),
+            ("业务类型", self.biz_type),
+            ("业务细分类型", self.biz_sub_type),
+            ("接单单位", self.receive_unit),
+            ("规定回件日期", self.deadline),
             ("客户号", self.customer_id),
+            ("客户姓名", self.customer_name),
             ("手机号", self.phone),
             ("卡尾号", self.card_last4),
             ("风险等级", self.risk_level),
             ("正文", self.content),
         ]
-        return "\n".join(f"{label}: {value}" for label, value in parts if value)
+        lines = [f"{label}: {value}" for label, value in parts if value]
+        for key, value in self.ext_json.items():
+            if value not in {"", None}:
+                lines.append(f"扩展字段.{key}: {value}")
+        return "\n".join(lines)
 
     def to_resolution_ticket(self) -> dict[str, Any]:
         return self.model_dump(mode="python", by_alias=True)
@@ -81,6 +105,7 @@ class TicketContext(ApiModel):
             "risk_level": self.risk_level,
             "risk_label": self.risk_label,
             "scene": self.scene,
+            "ext_json": self.ext_json,
         }
 
     def to_notification_ticket(self) -> dict[str, Any]:
@@ -90,6 +115,8 @@ class TicketContext(ApiModel):
             "title": self.title,
             "customer_name": self.customer_name,
             "scene": self.scene,
+            "biz_type": self.biz_type,
+            "biz_sub_type": self.biz_sub_type,
             "risk_level": self.risk_level,
             "risk_label": self.risk_label,
         }

@@ -57,44 +57,44 @@ async def main():
     classifier = ClassifierAgent(
         AgentCard(agent_id="classifier_agent", name="Classifier Agent", description="")
     )
-    points = await classifier.run({
-        "ticket_content": _ticket_context(tickets["demo_points_001"]),
+    market = await classifier.run({
+        "ticket_content": "场景: 市场企划\n客户号: C20037\n正文: 客户反馈麦当劳饭票活动达标后优惠券未到账，订单号ORD20260723001。",
         "workflow_config": config,
     })
-    assert points["type"] == "BENEFIT_QUERY", points
-    assert points["workflow_name"] == "benefit_query_flow", points
+    assert market["type"] == "市场企划", market
+    assert market["workflow_name"] == "marketing_planning_dispatch_flow", market
 
-    activity = await classifier.run({
-        "ticket_content": _ticket_context(tickets["demo_activity_001"]),
+    fraud = await classifier.run({
+        "ticket_content": "客户卡片被系统管制，两核身不过，需伪冒调查组核实X-DK。",
         "workflow_config": config,
     })
-    assert activity["type"] == "BENEFIT_QUERY", activity
+    assert fraud["type"] == "伪冒调查", fraud
 
-    installment = await classifier.run({
-        "ticket_content": _ticket_context(tickets["demo_installment_002"]),
+    credit = await classifier.run({
+        "ticket_content": "客户收到贷后历史风险待确认通知，要求核实征信账户逾期状态。",
         "workflow_config": config,
     })
-    assert installment["type"] == "UNKNOWN", installment
-    assert "未接入自动工具" in installment["reason"], installment
+    assert credit["type"] == "征信", credit
 
-    card_loss = await classifier.run({
-        "ticket_content": _ticket_context(tickets["demo_card_loss_001"]),
+    unknown = await classifier.run({
+        "ticket_content": "客户咨询网点停车券领取规则。",
         "workflow_config": config,
     })
-    assert card_loss["type"] == "UNKNOWN", card_loss
-    assert "挂失" in card_loss["reason"] or "补卡" in card_loss["reason"], card_loss
+    assert unknown["type"] == "UNKNOWN", unknown
 
     escalation = EscalationAgent(
         AgentCard(agent_id="escalation_agent", name="Escalation Agent", description="")
     )
     transaction_gate = await escalation.run({
-        "ticket": {"risk_level": "medium", "risk_label": "中风险", "scene": "交易核查"},
-        "intent": {"type": "TRANSACTION_DISPUTE", "confidence": 0.95},
+        "ticket": {"risk_level": "medium", "risk_label": "中风险", "scene": "调单扣款"},
+        "intent": {"type": "调单扣款", "confidence": 0.95},
         "fields": [
             {"name": "customerId", "value": "C20027"},
-            {"name": "transactionDate", "value": "2026-07-20"},
-            {"name": "amount", "value": "68.0"},
-            {"name": "merchantName", "value": "某电商平台"},
+            {"name": "customerName", "value": "测试客户"},
+            {"name": "phone", "value": "138****2027"},
+            {"name": "content", "value": "客户要求交易调单扣款核实"},
+            {"name": "workOrderCategory", "value": "交易调单扣款"},
+            {"name": "callPurpose", "value": "交易调单扣款核实"},
         ],
         "tool_result": None,
         "workflow_config": config,

@@ -6,36 +6,47 @@ import re
 from typing import Any
 
 from agents.base import BaseAgent
+from models.scenario_detection import FITS_SCENARIOS
 from models.workflow import workflow_scenario
 from tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
 _INTENT_TOOL_MAP = {
-    "COUPON_REISSUE": [
-        "coupon.reissue",
-        "coupon.status-query",
-        "campaign.eligibility-check",
-    ],
-    "CUSTOMER_ADDRESS_UPDATE": [
-        "customer.update-address",
-        "customer.profile-query",
+    "协商还款": [
         "customer.lookup",
+        "ticket.history-search",
+        "knowledge.policy-search",
     ],
-    "TRANSACTION_DISPUTE": [
-        "transaction.query",
-        "transaction.detail-query",
-        "merchant.info-query",
-        "dispute.case-create",
+    "伪冒预防": [
+        "card.account-status-query",
+        "customer.lookup",
+        "ticket.history-search",
     ],
-    "BENEFIT_QUERY": [
+    "伪冒调查": [
+        "card.account-status-query",
+        "customer.lookup",
+        "ticket.history-search",
+    ],
+    "客户经营": [
+        "customer.lookup",
+        "customer.profile-query",
+        "ticket.history-search",
+    ],
+    "市场企划": [
         "benefit.query",
         "benefit.entitlement-query",
         "campaign.eligibility-check",
     ],
-    "APPLICATION_PROGRESS_QUERY": [
-        "application.progress-query",
+    "调单扣款": [
+        "transaction.query",
+        "transaction.detail-query",
+        "merchant.info-query",
+    ],
+    "征信": [
+        "customer.lookup",
         "ticket.history-search",
+        "knowledge.policy-search",
     ],
 }
 
@@ -62,6 +73,16 @@ class ResolutionAgent(BaseAgent):
         openai_tools = tool_registry.to_openai_tools(candidate_tool_names)
 
         fields_dict = _fields_dict(fields)
+        if intent_type in FITS_SCENARIOS and not input_data.get("use_llm_tool_selection"):
+            result = _fallback_result(intent_type, workflow_config, candidate_tool_names, fields_dict)
+            result = _finalize_result(result, candidate_tool_names, fields_dict)
+            logger.info(
+                "[ResolutionAgent] Deterministically selected: %s, skip=%s",
+                result.get("tool_name"),
+                result.get("skip"),
+            )
+            return result
+
         user_prompt = self._build_user_prompt({
             "intent": intent,
             "fields": fields,
@@ -216,9 +237,9 @@ def _finalize_result(result: dict, candidate_tool_names: list[str], fields_dict:
 
     params = result.get("tool_params") or {}
     if tool_name:
-        params = tool_registry.normalize_params(tool_name, params)
-        if not params:
-            params = tool_registry.normalize_params(tool_name, fields_dict)
+        field_params = tool_registry.normalize_params(tool_name, fields_dict)
+        result_params = tool_registry.normalize_params(tool_name, params)
+        params = {**field_params, **_present_values(result_params)}
         params = _cleanup_business_values(params)
 
     return {
@@ -227,6 +248,14 @@ def _finalize_result(result: dict, candidate_tool_names: list[str], fields_dict:
         "skip": bool(result.get("skip", False)),
         "skip_reason": result.get("skip_reason", ""),
         "available_tool_names": candidate_tool_names,
+    }
+
+
+def _present_values(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in (params or {}).items()
+        if value not in {"", "未提取", "未提供", "未填写", None}
     }
 
 

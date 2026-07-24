@@ -64,14 +64,17 @@ class TicketRepository:
     async def create_ticket(self, ticket: dict[str, Any]) -> dict[str, Any]:
         created_at = ticket.get("created_at") or _now()
         updated_at = ticket.get("updated_at") or created_at
+        ext_json = ticket.get("ext_json") or ticket.get("extJson") or {}
+        deadline = ticket.get("deadline") or ticket.get("due_at") or ticket.get("dueAt") or ""
         async with get_db() as db:
             await db.execute(
                 """INSERT INTO tickets
                    (id, no, title, customer_id, customer_name, phone, card_last4,
-                    scene, category, subcategory, priority, channel, assignee,
-                    department, created_at, due_at, updated_at, risk_label,
-                    risk_level, status, content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    scene, category, subcategory, ext_json, order_prefix, biz_type,
+                    biz_sub_type, priority, channel, assignee, department, created_at,
+                    due_at, deadline, updated_at, risk_label, risk_level,
+                    receive_unit, need_reply, status, content)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ticket["id"],
                     ticket["no"],
@@ -83,15 +86,22 @@ class TicketRepository:
                     ticket["scene"],
                     ticket.get("category", ""),
                     ticket.get("subcategory", ""),
+                    _json_dumps(ext_json),
+                    ticket.get("order_prefix") or ticket.get("orderPrefix") or "",
+                    ticket.get("biz_type") or ticket.get("bizType") or ticket.get("category", ""),
+                    ticket.get("biz_sub_type") or ticket.get("bizSubType") or ticket.get("subcategory", ""),
                     ticket.get("priority", "normal"),
                     ticket.get("channel", ""),
                     ticket.get("assignee", ""),
                     ticket.get("department", ""),
                     created_at,
                     nullable_datetime(ticket.get("due_at", "")),
+                    nullable_datetime(deadline),
                     updated_at,
                     ticket.get("risk_label", "低风险"),
                     ticket.get("risk_level", "low"),
+                    ticket.get("receive_unit") or ticket.get("receiveUnit") or "",
+                    1 if ticket.get("need_reply", ticket.get("needReply", True)) else 0,
                     ticket.get("status", "open"),
                     ticket["content"],
                 ),
@@ -130,13 +140,20 @@ class TicketRepository:
             "scene",
             "category",
             "subcategory",
+            "ext_json",
+            "order_prefix",
+            "biz_type",
+            "biz_sub_type",
             "priority",
             "channel",
             "assignee",
             "department",
             "due_at",
+            "deadline",
             "risk_label",
             "risk_level",
+            "receive_unit",
+            "need_reply",
             "content",
         }
         update = {key: value for key, value in changes.items() if key in allowed and value is not None}
@@ -144,7 +161,10 @@ class TicketRepository:
             return row
         update["updated_at"] = _now()
         assignments = ", ".join(f"{key} = ?" for key in update)
-        params = [nullable_datetime(value) if key == "due_at" else value for key, value in update.items()]
+        params = [
+            nullable_datetime(value) if key in {"due_at", "deadline"} else _json_dumps(value) if key == "ext_json" else value
+            for key, value in update.items()
+        ]
         params.append(ticket_id)
         async with get_db() as db:
             await db.execute(f"UPDATE tickets SET {assignments} WHERE id = ?", tuple(params))

@@ -86,7 +86,8 @@ class MockExecutor:
 
     async def enrich_params(self, tool_name: str, params: dict, ticket=None) -> tuple[dict, dict]:
         """Fill missing tool parameters with read-only mock-domain queries."""
-        enriched = dict(params or {})
+        raw_params = dict(params or {})
+        enriched = {**raw_params, **self._registry.normalize_params(tool_name, raw_params)}
         filled: dict[str, Any] = {}
         unresolved: list[str] = []
         source_tools: list[str] = []

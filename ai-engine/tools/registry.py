@@ -25,42 +25,48 @@ _MISSING_VALUES = {
 }
 
 _INTENT_CANDIDATE_TOOLS = {
-    "COUPON_REISSUE": [
-        "coupon.reissue",
-        "coupon.status-query",
-        "campaign.eligibility-check",
+    "协商还款": [
         "customer.lookup",
         "ticket.history-search",
         "knowledge.policy-search",
     ],
-    "CUSTOMER_ADDRESS_UPDATE": [
-        "customer.update-address",
+    "伪冒预防": [
+        "card.account-status-query",
+        "customer.lookup",
+        "ticket.history-search",
+        "knowledge.policy-search",
+    ],
+    "伪冒调查": [
+        "card.account-status-query",
+        "customer.lookup",
+        "ticket.history-search",
+        "knowledge.policy-search",
+    ],
+    "客户经营": [
+        "customer.lookup",
         "customer.profile-query",
-        "customer.lookup",
-        "card.account-status-query",
         "ticket.history-search",
         "knowledge.policy-search",
     ],
-    "TRANSACTION_DISPUTE": [
-        "transaction.query",
-        "transaction.detail-query",
-        "merchant.info-query",
-        "dispute.case-create",
-        "card.account-status-query",
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "BENEFIT_QUERY": [
+    "市场企划": [
         "benefit.query",
         "benefit.entitlement-query",
         "campaign.eligibility-check",
         "customer.lookup",
         "knowledge.policy-search",
     ],
-    "APPLICATION_PROGRESS_QUERY": [
-        "application.progress-query",
+    "调单扣款": [
+        "transaction.query",
+        "transaction.detail-query",
+        "merchant.info-query",
+        "card.account-status-query",
         "customer.lookup",
+        "ticket.history-search",
+        "knowledge.policy-search",
+    ],
+    "征信": [
+        "customer.lookup",
+        "customer.profile-query",
         "ticket.history-search",
         "knowledge.policy-search",
     ],
@@ -85,6 +91,14 @@ _PARAM_ALIASES = {
     "verify_status": "verifyStatus",
     "new_address": "newAddress",
     "query_reason": "queryReason",
+    "case_no": "caseNo",
+    "account_no": "accountNo",
+    "card_list": "cardList",
+    "card_name": "cardName",
+    "customer_feedback": "queryReason",
+    "customerFeedback": "queryReason",
+    "call_purpose": "queryReason",
+    "callPurpose": "queryReason",
     "ticket_id": "ticketId",
     "final_reply": "finalReply",
 }

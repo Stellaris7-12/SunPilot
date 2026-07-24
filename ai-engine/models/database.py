@@ -16,6 +16,10 @@ from config import DATABASE_URL, DB_BACKEND, DB_POOL_SIZE, DB_TIMEOUT_SECONDS, T
 _async_engine: AsyncEngine | None = None
 
 
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value or {}, ensure_ascii=False)
+
+
 async def init_db():
     """Create MySQL/TDSQL tables and seed demo tickets."""
     validate_database_config()
@@ -37,8 +41,63 @@ async def _seed_tickets(db: Any):
         await insert_ticket_row(db, t)
 
 
+async def _seed_from_independent_data(db: Any, domain_data: dict):
+    """Seed mock domain tables from independent JSON (not extracted from tickets)."""
+    for customer in domain_data.get("customers", []):
+        await db.execute(
+            """INSERT INTO mock_customers (customer_id, customer_name, phone, segment, risk_level)
+               VALUES (?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), phone=VALUES(phone),
+                                       segment=VALUES(segment), risk_level=VALUES(risk_level)""",
+            (customer["customer_id"], customer["customer_name"], customer["phone"],
+             customer.get("segment", "standard"), customer.get("risk_level", "low")),
+        )
+    for card in domain_data.get("cards", []):
+        await db.execute(
+            """INSERT INTO mock_cards (card_id, customer_id, card_last4, product_name, card_status, credit_limit)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), card_status=VALUES(card_status),
+                                       credit_limit=VALUES(credit_limit)""",
+            (card["card_id"], card["customer_id"], card["card_last4"],
+             card.get("product_name", "Credit Card"), card.get("card_status", "active"), card.get("credit_limit", 0)),
+        )
+    for benefit in domain_data.get("benefits", []):
+        await db.execute(
+            """INSERT INTO mock_benefits (benefit_id, customer_id, benefit_code, benefit_name, remaining_count, expire_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE benefit_name=VALUES(benefit_name), remaining_count=VALUES(remaining_count)""",
+            (benefit["benefit_id"], benefit["customer_id"], benefit["benefit_code"],
+             benefit.get("benefit_name", ""), benefit.get("remaining_count", 0), benefit.get("expire_at", "")),
+        )
+    for txn in domain_data.get("transactions", []):
+        await db.execute(
+            """INSERT INTO mock_transactions (transaction_id, customer_id, card_last4, amount, merchant, transaction_time, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE amount=VALUES(amount), merchant=VALUES(merchant), status=VALUES(status)""",
+            (txn["transaction_id"], txn["customer_id"], txn.get("card_last4", ""),
+             txn.get("amount", 0), txn.get("merchant", ""), txn.get("transaction_time", ""), txn.get("status", "posted")),
+        )
+    for app in domain_data.get("applications", []):
+        await db.execute(
+            """INSERT INTO mock_applications (application_no, customer_id, product_name, current_node, expected_finish_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE current_node=VALUES(current_node)""",
+            (app["application_no"], app["customer_id"], app.get("product_name", ""),
+             app.get("current_node", ""), app.get("expected_finish_at", "")),
+        )
+
+
 async def _seed_mock_domain_data(db: Any):
     await db.execute("SET sql_notes = 0")
+
+    # 优先从独立种子文件加载（真实外部系统的替身数据）
+    domain_seed_path = Path(__file__).resolve().parents[1] / "data" / "mock_domain_seed.json"
+    if domain_seed_path.exists():
+        with open(domain_seed_path, "r", encoding="utf-8") as f:
+            domain_data = json.load(f)
+        await _seed_from_independent_data(db, domain_data)
+
+    # 工单/通话样本兜底（补全独立种子未覆盖的客户-工单关联）
     records = await _load_mock_seed_records(db)
     for ticket in records:
         customer_id = ticket.get("customer_id") or ""
@@ -219,13 +278,16 @@ def _extract_merchant(content: str) -> str:
 async def insert_ticket_row(db: Any, ticket: dict[str, Any]):
     now = ticket.get("updated_at") or ticket.get("created_at", "")
     customer_id = ticket.get("customer_id") or ticket.get("customerId") or ""
+    ext_json = ticket.get("ext_json") or ticket.get("extJson") or {}
+    deadline = ticket.get("deadline") or ticket.get("due_at") or ticket.get("dueAt") or ""
     await db.execute(
         """INSERT INTO tickets
            (id, no, title, customer_id, customer_name, phone, card_last4, scene,
-            category, subcategory, priority, channel, assignee, department,
-            created_at, due_at, updated_at, risk_label, risk_level, status,
+            category, subcategory, ext_json, order_prefix, biz_type, biz_sub_type,
+            priority, channel, assignee, department, created_at, due_at, deadline,
+            updated_at, risk_label, risk_level, receive_unit, need_reply, status,
             content, closed_at, final_reply, cancel_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             ticket["id"],
             ticket["no"],
@@ -237,15 +299,22 @@ async def insert_ticket_row(db: Any, ticket: dict[str, Any]):
             ticket["scene"],
             ticket.get("category", ""),
             ticket.get("subcategory", ""),
+            _json_dumps(ext_json),
+            ticket.get("order_prefix") or ticket.get("orderPrefix") or "",
+            ticket.get("biz_type") or ticket.get("bizType") or ticket.get("category", ""),
+            ticket.get("biz_sub_type") or ticket.get("bizSubType") or ticket.get("subcategory", ""),
             ticket.get("priority", "normal"),
             ticket.get("channel", ""),
             ticket.get("assignee", ""),
             ticket.get("department", ""),
             ticket["created_at"],
             nullable_datetime(ticket.get("due_at", "")),
+            nullable_datetime(deadline),
             now,
             ticket["risk_label"],
             ticket["risk_level"],
+            ticket.get("receive_unit") or ticket.get("receiveUnit") or "",
+            1 if ticket.get("need_reply", ticket.get("needReply", True)) else 0,
             ticket["status"],
             ticket["content"],
             nullable_datetime(ticket.get("closed_at", "")),
@@ -377,6 +446,19 @@ def _split_mysql_ddl(ddl: str) -> list[str]:
 
 
 async def _ensure_schema_upgrades(db: Any):
+    await _ensure_columns(
+        db,
+        "tickets",
+        {
+            "ext_json": "JSON NULL COMMENT '场景特有字段'",
+            "order_prefix": "VARCHAR(8) NOT NULL DEFAULT '' COMMENT '编号前缀(12/13/29/30/42)'",
+            "biz_type": "VARCHAR(64) NOT NULL DEFAULT '' COMMENT '业务类型'",
+            "biz_sub_type": "VARCHAR(64) NOT NULL DEFAULT '' COMMENT '业务细分类型'",
+            "deadline": "DATETIME NULL COMMENT '规定回件日期(SLA)'",
+            "receive_unit": "VARCHAR(64) NOT NULL DEFAULT '' COMMENT '接单单位'",
+            "need_reply": "TINYINT NOT NULL DEFAULT 1 COMMENT '是否需要回复'",
+        },
+    )
     await _ensure_columns(
         db,
         "trace_steps",

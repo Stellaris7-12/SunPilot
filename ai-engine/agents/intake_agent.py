@@ -1,6 +1,7 @@
 """IntakeAgent - receive ticket text and extract required business fields."""
 
 import logging
+import re
 
 from agents.base import BaseAgent
 from models.workflow import workflow_scenario
@@ -8,35 +9,68 @@ from models.workflow import workflow_scenario
 logger = logging.getLogger(__name__)
 
 _FIELD_SCHEMAS = {
-    "COUPON_REISSUE": [
+    "协商还款": [
         ("customerId", "客户号"),
-        ("phone", "手机号（脱敏后）"),
-        ("couponType", "券类型描述"),
-        ("reason", "补发原因"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("accountNo", "账户号"),
+        ("repaymentPlan", "协商方案"),
     ],
-    "CUSTOMER_ADDRESS_UPDATE": [
+    "伪冒预防": [
         ("customerId", "客户号"),
-        ("phone", "手机号（脱敏后）"),
-        ("newAddress", "新地址"),
-        ("verifyStatus", "身份核验状态"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("caseNo", "案件编号"),
+        ("workOrderCategory", "工单类别"),
+        ("mainDemand", "主体诉求"),
     ],
-    "TRANSACTION_DISPUTE": [
+    "伪冒调查": [
         ("customerId", "客户号"),
-        ("transactionDate", "交易日期"),
-        ("amount", "交易金额"),
-        ("merchantName", "商户名称"),
-        ("disputeReason", "争议原因"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("cardList", "卡片列表"),
+        ("controlReason", "管制原因"),
+        ("xdk", "X-DK"),
     ],
-    "BENEFIT_QUERY": [
+    "客户经营": [
         ("customerId", "客户号"),
-        ("phone", "手机号（脱敏后）"),
-        ("benefitCode", "权益或活动编码"),
-        ("queryReason", "查询原因"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("receiveUnit", "接单单位"),
+        ("bizSubType", "业务细类"),
+        ("materialType", "资料类型"),
     ],
-    "APPLICATION_PROGRESS_QUERY": [
+    "市场企划": [
         ("customerId", "客户号"),
-        ("phone", "手机号（脱敏后）"),
-        ("applicationNo", "申请单号或业务流水号"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("remark", "订单号/备注"),
+        ("customerFeedback", "客户反馈情况"),
+        ("receiveUnit", "接单单位"),
+        ("bizSubType", "业务细类"),
+    ],
+    "调单扣款": [
+        ("customerId", "客户号"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("workOrderCategory", "工单类别"),
+        ("callPurpose", "来电目的"),
+    ],
+    "征信": [
+        ("customerId", "客户号"),
+        ("customerName", "客户姓名"),
+        ("phone", "手机号"),
+        ("content", "发单内容"),
+        ("accountType", "账户类型"),
+        ("accountNo", "账户号"),
+        ("isSensitive", "是否敏感"),
+        ("overdueStatus", "逾期状态"),
     ],
     "UNKNOWN": [
         ("customerId", "客户号"),
@@ -97,6 +131,14 @@ class IntakeAgent(BaseAgent):
         intent_label = input_data.get("intent_label", "未知场景")
         workflow_config = input_data.get("workflow_config", {})
 
+        deterministic_fields = _deterministic_fields(
+            ticket_content,
+            _fields_from_config(intent_type, workflow_config),
+        )
+        if deterministic_fields:
+            logger.info("[IntakeAgent] Deterministically extracted %s fields", len(deterministic_fields))
+            return {"fields": deterministic_fields}
+
         system_prompt = _build_intake_prompt(intent_type, intent_label, workflow_config)
         user_prompt = f"工单内容：\n\n{ticket_content}"
 
@@ -108,3 +150,69 @@ class IntakeAgent(BaseAgent):
 
         logger.info("[IntakeAgent] Extracted %s fields", len(result["fields"]))
         return result
+
+
+def _deterministic_fields(ticket_content: str, fields: list[tuple[str, str]]) -> list[dict]:
+    if not ticket_content or not fields:
+        return []
+    values = _structured_values(ticket_content)
+    result = []
+    for name, label in fields:
+        value = values.get(name) or _fallback_extract(name, ticket_content)
+        result.append({
+            "label": label,
+            "name": name,
+            "value": str(value or "未提供"),
+        })
+    return result
+
+
+def _structured_values(ticket_content: str) -> dict[str, str]:
+    label_to_name = {
+        "标题": "title",
+        "场景": "scene",
+        "类目": "category",
+        "子类目": "subcategory",
+        "编号前缀": "orderPrefix",
+        "业务类型": "bizType",
+        "业务细分类型": "bizSubType",
+        "接单单位": "receiveUnit",
+        "规定回件日期": "deadline",
+        "客户号": "customerId",
+        "客户姓名": "customerName",
+        "手机号": "phone",
+        "卡尾号": "cardLast4",
+        "风险等级": "riskLevel",
+        "正文": "content",
+    }
+    values = {}
+    for line in ticket_content.splitlines():
+        if line.startswith("扩展字段.") and ":" in line:
+            key, value = line.split(":", 1)
+            values[key.replace("扩展字段.", "", 1).strip()] = value.strip()
+            continue
+        if ":" not in line:
+            continue
+        label, value = line.split(":", 1)
+        name = label_to_name.get(label.strip())
+        if name:
+            values[name] = value.strip()
+    return values
+
+
+def _fallback_extract(name: str, text: str) -> str:
+    patterns = {
+        "customerId": r"(C\d{5,})",
+        "phone": r"(1\d{2}\*{4}\d{4}|1\d{10})",
+        "cardLast4": r"卡尾(?:号)?\s*(\d{4})",
+        "caseNo": r"案件编号[:：]?\s*([0-9A-Z-]{6,})",
+        "xdk": r"X-DK[:：]?\s*([A-Z0-9-]+)",
+        "remark": r"订单号[:：]?\s*([0-9A-Z-]{5,})",
+        "accountNo": r"账户号[:：]?\s*([0-9A-Z*]{6,})",
+        "callId": r"CALLID[:：]?\s*([A-Z0-9-]+)",
+    }
+    pattern = patterns.get(name)
+    if not pattern:
+        return ""
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    return match.group(1).strip() if match else ""

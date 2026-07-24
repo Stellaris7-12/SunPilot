@@ -12,12 +12,17 @@ from models.ai_result import ApiModel
 class WorkflowField(ApiModel):
     name: str
     label: str = ""
+    field_type: str = Field(default="text", alias="type")
+    options: list[str] = Field(default_factory=list)
 
 
 class WorkflowScenario(ApiModel):
     workflow_name: str = ""
     label: str = ""
+    order_prefix: str = ""
+    sla_days: int = 0
     fields: list[WorkflowField] = Field(default_factory=list)
+    specific_fields: list[WorkflowField] = Field(default_factory=list)
     required_fields: list[str] = Field(default_factory=list)
     recommended_tool: str = ""
     requires_human_confirmation: bool = False

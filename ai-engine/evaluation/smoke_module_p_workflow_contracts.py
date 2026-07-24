@@ -39,27 +39,31 @@ def main():
             assert scenario.recommended_tool, scenario_name
 
     samples = {
-        "优惠券补发": "客户参加DINING活动达标，客户号C20001，未收到优惠券。",
-        "权益资格": "客户咨询AIRPORT贵宾厅权益资格，客户号C20002。",
-        "申请进度": "客户查询申请单APP20260723001办理进度，客户号C20003。",
-        "资料变更": "客户要求地址变更，客户号C20004，新地址已核验。",
-        "交易争议": "客户反馈流水TXN20260723001非本人交易，客户号C20005。",
+        "协商还款": "客户申请协商还款，客户号C20001，希望分期偿还并申请客助方案。",
+        "伪冒预防": "客户收到非本人申请信用卡还款提醒，要求登记伪冒预防。",
+        "伪冒调查": "客户卡片被系统管制，两核身不过，需调查组核实X-DK。",
+        "客户经营": "客户申请汽车分期结清证明和资料借阅，接单单位卡部。",
+        "市场企划": "客户反馈麦当劳饭票活动达标后优惠券未到账，含订单号。",
+        "调单扣款": "客户反馈流水TXN20260723001需要交易调单扣款核实。",
+        "征信": "客户收到贷后历史风险待确认通知，需核实账户逾期状态。",
     }
     expected_types = {
-        "COUPON_REISSUE",
-        "BENEFIT_QUERY",
-        "APPLICATION_PROGRESS_QUERY",
-        "CUSTOMER_ADDRESS_UPDATE",
-        "TRANSACTION_DISPUTE",
+        "协商还款",
+        "伪冒预防",
+        "伪冒调查",
+        "客户经营",
+        "市场企划",
+        "调单扣款",
+        "征信",
     }
     detected_types = {_detect_call_scenario(text)[3] for text in samples.values()}
     assert detected_types == expected_types, detected_types
-    assert "CUSTOMER_INFO_UPDATE" not in detected_types
-    assert "TRANSACTION_QUERY" not in detected_types
+    assert "COUPON_REISSUE" not in detected_types
+    assert "TRANSACTION_DISPUTE" not in detected_types
 
-    scenario = workflow_scenario(workflow_payload, "CUSTOMER_ADDRESS_UPDATE")
+    scenario = workflow_scenario(workflow_payload, "客户经营")
     assert scenario.requires_human_confirmation is True
-    assert scenario.recommended_tool == "customer.update-address"
+    assert scenario.recommended_tool == "customer.lookup"
 
     draft = {
         "title": "活动达标未收到优惠券",
@@ -67,9 +71,15 @@ def main():
         "customerName": "王小明",
         "phone": "138****0001",
         "cardLast4": "1001",
-        "scene": "优惠券补发",
-        "category": "权益与活动",
-        "subcategory": "优惠券补发",
+        "scene": "市场企划",
+        "category": "市场企划",
+        "subcategory": "饭票总对总-麦当劳",
+        "extJson": {
+            "remark": "ORD20260723001",
+            "customerFeedback": "客户反馈活动达标后优惠券未到账。",
+            "receiveUnit": "市场[020营销管理团队]",
+            "bizSubType": "饭票总对总-麦当劳"
+        },
         "priority": "normal",
         "riskLabel": "低风险",
         "riskLevel": "low",

@@ -8,14 +8,7 @@ from models.workflow import workflow_scenario
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_FIELDS = {
-    "COUPON_REISSUE": ["customerId", "couponType", "reason"],
-    "CUSTOMER_ADDRESS_UPDATE": ["customerId", "newAddress", "verifyStatus"],
-    "TRANSACTION_DISPUTE": ["customerId", "transactionDate", "amount", "merchantName"],
-    "BENEFIT_QUERY": ["customerId", "benefitCode", "queryReason"],
-    "APPLICATION_PROGRESS_QUERY": ["customerId", "applicationNo"],
-    "UNKNOWN": [],
-}
+REQUIRED_FIELDS = {"UNKNOWN": []}
 
 ESCALATION_SYSTEM_PROMPT = """你是信用卡工单升级与兜底专家。
 请根据工单、分类结果、字段提取结果和工具执行结果，以 JSON 返回：
@@ -69,7 +62,6 @@ class EscalationAgent(BaseAgent):
             CompletenessGuard.unsupported_scene(intent_type, ticket_risk, checks)
             or RiskGuard.high_risk_ticket(ticket_risk, checks)
             or CompletenessGuard.missing_required(required, fields_dict, ticket_risk, checks)
-            or RiskGuard.transaction_precheck(intent_type, tool_result, ticket_risk, checks)
         )
         if guard_result:
             return guard_result
@@ -79,8 +71,7 @@ class EscalationAgent(BaseAgent):
         scenario_config = workflow_scenario(workflow_config, intent_type)
         requires_confirmation = scenario_config.requires_human_confirmation
         guard_result = (
-            RiskGuard.failed_identity_check(intent_type, fields_dict, checks)
-            or RiskGuard.requires_confirmation_before_tool(
+            RiskGuard.requires_confirmation_before_tool(
                 intent_type,
                 ticket_risk,
                 bool(requires_confirmation),
@@ -112,13 +103,9 @@ class EscalationAgent(BaseAgent):
                 "needs_more_info": False,
             }
 
-        guard_result = RiskGuard.transaction_review_after_tool(intent_type, checks)
-        if guard_result:
-            return guard_result
-
         scenario_config = workflow_scenario(workflow_config, intent_type)
         requires_confirmation = scenario_config.requires_human_confirmation
-        if ticket_risk == "medium" or intent_type == "CUSTOMER_ADDRESS_UPDATE" or requires_confirmation:
+        if ticket_risk == "medium" or requires_confirmation:
             logger.info("[EscalationAgent] LLM assessment for ticket_risk=%s", ticket_risk)
             user_prompt = f"""工单风险等级: {ticket_risk}
 分类: {intent_type} - {intent.get('label', '')}

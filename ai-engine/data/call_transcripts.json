@@ -906,5 +906,377 @@
       "expectedStatus": "escalated",
       "requiresHuman": true
     }
+  },
+  {
+    "id": "call-fraud-prevent",
+    "source": "fits_dispatch_demo",
+    "scenario": "伪冒预防",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C30112",
+      "customerName": "顾明",
+      "phone": "139****0112",
+      "cardLast4": "0112",
+      "channel": "客服热线",
+      "agent": "坐席A1027",
+      "callStartedAt": "2026-07-23 09:05:00",
+      "callId": "CALL-20260723-12001"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我收到一条信用卡还款提醒，但这张卡不是我本人申请的，我现在很着急。"},
+      {"speaker": "agent", "text": "请您先不要操作短信链接，我会登记伪冒预防工单。"},
+      {"speaker": "customer", "text": "客户号C30112，手机号139****0112，案件编号801114413001，要求马上调查处理。"}
+    ],
+    "transcript": "坐席：您好，这里是信用卡客服。\n客户：我收到一条信用卡还款提醒，但这张卡不是我本人申请的，我现在很着急。\n坐席：请您先不要操作短信链接，我会登记伪冒预防工单。\n客户：客户号C30112，手机号139****0112，案件编号801114413001，要求马上调查处理。",
+    "ticketDraft": {
+      "title": "非本人申请信用卡还款提醒投诉",
+      "customerId": "C30112",
+      "customerName": "顾明",
+      "phone": "139****0112",
+      "cardLast4": "0112",
+      "scene": "伪冒预防",
+      "category": "伪冒",
+      "subcategory": "伪冒预防",
+      "priority": "critical",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "needReply": true,
+      "content": "客户C30112来电称收到非本人申请信用卡的还款提醒，情绪激动，要求银行立即调查并反馈处理结论。案件编号801114413001。",
+      "extJson": {
+        "callId": "CALL-20260723-12001",
+        "callerNo": "139****0112",
+        "isConsumerSelf": "否",
+        "complainantName": "顾明",
+        "complainantIdNo": "待补充",
+        "complainantPhone": "139****0112",
+        "caseNo": "801114413001",
+        "workOrderCategory": "伪冒交易预警",
+        "complaintContent": "客户称收到非本人申请的信用卡还款提醒。",
+        "mainDemand": "要求立即调查、阻断风险并反馈处理结论。"
+      }
+    },
+    "expected": {
+      "intentType": "FRAUD_PREVENTION",
+      "workflowName": "fraud_prevention_dispatch_flow",
+      "keyFields": {"customerId": "C30112", "caseNo": "801114413001", "callId": "CALL-20260723-12001"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-fraud-invest",
+    "source": "fits_dispatch_demo",
+    "scenario": "伪冒调查",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C30113",
+      "customerName": "陆琪",
+      "phone": "138****0113",
+      "cardLast4": "0113",
+      "channel": "客服热线",
+      "agent": "坐席A1028",
+      "callStartedAt": "2026-07-23 09:20:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我的卡片被系统管制了，客服让我核身，但我两次都没通过。"},
+      {"speaker": "agent", "text": "这类卡片BLOCK状态需要调查组介入，我先为您登记。"},
+      {"speaker": "customer", "text": "客户号C30113，卡尾0113，X-DK是XDK-13001。"}
+    ],
+    "transcript": "客户：我的卡片被系统管制了，客服让我核身，但我两次都没通过。\n坐席：这类卡片BLOCK状态需要调查组介入，我先为您登记。\n客户：客户号C30113，卡尾0113，X-DK是XDK-13001。",
+    "ticketDraft": {
+      "title": "卡片管制两次核身未通过调查",
+      "customerId": "C30113",
+      "customerName": "陆琪",
+      "phone": "138****0113",
+      "cardLast4": "0113",
+      "scene": "伪冒调查",
+      "category": "伪冒",
+      "subcategory": "伪冒调查",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "needReply": true,
+      "content": "客户C30113反馈卡片被系统管制，客户两次核身未通过，需要调查组介入处理。X-DK为XDK-13001。",
+      "extJson": {
+        "cardList": "尾号0113卡片，BLOCK状态",
+        "cardRemark": "卡号段尾号0113",
+        "controlReason": "客户两次核身未通过，系统风险管制。",
+        "xdk": "XDK-13001"
+      }
+    },
+    "expected": {
+      "intentType": "FRAUD_INVESTIGATION",
+      "workflowName": "fraud_investigation_dispatch_flow",
+      "keyFields": {"customerId": "C30113", "cardLast4": "0113", "xdk": "XDK-13001"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-customer-mgmt",
+    "source": "fits_dispatch_demo",
+    "scenario": "客户经营",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C30291",
+      "customerName": "梁思",
+      "phone": "137****0291",
+      "cardLast4": "0291",
+      "channel": "客服热线",
+      "agent": "坐席A1029",
+      "callStartedAt": "2026-07-23 09:40:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我想申请汽车分期结清证明，同时借阅之前提交过的资料。"},
+      {"speaker": "agent", "text": "这属于客户经营类资料处理，我会转接单单位卡部。"},
+      {"speaker": "customer", "text": "客户号C30291，卡尾0291，麻烦尽快处理。"}
+    ],
+    "transcript": "客户：我想申请汽车分期结清证明，同时借阅之前提交过的资料。\n坐席：这属于客户经营类资料处理，我会转接单单位卡部。\n客户：客户号C30291，卡尾0291，麻烦尽快处理。",
+    "ticketDraft": {
+      "title": "汽车分期结清证明及资料借阅申请",
+      "customerId": "C30291",
+      "customerName": "梁思",
+      "phone": "137****0291",
+      "cardLast4": "0291",
+      "scene": "客户经营",
+      "category": "客户经营",
+      "subcategory": "汽车分期结清证明",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "needReply": true,
+      "content": "客户C30291申请汽车分期结清证明和资料借阅，接单单位为卡部，需要核实资料类型和办理路径。",
+      "extJson": {
+        "receiveUnit": "卡部[上海卡部]",
+        "bizSubType": "汽车分期结清证明",
+        "materialType": "结清证明/资料借阅"
+      }
+    },
+    "expected": {
+      "intentType": "CUSTOMER_MANAGEMENT",
+      "workflowName": "customer_management_dispatch_flow",
+      "keyFields": {"customerId": "C30291", "bizSubType": "汽车分期结清证明", "receiveUnit": "卡部[上海卡部]"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-marketing",
+    "source": "fits_dispatch_demo",
+    "scenario": "市场企划",
+    "riskLevel": "low",
+    "callMeta": {
+      "customerId": "C30301",
+      "customerName": "林晚",
+      "phone": "136****0301",
+      "cardLast4": "0301",
+      "channel": "客服热线",
+      "agent": "坐席A1030",
+      "callStartedAt": "2026-07-23 10:05:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我参加掌上生活麦当劳满减活动，订单号0006258，消费达标后优惠券一直没到账。"},
+      {"speaker": "agent", "text": "我会登记市场企划工单，核实活动达标和券发放。"},
+      {"speaker": "customer", "text": "客户号C30301，卡尾0301，卡片是白金卡。"}
+    ],
+    "transcript": "客户：我参加掌上生活麦当劳满减活动，订单号0006258，消费达标后优惠券一直没到账。\n坐席：我会登记市场企划工单，核实活动达标和券发放。\n客户：客户号C30301，卡尾0301，卡片是白金卡。",
+    "ticketDraft": {
+      "title": "麦当劳满减活动优惠券未到账",
+      "customerId": "C30301",
+      "customerName": "林晚",
+      "phone": "136****0301",
+      "cardLast4": "0301",
+      "scene": "市场企划",
+      "category": "市场企划",
+      "subcategory": "饭票总对总-麦当劳",
+      "priority": "normal",
+      "channel": "客服热线发单",
+      "riskLabel": "低风险",
+      "riskLevel": "low",
+      "needReply": true,
+      "content": "客户C30301反馈参加掌上生活麦当劳满减活动，订单号0006258，消费达标后优惠券未到账，要求核实并补发。",
+      "extJson": {
+        "cardList": "尾号0301白金卡",
+        "cardName": "白金卡",
+        "remark": "订单号0006258",
+        "customerFeedback": "客户反馈消费达标后优惠券未到账。",
+        "receiveUnit": "市场[020营销管理团队]",
+        "bizSubType": "饭票总对总-麦当劳"
+      }
+    },
+    "expected": {
+      "intentType": "MARKETING_PLANNING",
+      "workflowName": "marketing_planning_dispatch_flow",
+      "keyFields": {"customerId": "C30301", "remark": "订单号0006258", "bizSubType": "饭票总对总-麦当劳"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": false
+    }
+  },
+  {
+    "id": "call-credit",
+    "source": "fits_dispatch_demo",
+    "scenario": "征信",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C30421",
+      "customerName": "许诺",
+      "phone": "135****0421",
+      "cardLast4": "0421",
+      "channel": "客服热线",
+      "agent": "坐席A1031",
+      "callStartedAt": "2026-07-23 10:25:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我收到贷后历史风险待确认通知，想核实账户逾期状态。"},
+      {"speaker": "agent", "text": "征信类问题涉及敏感信息，我会登记工单转人工复核。"},
+      {"speaker": "customer", "text": "客户号C30421，账户号ACCT30421001，卡尾0421。"}
+    ],
+    "transcript": "客户：我收到贷后历史风险待确认通知，想核实账户逾期状态。\n坐席：征信类问题涉及敏感信息，我会登记工单转人工复核。\n客户：客户号C30421，账户号ACCT30421001，卡尾0421。",
+    "ticketDraft": {
+      "title": "贷后历史风险及账户逾期状态核实",
+      "customerId": "C30421",
+      "customerName": "许诺",
+      "phone": "135****0421",
+      "cardLast4": "0421",
+      "scene": "征信",
+      "category": "征信",
+      "subcategory": "贷后风险核实",
+      "priority": "critical",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "needReply": true,
+      "content": "客户C30421收到贷后历史风险待确认通知，要求核实账户逾期状态。账户号ACCT30421001，涉及征信敏感信息，需人工复核。",
+      "extJson": {
+        "accountType": "个人消费账户",
+        "accountNo": "ACCT30421001",
+        "isSensitive": "是",
+        "overdueStatus": "待确认"
+      }
+    },
+    "expected": {
+      "intentType": "CREDIT_REPORTING",
+      "workflowName": "credit_reporting_dispatch_flow",
+      "keyFields": {"customerId": "C30421", "accountNo": "ACCT30421001", "overdueStatus": "待确认"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-chargeback",
+    "source": "fits_dispatch_demo",
+    "scenario": "调单扣款",
+    "riskLevel": "medium",
+    "callMeta": {
+      "customerId": "C30441",
+      "customerName": "周航",
+      "phone": "134****0441",
+      "cardLast4": "0441",
+      "channel": "客服热线",
+      "agent": "坐席A1032",
+      "callStartedAt": "2026-07-23 10:45:00",
+      "callId": "CALL-20260723-41001"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我有一笔交易需要调单扣款核实，商户说资料已上传附件。"},
+      {"speaker": "agent", "text": "这属于调单扣款类工单，我会登记交易调单信息并转接处理。"},
+      {"speaker": "customer", "text": "客户号C30441，卡尾0441，案件编号4100771201。"}
+    ],
+    "transcript": "客户：我有一笔交易需要调单扣款核实，商户说资料已上传附件。\n坐席：这属于调单扣款类工单，我会登记交易调单信息并转接处理。\n客户：客户号C30441，卡尾0441，案件编号4100771201。",
+    "ticketDraft": {
+      "title": "交易调单扣款核实",
+      "customerId": "C30441",
+      "customerName": "周航",
+      "phone": "134****0441",
+      "cardLast4": "0441",
+      "scene": "调单扣款",
+      "category": "调单扣款",
+      "subcategory": "交易调单扣款",
+      "priority": "urgent",
+      "channel": "客服热线发单",
+      "riskLabel": "中风险",
+      "riskLevel": "medium",
+      "needReply": true,
+      "content": "客户C30441来电反馈一笔交易需要调单扣款核实，商户称资料已上传附件。案件编号4100771201，需核验交易信息和附件材料。",
+      "extJson": {
+        "callId": "CALL-20260723-41001",
+        "callerNo": "134****0441",
+        "isConsumerSelf": "是",
+        "complainantName": "周航",
+        "complainantPhone": "134****0441",
+        "caseNo": "4100771201",
+        "workOrderCategory": "交易调单扣款",
+        "callPurpose": "交易调单扣款核实",
+        "attachmentStatus": "已上传"
+      }
+    },
+    "expected": {
+      "intentType": "CHARGEBACK_DISPATCH",
+      "workflowName": "chargeback_dispatch_flow",
+      "keyFields": {"customerId": "C30441", "caseNo": "4100771201", "callId": "CALL-20260723-41001"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": true
+    }
+  },
+  {
+    "id": "call-repayment",
+    "source": "fits_dispatch_demo",
+    "scenario": "协商还款",
+    "riskLevel": "high",
+    "callMeta": {
+      "customerId": "C30471",
+      "customerName": "沈悦",
+      "phone": "133****0471",
+      "cardLast4": "0471",
+      "channel": "客服热线",
+      "agent": "坐席A1033",
+      "callStartedAt": "2026-07-23 11:05:00"
+    },
+    "speakerTurns": [
+      {"speaker": "customer", "text": "我最近收入受影响，想申请协商还款方案。"},
+      {"speaker": "agent", "text": "协商还款需要人工复核账户情况和还款安排，我先为您登记。"},
+      {"speaker": "customer", "text": "客户号C30471，账户号ACCT30471002，希望可以分期偿还。"}
+    ],
+    "transcript": "客户：我最近收入受影响，想申请协商还款方案。\n坐席：协商还款需要人工复核账户情况和还款安排，我先为您登记。\n客户：客户号C30471，账户号ACCT30471002，希望可以分期偿还。",
+    "ticketDraft": {
+      "title": "协商还款方案申请",
+      "customerId": "C30471",
+      "customerName": "沈悦",
+      "phone": "133****0471",
+      "cardLast4": "0471",
+      "scene": "协商还款",
+      "category": "协商还款",
+      "subcategory": "客助-协商还款",
+      "priority": "critical",
+      "channel": "客服热线发单",
+      "riskLabel": "高风险",
+      "riskLevel": "high",
+      "needReply": true,
+      "content": "客户C30471来电申请协商还款方案，账户号ACCT30471002，希望分期偿还。需人工复核账户情况和可执行方案。",
+      "extJson": {
+        "accountType": "个人消费账户",
+        "accountNo": "ACCT30471002",
+        "workOrderName": "协商还款",
+        "customerAssistanceTag": "客助-协商还款",
+        "repaymentPlan": "客户希望分期偿还，需人工复核具体方案。"
+      }
+    },
+    "expected": {
+      "intentType": "REPAYMENT_NEGOTIATION",
+      "workflowName": "repayment_negotiation_dispatch_flow",
+      "keyFields": {"customerId": "C30471", "accountNo": "ACCT30471002", "customerAssistanceTag": "客助-协商还款"},
+      "missingFields": [],
+      "expectedStatus": "pending_human_review",
+      "requiresHuman": true
+    }
   }
 ]

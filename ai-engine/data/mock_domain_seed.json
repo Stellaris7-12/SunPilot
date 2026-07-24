@@ -1,0 +1,36 @@
+{
+  "customers": [
+    {"customer_id":"C88123","customer_name":"王小明","phone":"138****6789","segment":"premium","risk_level":"low"},
+    {"customer_id":"C20001","customer_name":"张明","phone":"139****1234","segment":"standard","risk_level":"medium"},
+    {"customer_id":"C30015","customer_name":"李芳","phone":"137****5678","segment":"standard","risk_level":"low"},
+    {"customer_id":"C40288","customer_name":"赵强","phone":"136****9012","segment":"premium","risk_level":"high"},
+    {"customer_id":"C50991","customer_name":"陈静","phone":"135****3456","segment":"standard","risk_level":"medium"},
+    {"customer_id":"C30301","customer_name":"林晚","phone":"136****0301","segment":"standard","risk_level":"low"}
+  ],
+  "cards": [
+    {"card_id":"CARD-C88123-8812","customer_id":"C88123","card_last4":"8812","product_name":"银联白金信用卡","card_status":"active","credit_limit":100000},
+    {"card_id":"CARD-C88123-3456","customer_id":"C88123","card_last4":"3456","product_name":"Visa金卡","card_status":"frozen","credit_limit":50000},
+    {"card_id":"CARD-C20001-5678","customer_id":"C20001","card_last4":"5678","product_name":"金卡","card_status":"active","credit_limit":50000},
+    {"card_id":"CARD-C30015-9012","customer_id":"C30015","card_last4":"9012","product_name":"普卡","card_status":"active","credit_limit":30000},
+    {"card_id":"CARD-C40288-1234","customer_id":"C40288","card_last4":"1234","product_name":"世界卡","card_status":"frozen","credit_limit":200000},
+    {"card_id":"CARD-C50991-7890","customer_id":"C50991","card_last4":"7890","product_name":"白金卡","card_status":"active","credit_limit":80000},
+    {"card_id":"CARD-C30301-0301","customer_id":"C30301","card_last4":"0301","product_name":"白金卡","card_status":"active","credit_limit":80000}
+  ],
+  "benefits": [
+    {"benefit_id":"BEN-C88123-618","customer_id":"C88123","benefit_code":"618_PROMO","benefit_name":"618年中大促","remaining_count":1,"expire_at":"2026-12-31"},
+    {"benefit_id":"BEN-C20001-DINING","customer_id":"C20001","benefit_code":"DINING_MCD","benefit_name":"麦当劳满50减25","remaining_count":0,"expire_at":"2026-08-15"},
+    {"benefit_id":"BEN-C40288-TRAVEL","customer_id":"C40288","benefit_code":"TRAVEL_INSUR","benefit_name":"旅行保险权益","remaining_count":3,"expire_at":"2027-06-30"},
+    {"benefit_id":"BEN-C30301-DINING","customer_id":"C30301","benefit_code":"DINING_MCD","benefit_name":"麦当劳满50减25","remaining_count":0,"expire_at":"2026-08-15"}
+  ],
+  "transactions": [
+    {"transaction_id":"TXN20260715001","customer_id":"C88123","card_last4":"8812","amount":128.00,"merchant":"星河商场","transaction_time":"2026-07-15 12:00:00","status":"posted"},
+    {"transaction_id":"TXN20260718002","customer_id":"C20001","card_last4":"5678","amount":56.00,"merchant":"麦当劳(南京西路店)","transaction_time":"2026-07-18 14:30:00","status":"posted"},
+    {"transaction_id":"TXN20260720003","customer_id":"C40288","card_last4":"1234","amount":15800.00,"merchant":"EXPEDIA TRAVEL","transaction_time":"2026-07-20 09:15:00","status":"pending"},
+    {"transaction_id":"TXN20260722004","customer_id":"C30015","card_last4":"9012","amount":328.50,"merchant":"苏宁电器","transaction_time":"2026-07-22 16:45:00","status":"posted"}
+  ],
+  "applications": [
+    {"application_no":"APP20260721001","customer_id":"C30015","product_name":"信用卡申请(普卡)","current_node":"under_review","expected_finish_at":"2026-07-30 18:00:00"},
+    {"application_no":"APP20260722002","customer_id":"C50991","product_name":"信用卡额度调整申请","current_node":"approved","expected_finish_at":"2026-07-25 12:00:00"},
+    {"application_no":"APP20260723003","customer_id":"C20001","product_name":"汽车分期申请","current_node":"pending_docs","expected_finish_at":"2026-08-05 18:00:00"}
+  ]
+}

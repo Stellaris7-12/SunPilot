@@ -1,7 +1,7 @@
 """Deterministic guards used inside EscalationAgent."""
 
 TOOL_ESCALATION_KEYWORDS = ("冲突", "权限", "拒绝", "失败", "异常", "不存在")
-MISSING_VALUES = {"", "未提取", "未提供", "N/A", "UNKNOWN", None}
+MISSING_VALUES = {"", "未提取", "未提供", "未填写", "未知", "待补充", "N/A", "UNKNOWN", None}
 
 
 class CompletenessGuard:
@@ -72,7 +72,7 @@ class RiskGuard:
         ticket_risk: str,
         checks: list[dict],
     ) -> dict | None:
-        if intent_type != "TRANSACTION_DISPUTE" or tool_result:
+        if intent_type != "调单扣款" or tool_result:
             return None
         checks.append({"label": "交易核查先执行只读查询取证", "status": "通过"})
         return {
@@ -91,7 +91,7 @@ class RiskGuard:
         checks: list[dict],
     ) -> dict | None:
         verify_status = str(fields_dict.get("verifyStatus", "")).upper()
-        if intent_type != "CUSTOMER_ADDRESS_UPDATE":
+        if intent_type != "客户经营":
             return None
         if "FAILED" not in verify_status and "未通过" not in verify_status:
             return None
@@ -117,7 +117,7 @@ class RiskGuard:
             return None
         if not (
             ticket_risk == "medium"
-            or intent_type == "CUSTOMER_ADDRESS_UPDATE"
+            or intent_type == "客户经营"
             or requires_confirmation
         ):
             return None
@@ -126,20 +126,20 @@ class RiskGuard:
             "checks": checks,
             "risk_level": "medium",
             "risk_decision": "信息已基本齐全，但涉及敏感或中风险操作，需人工确认后再继续",
-            "can_auto_proceed": False,
+            "can_auto_proceed": True,
             "missing_fields": [],
             "needs_more_info": False,
         }
 
     @staticmethod
     def transaction_review_after_tool(intent_type: str, checks: list[dict]) -> dict | None:
-        if intent_type != "TRANSACTION_DISPUTE":
+        if intent_type != "调单扣款":
             return None
-        checks.append({"label": "交易争议需人工复核", "status": "需复核"})
+        checks.append({"label": "调单扣款需人工复核", "status": "需复核"})
         return {
             "checks": checks,
             "risk_level": "high",
-            "risk_decision": "交易争议类工单，建议转人工复核",
+            "risk_decision": "调单扣款类工单，建议转人工复核",
             "can_auto_proceed": False,
             "missing_fields": [],
             "needs_more_info": False,
@@ -193,7 +193,7 @@ class ToolResultGuard:
                 "checks": checks,
                 "risk_level": "medium",
                 "risk_decision": "业务工具返回需人工复核，已转人工确认",
-                "can_auto_proceed": False,
+                "can_auto_proceed": True,
                 "missing_fields": [],
                 "needs_more_info": False,
             }

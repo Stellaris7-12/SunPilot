@@ -44,18 +44,18 @@ def main():
         payload = draft.json()
         assert payload["sourceCallId"] == "call-001"
         assert payload["ticketDraft"]["customerId"] == "C20001"
-        assert payload["detectedTicketType"] == "COUPON_REISSUE"
+        assert payload["detectedTicketType"] == "市场企划"
         assert payload["missingFields"] == []
         assert any(item["target"] == "draft-submit" for item in payload["pageTaskHints"])
 
         created = client.post("/api/tickets", json=payload["ticketDraft"])
         assert created.status_code == 200, created.text
-        assert created.json()["scene"] == "优惠券补发"
+        assert created.json()["scene"] == "市场企划"
 
         custom = client.post(
             "/api/call-records/generate-ticket-draft",
             json={
-                "transcript": "客户：我看到流水TXN20260721009有一笔星河商场消费，客户号C20009，卡尾3409。",
+                "transcript": "客户：我看到流水TXN20260721009有一笔星河商场消费需要调单扣款核实，客户号C20009，卡尾3409。",
                 "callMeta": {"customerName": "林琪", "phone": "131****2009"},
             },
         )
@@ -63,7 +63,7 @@ def main():
         custom_payload = custom.json()
         assert custom_payload["ticketDraft"]["customerId"] == "C20009"
         assert custom_payload["ticketDraft"]["cardLast4"] == "3409"
-        assert custom_payload["detectedTicketType"] == "TRANSACTION_DISPUTE"
+        assert custom_payload["detectedTicketType"] == "调单扣款"
 
     assert "ticket_agent_test" in database_url
     print("module M call-intake smoke passed")

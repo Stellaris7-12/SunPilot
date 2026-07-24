@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RiskLevel(str, Enum):
@@ -34,15 +34,22 @@ class Ticket(BaseModel):
     scene: str
     category: str = ""
     subcategory: str = ""
+    ext_json: dict = Field(default_factory=dict)
+    order_prefix: str = ""
+    biz_type: str = ""
+    biz_sub_type: str = ""
     priority: str = "normal"
     channel: str = ""
     assignee: str = ""
     department: str = ""
     created_at: str
     due_at: str = ""
+    deadline: str = ""
     updated_at: str = ""
     risk_label: str
     risk_level: RiskLevel
+    receive_unit: str = ""
+    need_reply: bool = True
     status: TicketStatus = TicketStatus.OPEN
     content: str
     closed_at: str = ""

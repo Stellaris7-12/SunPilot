@@ -6,7 +6,7 @@ import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -51,6 +51,7 @@ from models.api_schemas import (
     UpdateTicketRequest,
 )
 from models.database import init_db
+from models.workflow import WorkflowConfig
 from models.repositories import (
     agent_execution_log_repository,
     ai_result_repository,
@@ -61,9 +62,11 @@ from models.repositories import (
     tool_call_repository,
     trace_repository,
 )
+from models.scenario_detection import detect_fits_scenario, normalize_scene
 from orchestrator.orchestrator import orchestrator
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
+from orchestrator.workflow_config import load_workflow_config
 from tools.registry import tool_registry
 from tools.tool_router import router as tool_router
 
@@ -226,6 +229,7 @@ async def update_llm_proxy_config(request: Request):
 
 def _ticket_response(row) -> dict:
     row = dict(row)
+    ext_json = _parse_json_object(row.get("ext_json"))
     return TicketResponse(
         id=row["id"],
         no=row["no"],
@@ -237,15 +241,22 @@ def _ticket_response(row) -> dict:
         scene=row["scene"],
         category=row.get("category") or "",
         subcategory=row.get("subcategory") or "",
+        ext_json=ext_json,
+        order_prefix=row.get("order_prefix") or "",
+        biz_type=row.get("biz_type") or "",
+        biz_sub_type=row.get("biz_sub_type") or "",
         priority=row.get("priority") or "normal",
         channel=row.get("channel") or "",
         assignee=row.get("assignee") or "",
         department=row.get("department") or "",
         created_at=row["created_at"],
         due_at=row.get("due_at") or "",
+        deadline=row.get("deadline") or row.get("due_at") or "",
         updated_at=row.get("updated_at") or "",
         risk_label=row["risk_label"],
         risk_level=row["risk_level"],
+        receive_unit=row.get("receive_unit") or "",
+        need_reply=bool(row.get("need_reply", 1)),
         status=row["status"],
         content=row["content"],
         closed_at=row.get("closed_at") or "",
@@ -265,6 +276,18 @@ def _operation_log_response(row) -> dict:
         detail=json.loads(row["detail_json"] or "{}"),
         created_at=row["created_at"],
     ).model_dump(by_alias=True)
+
+
+def _parse_json_object(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        data = json.loads(value)
+        return data if isinstance(data, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
 
 
 def _page_action_log_response(row) -> dict:
@@ -383,18 +406,132 @@ def _first_match(pattern: str, text: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _scenario_config(scene: str) -> dict:
+    config = load_workflow_config()
+    return (config.get("scenarios", {}) or {}).get(normalize_scene(scene, config), {})
+
+
+def _scenario_specific_fields(scene: str) -> list[dict]:
+    fields = _scenario_config(scene).get("specific_fields") or []
+    return fields if isinstance(fields, list) else []
+
+
+def _default_option(field: dict) -> str:
+    options = field.get("options") or []
+    return str(options[0]) if options else ""
+
+
+def _scenario_deadline(scene: str) -> str:
+    sla_days = int(_scenario_config(scene).get("sla_days") or 0)
+    if sla_days <= 0:
+        return ""
+    return (datetime.now() + timedelta(days=sla_days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _draft_ext_json(scene: str, transcript: str, draft: dict, call_meta: dict | None = None) -> dict:
+    meta = call_meta or {}
+    ext: dict[str, str] = {}
+    for field in _scenario_specific_fields(scene):
+        name = field.get("name", "")
+        default = _default_option(field)
+        if name == "callId":
+            value = meta.get("callId") or meta.get("call_id") or _first_match(r"CALLID[:：]?\s*([A-Z0-9-]+)", transcript)
+        elif name == "callerNo":
+            value = _first_match(r"(1\d{2}\*{4}\d{4}|1\d{10})", transcript) or draft.get("phone", "")
+        elif name == "isConsumerSelf":
+            value = "否" if re.search(r"非本人|不是本人|冒名", transcript) else default
+        elif name == "complainantName":
+            value = draft.get("customerName", "")
+        elif name == "complainantIdNo":
+            value = _first_match(r"证件号[:：]?\s*([0-9A-Z*]{6,})", transcript) or "待补充"
+        elif name == "complainantPhone":
+            value = draft.get("phone", "")
+        elif name == "caseNo":
+            value = _first_match(r"案件编号[:：]?\s*([0-9A-Z-]{6,})", transcript) or _first_match(r"(80\d{8,})", transcript)
+        elif name == "workOrderCategory":
+            value = "伪冒交易预警" if "预警" in transcript else default
+        elif name == "complaintContent":
+            value = "客户反馈疑似非本人申请或交易风险，要求银行调查处理。"
+        elif name == "mainDemand":
+            value = "要求核实责任、阻断风险并反馈处理结论。"
+        elif name == "cardList":
+            value = _first_match(r"卡片(?:列表)?[:：]?\s*([^。\n]+)", transcript) or f"尾号{draft.get('cardLast4', '')}"
+        elif name == "cardRemark":
+            value = _first_match(r"卡号段[:：]?\s*([^。\n]+)", transcript) or f"尾号{draft.get('cardLast4', '')}"
+        elif name == "controlReason":
+            value = "客户两次核身未通过，系统风险管制。"
+        elif name == "xdk":
+            value = _first_match(r"X-DK[:：]?\s*([A-Z0-9-]+)", transcript) or "XDK-RISK-CHECK"
+        elif name == "receiveUnit":
+            value = default or ("市场[020营销管理团队]" if scene == "市场企划" else "卡部[上海卡部]")
+        elif name == "bizSubType":
+            value = default
+        elif name == "materialType":
+            value = "结清证明/资料借阅"
+        elif name == "cardName":
+            value = _first_match(r"(白金卡|金卡|普卡|百夫长卡)", transcript) or "信用卡"
+        elif name == "remark":
+            value = _first_match(r"订单号[:：]?\s*([0-9A-Z-]{5,})", transcript) or _first_match(r"(ORD[0-9A-Z-]{5,})", transcript)
+        elif name == "customerFeedback":
+            value = "客户反馈活动达标后优惠券未到账，要求核实补发。"
+        elif name == "accountType":
+            value = default
+        elif name == "accountNo":
+            value = _first_match(r"账户号[:：]?\s*([0-9A-Z*]{6,})", transcript) or draft.get("customerId", "")
+        elif name == "isSensitive":
+            value = "是" if "敏感" in transcript else default
+        elif name == "overdueStatus":
+            value = "已逾期" if "逾期" in transcript else default
+        elif name == "callPurpose":
+            value = "交易调单扣款核实" if "调单" in transcript or "扣款" in transcript else default
+        elif name == "attachmentStatus":
+            value = "已上传" if "附件" in transcript and "已" in transcript else default or "待补充"
+        elif name == "workOrderName":
+            value = "协商还款"
+        elif name == "customerAssistanceTag":
+            value = default
+        elif name == "repaymentPlan":
+            value = "客户申请协商还款方案，需人工复核账户情况和可执行方案。"
+        else:
+            value = default
+        ext[name] = str(value or default or "")
+    return ext
+
+
+def _apply_dispatch_config(draft: dict, transcript: str, call_meta: dict | None = None) -> dict:
+    workflow_config = load_workflow_config()
+    scene = normalize_scene(draft.get("scene", ""), workflow_config)
+    if scene == "UNKNOWN":
+        detected = detect_fits_scenario(transcript, workflow_config)
+        scene = detected.scene
+        if scene != "UNKNOWN":
+            draft["category"] = draft.get("category") or detected.category
+            draft["subcategory"] = draft.get("subcategory") or detected.subcategory
+    if scene != "UNKNOWN":
+        draft["scene"] = scene
+    config = _scenario_config(scene)
+    if not config:
+        return draft
+    ext_json = dict(draft.get("extJson") or draft.get("ext_json") or {})
+    generated_ext = _draft_ext_json(scene, transcript, draft, call_meta)
+    ext_json = {**generated_ext, **ext_json}
+    draft["extJson"] = ext_json
+    draft["orderPrefix"] = config.get("order_prefix") or ""
+    draft["category"] = draft.get("category") or config.get("label") or scene
+    draft["bizType"] = draft.get("category") or config.get("label") or scene
+    draft["bizSubType"] = draft.get("subcategory") or ext_json.get("bizSubType") or ""
+    draft["receiveUnit"] = draft.get("receiveUnit") or ext_json.get("receiveUnit") or ""
+    draft["deadline"] = draft.get("deadline") or draft.get("dueAt") or _scenario_deadline(scene)
+    draft["dueAt"] = draft.get("dueAt") or draft["deadline"]
+    draft["needReply"] = draft.get("needReply", True)
+    return draft
+
+
 def _detect_call_scenario(text: str) -> tuple[str, str, str, str]:
-    if re.search(r"优惠券|满减|券|活动达标|DINING|MALL_CASHBACK", text, re.I):
-        return "优惠券补发", "权益与活动", "优惠券补发", "COUPON_REISSUE"
-    if re.search(r"贵宾厅|权益|机场|积分|兑换|AIRPORT|POINT", text, re.I):
-        return "权益资格查询", "权益与活动", "权益查询", "BENEFIT_QUERY"
-    if re.search(r"申请进度|申请单|APP\d+", text, re.I):
-        return "申请进度查询", "申请与账务", "信用卡申请", "APPLICATION_PROGRESS_QUERY"
-    if re.search(r"地址|手机|资料|联系人|变更", text, re.I):
-        return "资料变更", "客户资料", "资料变更", "CUSTOMER_ADDRESS_UPDATE"
-    if re.search(r"交易|流水|入账|盗刷|非本人|TXN\d+", text, re.I):
-        return "交易查询", "交易与风险", "交易核查", "TRANSACTION_DISPUTE"
-    return "人工客服发单", "综合服务", "待分类", "CALL_INTAKE"
+    detection = detect_fits_scenario(text, load_workflow_config())
+    if detection.intent_type == "UNKNOWN":
+        return "人工客服发单", "综合服务", "待分类", "UNKNOWN"
+    return detection.scene, detection.category, detection.subcategory, detection.intent_type
 
 
 def _build_key_fields(draft: dict, expected: dict | None = None) -> list[DraftKeyField]:
@@ -460,19 +597,40 @@ def _build_page_task_hints(draft: dict, missing_fields: list[str]) -> list[PageT
     for field, label in field_labels.items():
         hints.append(PageTaskHint(
             action="fill",
-            target=f"draft-{field}",
+            target=f"dispatch-{field}",
             label=f"填写{label}",
             field=field,
             value=str(draft.get(field) or ""),
-            source="CallIntakeAgent",
+            source="来电内容",
             required=label in missing_fields,
+        ))
+    specific_labels = {
+        field.get("name", ""): field.get("label") or field.get("name", "")
+        for field in _scenario_specific_fields(draft.get("scene", ""))
+    }
+    for field, value in (draft.get("extJson") or draft.get("ext_json") or {}).items():
+        hints.append(PageTaskHint(
+            action="fill",
+            target=f"dispatch-{field}",
+            label=f"填写{specific_labels.get(field, field)}",
+            field=f"extJson.{field}",
+            value=str(value or ""),
+            source="来电内容",
+            required=False,
         ))
     hints.append(PageTaskHint(
         action="submit" if not missing_fields else "stop",
-        target="draft-submit",
+        target="dispatch-submit",
         label="字段完整，提交标准工单" if not missing_fields else "字段不足，等待人工补充",
-        source="TicketAgent Policy Layer",
+        source="发单规则",
         required=not missing_fields,
+    ))
+    hints.append(PageTaskHint(
+        action="alias",
+        target="draft-submit",
+        label="提交标准工单",
+        source="兼容旧发单目标",
+        required=False,
     ))
     return hints
 
@@ -499,6 +657,7 @@ def _build_page_task_from_hints(
             required=hint.required,
         )
         for hint in hints
+        if hint.action != "alias"
     ]
     return PageTaskEnvelope(
         id=f"draft-{source_call_id or uuid.uuid4().hex[:8]}",
@@ -549,8 +708,9 @@ def _draft_from_transcript(transcript: str, call_meta: dict | None = None) -> tu
         "department": "信用卡运营组",
         "riskLabel": "中风险" if scene == "资料变更" else "低风险",
         "riskLevel": "medium" if scene == "资料变更" else "low",
-        "content": f"{summary}。{('关键业务编号：' + business_code + '。') if business_code else ''}原始通话已由发单 Agent 摘要，创建后进入标准多 Agent 工单处理链路。",
+        "content": f"{summary}。{('关键业务编号：' + business_code + '。') if business_code else ''}原始通话已整理为标准工单，发送后进入接单处理。",
     }
+    draft = _apply_dispatch_config(draft, transcript, meta)
     key_fields = _build_key_fields(draft)
     return draft, summary, ticket_type, key_fields
 
@@ -576,8 +736,9 @@ async def generate_ticket_draft(body: GenerateTicketDraftRequest):
         draft = dict(sample.get("ticketDraft") or {})
         transcript = sample.get("transcript") or body.transcript
         call_meta = sample.get("callMeta") or {}
+        draft = _apply_dispatch_config(draft, transcript, call_meta)
         summary = _compact_summary(transcript)
-        detected_type = (sample.get("expected") or {}).get("intentType") or sample.get("scenario") or "CALL_INTAKE"
+        detected_type = draft.get("scene") or "UNKNOWN"
         key_fields = _build_key_fields(draft, sample.get("expected"))
         confidence = 0.96
         source_call_id = sample.get("id", "")
@@ -603,6 +764,7 @@ async def generate_ticket_draft(body: GenerateTicketDraftRequest):
     draft.setdefault("assignee", call_meta.get("agent") or body.operator_id or "坐席 A1027")
     draft.setdefault("department", "信用卡运营组")
     draft.setdefault("channel", call_meta.get("channel") or "客服热线发单")
+    draft = _apply_dispatch_config(draft, transcript, call_meta)
     missing_fields = _missing_draft_fields(draft)
     page_task_hints = _build_page_task_hints(draft, missing_fields)
     page_task = _build_page_task_from_hints(draft, page_task_hints, missing_fields, source_call_id)
@@ -666,6 +828,11 @@ async def list_tickets(
     return [_ticket_response(row) for row in rows]
 
 
+@app.get("/api/workflow-config")
+async def get_workflow_config():
+    return WorkflowConfig.model_validate(load_workflow_config()).model_dump(by_alias=True)
+
+
 @app.post("/api/tickets")
 async def create_ticket(body: CreateTicketRequest):
     ticket_id = body.id or f"ticket_{uuid.uuid4().hex[:8]}"
@@ -684,14 +851,21 @@ async def create_ticket(body: CreateTicketRequest):
             "scene": body.scene,
             "category": body.category,
             "subcategory": body.subcategory,
+            "ext_json": body.ext_json,
+            "order_prefix": body.order_prefix,
+            "biz_type": body.biz_type,
+            "biz_sub_type": body.biz_sub_type,
             "priority": body.priority,
             "channel": body.channel,
             "assignee": body.assignee,
             "department": body.department,
             "created_at": created_at,
             "due_at": body.due_at,
+            "deadline": body.deadline,
             "risk_label": body.risk_label,
             "risk_level": body.risk_level,
+            "receive_unit": body.receive_unit,
+            "need_reply": body.need_reply,
             "status": TicketState.OPEN.value,
             "content": body.content,
         })

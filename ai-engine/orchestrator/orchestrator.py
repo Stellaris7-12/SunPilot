@@ -1,6 +1,7 @@
 """Orchestrator for the ticket-processing agent pipeline."""
 
 import asyncio
+import json
 import logging
 import time
 from typing import Optional
@@ -34,6 +35,7 @@ from models.ai_result import (
     VerifyCheck,
 )
 from models.repositories import agent_execution_log_repository, ticket_repository, tool_call_repository
+from models.scenario_detection import normalize_intent_type
 from models.ticket import RiskLevel, Ticket, TicketStatus
 from models.workflow import workflow_scenario
 from orchestrator.pipeline_context import PipelineContext
@@ -130,6 +132,7 @@ class Orchestrator:
                 push,
             )
             intent_result = coerce_intent_result(intent_result)
+            intent_result = _normalize_pipeline_intent(intent_result, workflow_config)
             ctx.intent_result = intent_result
 
             extract_result = await self._run_agent_step(
@@ -241,9 +244,41 @@ class Orchestrator:
                 if missing_result:
                     return missing_result
 
+                tool_def = tool_registry.get(tool_name)
+                tool_label = tool_def.display_name if tool_def else tool_name
+                await push("agent_start", {
+                    "agent_id": "tool_executor",
+                    "agent_name": f"Tool Executor / {tool_label}",
+                    "timestamp": time.time(),
+                })
+                trace.add_step(
+                    agent=f"Tool Executor / {tool_label}",
+                    agent_id="tool_executor",
+                    summary=f"正在调用业务工具: {tool_label}",
+                    duration="等待返回",
+                    status=TraceStatus.RUNNING,
+                )
                 logger.info("[Orchestrator] Executing tool: %s", tool_name)
                 tool_result = await mock_executor.execute(tool_name, tool_params)
                 ctx.tool_result = tool_result
+                tool_elapsed = tool_result.duration_ms or 0
+                tool_summary = (
+                    f"{tool_label}调用成功，证据编号 {tool_result.evidence_id}"
+                    if tool_result.success
+                    else f"{tool_label}调用失败：{tool_result.failure_reason or tool_result.message}"
+                )
+                trace.update_last(
+                    tool_summary,
+                    f"{tool_elapsed}ms",
+                    TraceStatus.SUCCESS if tool_result.success else TraceStatus.FAILED,
+                )
+                await push("agent_complete", {
+                    "agent_id": "tool_executor",
+                    "summary": tool_summary,
+                    "duration_ms": tool_elapsed,
+                    "status": (TraceStatus.SUCCESS if tool_result.success else TraceStatus.FAILED).value,
+                    "result": {"tool_name": tool_name, "success": tool_result.success, "evidence_id": tool_result.evidence_id},
+                })
                 await self._persist_tool_call(ticket.id, tool_name, tool_params, tool_result)
 
                 verify_result = await self._run_escalation_step(
@@ -705,15 +740,22 @@ class Orchestrator:
             scene=row["scene"],
             category=row.get("category") or "",
             subcategory=row.get("subcategory") or "",
+            ext_json=_parse_json_object(row.get("ext_json")),
+            order_prefix=row.get("order_prefix") or "",
+            biz_type=row.get("biz_type") or "",
+            biz_sub_type=row.get("biz_sub_type") or "",
             priority=row.get("priority") or "normal",
             channel=row.get("channel") or "",
             assignee=row.get("assignee") or "",
             department=row.get("department") or "",
             created_at=row["created_at"],
             due_at=row.get("due_at") or "",
+            deadline=row.get("deadline") or "",
             updated_at=row.get("updated_at") or "",
             risk_label=row["risk_label"],
             risk_level=row["risk_level"],
+            receive_unit=row.get("receive_unit") or "",
+            need_reply=bool(row.get("need_reply", 1)),
             status=TicketStatus(row["status"]),
             content=row["content"],
             closed_at=row.get("closed_at") or "",
@@ -1175,3 +1217,33 @@ class Orchestrator:
 
 
 orchestrator = Orchestrator()
+
+
+def _parse_json_object(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_pipeline_intent(intent_result: dict, workflow_config: dict) -> dict:
+    normalized_type = normalize_intent_type(intent_result.get("type", ""), workflow_config)
+    if normalized_type == intent_result.get("type"):
+        return intent_result
+    scenario = workflow_scenario(workflow_config, normalized_type)
+    return {
+        **intent_result,
+        "legacy_type": intent_result.get("type", ""),
+        "type": normalized_type,
+        "label": scenario.label or normalized_type,
+        "workflow_name": scenario.workflow_name or workflow_config.get("default_workflow", "unknown_flow"),
+        "reason": (
+            f"兼容旧意图 {intent_result.get('type', 'UNKNOWN')}，"
+            f"已归一化为 FITS 场景 {normalized_type}"
+        ),
+    }

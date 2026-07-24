@@ -16,11 +16,10 @@ from tools.registry import tool_registry  # noqa: E402
 
 WORKFLOW_CONFIG = {
     "scenarios": {
-        "COUPON_REISSUE": {"recommended_tool": "coupon.reissue"},
-        "CUSTOMER_ADDRESS_UPDATE": {"recommended_tool": "customer.update-address"},
-        "TRANSACTION_DISPUTE": {"recommended_tool": "transaction.query"},
-        "BENEFIT_QUERY": {"recommended_tool": "benefit.query"},
-        "APPLICATION_PROGRESS_QUERY": {"recommended_tool": "application.progress-query"},
+        "市场企划": {"recommended_tool": "benefit.query"},
+        "客户经营": {"recommended_tool": "customer.lookup"},
+        "调单扣款": {"recommended_tool": "transaction.query"},
+        "征信": {"recommended_tool": "customer.lookup"},
     }
 }
 
@@ -42,11 +41,11 @@ class ToolCallAgent(ResolutionAgent):
                     "id": "call_1",
                     "type": "function",
                     "function": {
-                        "name": "coupon_reissue",
+                        "name": "benefit_query",
                         "arguments": {
                             "customer_id": "C20001",
-                            "coupon_type": "DINING_100_20",
-                            "reason": "campaign reached",
+                            "benefit_code": "DINING_100_20",
+                            "query_reason": "campaign reached",
                         },
                     },
                 }
@@ -120,37 +119,40 @@ async def main():
         "merchantName": "GLOBAL SHOP",
     }
 
-    coupon = await ToolCallAgent(_card()).run({
-        "intent": {"type": "COUPON_REISSUE"},
+    benefit = await ToolCallAgent(_card()).run({
+        "intent": {"type": "市场企划"},
         "fields": [],
         "workflow_config": WORKFLOW_CONFIG,
+        "use_llm_tool_selection": True,
     })
-    assert coupon["tool_name"] == "coupon.reissue"
-    assert coupon["tool_params"]["customerId"] == "C20001"
-    assert coupon["tool_params"]["couponType"] == "DINING_100_20"
+    assert benefit["tool_name"] == "benefit.query"
+    assert benefit["tool_params"]["customerId"] == "C20001"
+    assert benefit["tool_params"]["benefitCode"] == "DINING_100_20"
 
     drift = await DriftAgent(_card()).run({
-        "intent": {"type": "TRANSACTION_DISPUTE"},
+        "intent": {"type": "调单扣款"},
         "fields": [],
         "workflow_config": WORKFLOW_CONFIG,
+        "use_llm_tool_selection": True,
     })
     assert drift["tool_name"] == "transaction.detail-query"
     assert drift["tool_params"]["amount"] == 899.0
     assert drift["tool_params"]["merchantName"] == "GLOBAL SHOP"
 
     fallback = await EmptyAgent(_card()).run({
-        "intent": {"type": "BENEFIT_QUERY"},
+        "intent": {"type": "市场企划"},
         "fields": [{"name": "customerId", "value": "C20003"}],
         "workflow_config": WORKFLOW_CONFIG,
     })
     assert fallback["tool_name"] == "benefit.query"
 
     unknown = await UnknownToolAgent(_card()).run({
-        "intent": {"type": "COUPON_REISSUE"},
+        "intent": {"type": "市场企划"},
         "fields": [{"name": "customerId", "value": "C20001"}],
         "workflow_config": WORKFLOW_CONFIG,
+        "use_llm_tool_selection": True,
     })
-    assert unknown["tool_name"] == "coupon.reissue"
+    assert unknown["tool_name"] == "benefit.query"
     assert "ticket.close-request" not in unknown["available_tool_names"]
 
     missing_ok, missing_message, _ = tool_registry.validate_tool_call(

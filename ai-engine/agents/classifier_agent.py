@@ -4,44 +4,24 @@ import logging
 import re
 
 from agents.base import BaseAgent
+from models.scenario_detection import FITS_SCENARIOS, scenario_result
 
 logger = logging.getLogger(__name__)
 
-UNSUPPORTED_SCENE_KEYWORDS = (
-    "\u5206\u671f",      # installment
-    "\u63d0\u524d\u7ed3\u6e05",
-    "\u8fd8\u6b3e\u534f\u5546",
-    "\u5ef6\u671f\u8fd8\u6b3e",
-    "\u6302\u5931",
-    "\u8865\u5361",
-    "\u505c\u5361",
-    "\u4e34\u65f6\u989d\u5ea6",
-    "\u56fa\u5b9a\u989d\u5ea6",
-    "\u5e74\u8d39",
-    "\u79ef\u5206\u5230\u8d26",
-    "\u79ef\u5206\u672a\u5230\u8d26",
-    "\u79ef\u5206\u6ca1\u6709\u5230\u8d26",
-    "\u79ef\u5206\u6263\u51cf",
-    "\u79ef\u5206\u5151\u6362",
-    "\u79ef\u5206\u4e89\u8bae",
-    "\u79ef\u5206\u5151\u6362\u5931\u8d25",
-    "\u5f81\u4fe1",
-    "\u6295\u8bc9",
-    "\u50ac\u529e",
-)
-
 CLASSIFIER_SYSTEM_PROMPT = """你是一个信用卡工单分类与优先级判定专家。
 请分析工单内容，判断客户诉求属于以下哪类场景：
-1. COUPON_REISSUE - 优惠券/权益补发：客户反馈优惠券未到账、过期或活动达标未收到券
-2. CUSTOMER_ADDRESS_UPDATE - 资料修改：客户要求修改账单地址、联系电话、个人信息等
-3. TRANSACTION_DISPUTE - 交易争议/交易核查：客户质疑交易、声称非本人消费或要求核查交易
-4. BENEFIT_QUERY - 权益资格查询：客户咨询活动资格、权益可用状态、贵宾厅/积分/权益资格
-5. APPLICATION_PROGRESS_QUERY - 申请进度查询：客户查询办卡、资料补充、调额或业务办理进度
-6. UNKNOWN - 无法识别：不属于以上任何场景
+1. 协商还款 - 客户申请还款协商、延期、客助或特殊方案
+2. 伪冒预防 - 疑似非本人申请、冒名、伪冒交易预警或投诉引导
+3. 伪冒调查 - 卡片被管制、两核身不过、X-DK 或调查组介入
+4. 客户经营 - 资料借阅、结清证明、解抵押、卡部承接材料类诉求
+5. 市场企划 - 活动权益、优惠券、饭票、影票、掌上生活和营销活动反馈
+6. 调单扣款 - 交易调单、调扣、扣款、交易查询或争议取证
+7. 征信 - 征信、贷后风险、逾期状态和敏感账户核实
+8. UNKNOWN - 无法识别或不属于以上场景
 
 请以 JSON 格式返回：
 {
-  "type": "COUPON_REISSUE | CUSTOMER_ADDRESS_UPDATE | TRANSACTION_DISPUTE | BENEFIT_QUERY | APPLICATION_PROGRESS_QUERY | UNKNOWN",
+  "type": "协商还款 | 伪冒预防 | 伪冒调查 | 客户经营 | 市场企划 | 调单扣款 | 征信 | UNKNOWN",
   "label": "场景中文名称",
   "confidence": 0.0,
   "workflow_name": "对应流程名",
@@ -57,12 +37,6 @@ class ClassifierAgent(BaseAgent):
     async def run(self, input_data: dict, context: dict = None) -> dict:
         ticket_content = input_data.get("ticket_content", "")
         workflow_config = input_data.get("workflow_config", {})
-        deterministic_result = _deterministic_scene_result(ticket_content, workflow_config)
-        if deterministic_result:
-            return deterministic_result
-        unsupported_result = _unsupported_scene_result(ticket_content, workflow_config)
-        if unsupported_result:
-            return unsupported_result
         if not ticket_content:
             return {
                 "type": "UNKNOWN",
@@ -72,6 +46,18 @@ class ClassifierAgent(BaseAgent):
                 "reason": "工单内容为空",
             }
 
+        deterministic_result = scenario_result(ticket_content, workflow_config)
+        if deterministic_result.get("type") != "UNKNOWN":
+            return deterministic_result
+        if _looks_like_pure_consultation(ticket_content):
+            return {
+                "type": "UNKNOWN",
+                "label": "未知场景",
+                "confidence": 0.0,
+                "workflow_name": workflow_config.get("default_workflow", "unknown_flow"),
+                "reason": "客户仅咨询规则或领取方式，未形成已接入 FITS 工单处理诉求",
+            }
+
         user_prompt = f"请分析以下工单内容，识别业务场景和处理路径：\n\n{ticket_content}"
 
         logger.info("[ClassifierAgent] Analyzing ticket content (%s chars)", len(ticket_content))
@@ -79,6 +65,8 @@ class ClassifierAgent(BaseAgent):
 
         scenarios = workflow_config.get("scenarios", {})
         intent_type = result.get("type") or "UNKNOWN"
+        if intent_type not in FITS_SCENARIOS:
+            intent_type = "UNKNOWN"
         if intent_type not in scenarios:
             intent_type = "UNKNOWN"
         scenario_config = scenarios.get(intent_type) or scenarios.get("UNKNOWN", {})
@@ -102,108 +90,13 @@ class ClassifierAgent(BaseAgent):
         return result
 
 
-def _deterministic_scene_result(ticket_content: str, workflow_config: dict) -> dict | None:
-    """Route stable demo scenes before LLM wording can drift."""
-    if not ticket_content:
-        return None
-    text = ticket_content
-
-    scenario_type = ""
-    reason = ""
-    confidence = 0.95
-
-    if _contains_any(text, ("优惠券补发", "优惠券", "补发", "未收到券", "领取失败", "券类型")):
-        scenario_type = "COUPON_REISSUE"
-        reason = "命中优惠券补发/领取失败业务线索"
-    elif _contains_any(text, ("资料修改", "地址变更", "账单寄送地址", "紧急联系人", "联系人变更", "预留手机号", "手机号变更")):
-        scenario_type = "CUSTOMER_ADDRESS_UPDATE"
-        reason = "命中客户资料变更业务线索"
-    elif not _contains_any(text, ("挂失", "补卡", "分期")) and (
-        _contains_any(text, ("申请进度", "办卡进度", "进度查询", "进度长时间未更新"))
-        or re.search(r"(?<![A-Z0-9])APP\d+", text)
-    ):
-        scenario_type = "APPLICATION_PROGRESS_QUERY"
-        reason = "命中申请/业务进度查询线索"
-    elif _looks_like_benefit_scene(text):
-        scenario_type = "BENEFIT_QUERY"
-        reason = "命中权益、活动或积分资格查询线索"
-    elif _contains_any(text, ("交易核查", "交易争议", "账单明细", "交易明细", "调单", "拒付", "非本人", "盗刷", "境外交易", "商户")):
-        scenario_type = "TRANSACTION_DISPUTE"
-        reason = "命中交易核查/交易争议业务线索"
-
-    if not scenario_type:
-        return None
-    scenario_config = workflow_config.get("scenarios", {}).get(scenario_type)
-    if not scenario_config:
-        return None
-    return {
-        "type": scenario_type,
-        "label": scenario_config.get("label", scenario_type),
-        "confidence": confidence,
-        "workflow_name": scenario_config.get(
-            "workflow_name",
-            workflow_config.get("default_workflow", "unknown_flow"),
-        ),
-        "reason": reason,
-    }
-
-
-def _unsupported_scene_result(ticket_content: str, workflow_config: dict) -> dict | None:
-    """Keep unsupported extension scenarios out of existing tool workflows."""
-    if not ticket_content:
-        return None
-    if _looks_like_supported_scene(ticket_content):
-        return None
-    matched = [keyword for keyword in UNSUPPORTED_SCENE_KEYWORDS if keyword in ticket_content]
-    if not matched:
-        return None
-    scenarios = workflow_config.get("scenarios", {})
-    scenario_config = scenarios.get("UNKNOWN", {})
-    return {
-        "type": "UNKNOWN",
-        "label": scenario_config.get("label", "\u672a\u77e5\u573a\u666f"),
-        "confidence": 0.95,
-        "workflow_name": scenario_config.get(
-            "workflow_name",
-            workflow_config.get("default_workflow", "unknown_flow"),
-        ),
-        "reason": (
-            "\u547d\u4e2d\u5c1a\u672a\u63a5\u5165\u81ea\u52a8\u5de5\u5177\u7684"
-            f"\u6269\u5c55\u573a\u666f\u5173\u952e\u8bcd: {', '.join(matched)}"
-        ),
-    }
-
-
-def _looks_like_supported_scene(ticket_content: str) -> bool:
-    if "APP" in ticket_content or "\u4e1a\u52a1\u6d41\u6c34" in ticket_content:
-        return True
-    if "\u4ea4\u6613" in ticket_content and (
-        re.search(r"20\d{2}-\d{2}-\d{2}", ticket_content)
-        or "\u5546\u6237" in ticket_content
-        or "\u975e\u672c\u4eba" in ticket_content
-        or "\u76d7\u5237" in ticket_content
-        or "\u4e0d\u8ba4\u53ef" in ticket_content
-    ):
-        return True
-    if re.search(r"[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+", ticket_content) and (
-        "\u6d3b\u52a8" in ticket_content
-        or "\u8d44\u683c" in ticket_content
-        or "\u53c2\u52a0" in ticket_content
-    ):
-        return True
-    return False
-
-
-def _looks_like_benefit_scene(ticket_content: str) -> bool:
-    if _contains_any(ticket_content, ("权益", "活动资格", "资格核验", "贵宾厅", "道路救援", "礼宾", "返现")):
-        return True
-    if "积分" in ticket_content and not _contains_any(ticket_content, ("征信", "投诉")):
-        return True
-    return bool(
-        re.search(r"[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+", ticket_content)
-        and _contains_any(ticket_content, ("活动", "资格", "参加", "权益"))
+def _looks_like_pure_consultation(text: str) -> bool:
+    """Prevent LLM fallback from turning generic FAQ-style questions into tickets."""
+    text = text or ""
+    if not re.search(r"咨询|规则|领取方式|如何领取|怎么用|使用条件|办理入口", text, re.I):
+        return False
+    actionable_pattern = (
+        r"工单|处理|核实|调查|投诉|要求|申请|补发|未到账|失败|异常|争议|拒付|"
+        r"管制|逾期|调单|扣款|结清证明|资料借阅|协商还款|延期还款|确认剩余次数"
     )
-
-
-def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
-    return any(keyword in text for keyword in keywords)
+    return not re.search(actionable_pattern, text, re.I)
