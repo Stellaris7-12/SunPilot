@@ -250,14 +250,6 @@ async def main():
         ]
         assert failed_complete_events[-1]["data"]["status"] == "FAILED", failed_complete_events
 
-        from agents.intent_agent import IntentAgent
-        from agents.classifier_agent import ClassifierAgent
-        from agents.extract_agent import ExtractAgent
-        from agents.intake_agent import IntakeAgent
-
-        assert issubclass(IntentAgent, ClassifierAgent)
-        assert issubclass(ExtractAgent, IntakeAgent)
-
         print("module B smoke passed")
 
 

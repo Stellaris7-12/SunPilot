@@ -5,11 +5,18 @@ All business agents (Classifier, Intake, Escalation, Resolution, Notification)
 inherit from BaseAgent.
 """
 
+import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
 
-from openai import AsyncOpenAI
+from openai import (
+    AsyncOpenAI,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 
 from config import (
     LLM_BASE_URL,
@@ -30,6 +37,17 @@ logger = logging.getLogger(__name__)
 # LLM Client (module-level singleton)
 # ---------------------------------------------------------------------------
 client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+
+# 可重试的网络/服务端瞬时异常（区别于业务错误，如 400/401 不重试）
+_RETRIABLE_LLM_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    InternalServerError,
+)
+# 网络异常最大重试次数（不含首次调用）与指数退避秒数（0.5s → 1s → 2s）
+_MAX_NETWORK_RETRIES = 2
+_NETWORK_RETRY_BACKOFFS = (0.5, 1.0, 2.0)
 
 
 # ===================================================================
@@ -64,6 +82,54 @@ class BaseAgent(ABC):
     # ------------------------------------------------------------------
     # LLM helpers
     # ------------------------------------------------------------------
+    async def _create_completion_with_retry(self, payload: dict):
+        """Invoke the chat-completion endpoint with network-error resilience.
+
+        Transient transport failures (connection reset, timeout, rate limit,
+        upstream 5xx) are retried with exponential backoff.  Retry behaviour is
+        gated by the agent's ``retry_policy``:
+
+        - ``"no_retry"``  -> single attempt, propagate any error immediately.
+        - otherwise       -> up to ``_MAX_NETWORK_RETRIES`` extra attempts.
+
+        JSON-parse retries are handled separately by ``call_llm``; this helper
+        only shields against transport-layer faults.
+        """
+        allow_retry = self._agent_card.retry_policy != "no_retry"
+        max_attempts = 1 + (_MAX_NETWORK_RETRIES if allow_retry else 0)
+
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                return await client.chat.completions.create(**payload)
+            except _RETRIABLE_LLM_ERRORS as exc:
+                last_exc = exc
+                if attempt + 1 >= max_attempts:
+                    logger.error(
+                        "LLM transport error for agent '%s' after %d attempt(s): %s",
+                        self._agent_card.agent_id,
+                        attempt + 1,
+                        exc,
+                    )
+                    raise
+                backoff = _NETWORK_RETRY_BACKOFFS[
+                    min(attempt, len(_NETWORK_RETRY_BACKOFFS) - 1)
+                ]
+                logger.warning(
+                    "LLM transport error for agent '%s' (attempt %d/%d): %s. "
+                    "Retrying in %.1fs.",
+                    self._agent_card.agent_id,
+                    attempt + 1,
+                    max_attempts,
+                    exc,
+                    backoff,
+                )
+                await asyncio.sleep(backoff)
+
+        # Defensive: loop always returns or raises above.
+        assert last_exc is not None
+        raise last_exc
+
     async def call_llm(
         self,
         system_prompt: str,
@@ -123,7 +189,7 @@ class BaseAgent(ABC):
         )
 
         for attempt in range(2):  # initial call + 1 retry
-            response = await client.chat.completions.create(**payload)
+            response = await self._create_completion_with_retry(payload)
             message = response.choices[0].message
             raw_text = message.content or ""
             normalized_tool_calls = _normalize_llm_tool_calls(

@@ -72,7 +72,6 @@ class EscalationAgent(BaseAgent):
         requires_confirmation = scenario_config.requires_human_confirmation
         guard_result = (
             RiskGuard.requires_confirmation_before_tool(
-                intent_type,
                 ticket_risk,
                 bool(requires_confirmation),
                 tool_result,

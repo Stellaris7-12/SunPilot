@@ -1,6 +1,6 @@
 # agents — 多 Agent 业务智能体目录
 
-信用卡工单处理的多 Agent 核心。**真正的业务 Agent 只有 5 个**（Classifier / Intake / Resolution / Escalation / Notification），全部继承自 `base.py` 的 `BaseAgent`，共享一个模块级 `AsyncOpenAI` 客户端（业务 `LLM_*` 配置），并由 `agent_registry` 从 `data/agent_cards.json` 加载 AgentCard、按依赖拓扑排序供编排器发现调用。
+信用卡工单处理的多 Agent 核心。**真正的业务 Agent 只有 5 个**（Classifier / Intake / Resolution / Escalation / Notification），全部继承自 `base.py` 的 `BaseAgent`，共享一个模块级 `AsyncOpenAI` 客户端（业务 `LLM_*` 配置），并由 `agent_registry` 从 `data/agent_cards.json` 加载 AgentCard 供编排器发现调用；执行顺序在 `Orchestrator.process_ticket` 中显式定义，`dependencies` 字段仅用于启动期依赖完整性校验。
 
 设计贯彻两条原则：**workflow_config 是单一事实来源**（提示词、字段、门控均从配置动态构建）；**确定性快车道优先、LLM 只做补空的慢车道兜底**（LLM 绝不覆盖确定性抽到的真实值）。
 
@@ -11,7 +11,7 @@
 | 文件 | 主要功能 |
 | --- | --- |
 | `base.py` | 抽象基类 `BaseAgent` + 模块级 `AsyncOpenAI` 客户端。封装 `call_llm`（JSON 模式或原生 tool call，解析失败重试一次）、抽象 `run()` 与提示词辅助方法。 |
-| `agent_registry.py` | `AgentRegistry` 从 `agent_cards.json` 加载全部 AgentCard，提供按 id 查询、列出需人工复核项、依赖拓扑排序（`get_execution_order`），导出单例 `agent_registry`。 |
+| `agent_registry.py` | `AgentRegistry` 从 `agent_cards.json` 加载全部 AgentCard，提供按 id 查询、列出需人工复核项、启动期依赖完整性校验（`_validate_dependencies`），导出单例 `agent_registry`。 |
 | `classifier_agent.py` | **业务 Agent 1 / 分类**。将工单分类到预定义业务场景，确定性命中优先，纯咨询短路为 UNKNOWN，其余走 LLM 并强制回填契约字段防措辞漂移。 |
 | `intake_agent.py` | **业务 Agent 2 / 接单抽取**。确定性快车道抽全必填字段即返回，否则走 LLM 慢车道并 `_merge_fields` 只补空缺。含缺字段催单话术 `build_follow_up_prompt`。 |
 | `resolution_agent.py` | **业务 Agent 3 / 解决方案**。选择业务工具并构建调用参数，FITS 场景默认确定性回退，LLM 用原生 tool call 选择并配合名称纠错、参数归一、候选集校验。 |

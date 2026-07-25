@@ -174,7 +174,10 @@ const primaryAiDisabled = computed(() => {
 
 // AI 处理状态指示：发单为草稿生成，回单为多 Agent 处理进度
 const aiStatusActive = computed(() => isAiBusy.value)
+// 连接中断等致命错误，优先展示为红色告警
+const aiStatusError = computed(() => Boolean(store.processError))
 const aiStatusText = computed(() => {
+  if (store.processError) return store.processError
   if (isDispatchPage.value) {
     if (store.isGeneratingDraft) return '正在整理来电内容，生成发单草稿…'
     return store.ticketDraftResult ? '发单草稿已生成，可带入表单。' : ''
@@ -618,7 +621,11 @@ defineExpose({ runTask, stopAgent })
       <p v-if="settingsStatus" class="settings-status">{{ settingsStatus }}</p>
     </section>
 
-    <p v-if="aiStatusActive || aiStatusText" class="ai-status-strip" :class="{ live: aiStatusActive }">
+    <p
+      v-if="aiStatusActive || aiStatusText"
+      class="ai-status-strip"
+      :class="{ live: aiStatusActive, error: aiStatusError }"
+    >
       <span v-if="aiStatusActive" class="status-dot" aria-hidden="true"></span>
       {{ aiStatusText }}
     </p>
@@ -863,6 +870,10 @@ defineExpose({ runTask, stopAgent })
 }
 .ai-status-strip.live {
   color: #1d4ed8;
+  font-weight: 700;
+}
+.ai-status-strip.error {
+  color: #dc2626;
   font-weight: 700;
 }
 .ai-status-strip .status-dot {

@@ -66,48 +66,7 @@ class RiskGuard:
         }
 
     @staticmethod
-    def transaction_precheck(
-        intent_type: str,
-        tool_result: dict,
-        ticket_risk: str,
-        checks: list[dict],
-    ) -> dict | None:
-        if intent_type != "调单扣款" or tool_result:
-            return None
-        checks.append({"label": "交易核查先执行只读查询取证", "status": "通过"})
-        return {
-            "checks": checks,
-            "risk_level": ticket_risk,
-            "risk_decision": "交易信息已基本齐全，先查询 Mock 交易流水作为人工复核证据",
-            "can_auto_proceed": True,
-            "missing_fields": [],
-            "needs_more_info": False,
-        }
-
-    @staticmethod
-    def failed_identity_check(
-        intent_type: str,
-        fields_dict: dict,
-        checks: list[dict],
-    ) -> dict | None:
-        verify_status = str(fields_dict.get("verifyStatus", "")).upper()
-        if intent_type != "客户经营":
-            return None
-        if "FAILED" not in verify_status and "未通过" not in verify_status:
-            return None
-        checks.append({"label": "身份核验未通过", "status": "已拦截"})
-        return {
-            "checks": checks,
-            "risk_level": "high",
-            "risk_decision": "资料变更的身份核验未通过，已转人工处理",
-            "can_auto_proceed": False,
-            "missing_fields": [],
-            "needs_more_info": False,
-        }
-
-    @staticmethod
     def requires_confirmation_before_tool(
-        intent_type: str,
         ticket_risk: str,
         requires_confirmation: bool,
         tool_result: dict,
@@ -115,11 +74,7 @@ class RiskGuard:
     ) -> dict | None:
         if tool_result:
             return None
-        if not (
-            ticket_risk == "medium"
-            or intent_type == "客户经营"
-            or requires_confirmation
-        ):
+        if not (ticket_risk == "medium" or requires_confirmation):
             return None
         checks.append({"label": "敏感或中风险操作需人工确认", "status": "待确认"})
         return {
@@ -127,20 +82,6 @@ class RiskGuard:
             "risk_level": "medium",
             "risk_decision": "信息已基本齐全，但涉及敏感或中风险操作，需人工确认后再继续",
             "can_auto_proceed": True,
-            "missing_fields": [],
-            "needs_more_info": False,
-        }
-
-    @staticmethod
-    def transaction_review_after_tool(intent_type: str, checks: list[dict]) -> dict | None:
-        if intent_type != "调单扣款":
-            return None
-        checks.append({"label": "调单扣款需人工复核", "status": "需复核"})
-        return {
-            "checks": checks,
-            "risk_level": "high",
-            "risk_decision": "调单扣款类工单，建议转人工复核",
-            "can_auto_proceed": False,
             "missing_fields": [],
             "needs_more_info": False,
         }

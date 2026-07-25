@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload, WorkflowConfig } from '../types';
-import { ticketApi, workflowApi } from '../api';
+import type { AiProcessResult, CallRecordSample, CreateTicketPayload, EvaluationMetrics, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload, WorkflowConfig } from '../types';
+import { evalApi, ticketApi, workflowApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
   const tickets = ref<Ticket[]>([]);
@@ -14,11 +14,14 @@ export const useTicketStore = defineStore('ticket', () => {
   const callRecords = ref<CallRecordSample[]>([]);
   const workflowConfig = ref<WorkflowConfig | null>(null);
   const ticketDraftResult = ref<TicketDraftResult | null>(null);
+  const isGeneratingDraft = ref(false);
   const pageActionLogs = ref<PageActionLogEntry[]>([]);
   const pageAgentStatus = ref<PageActionStatus>('done');
   const pageAgentGoal = ref('');
   const replyDraft = ref('');
   const workflowPaused = ref(false);
+  const processError = ref<string | null>(null);
+  const metrics = ref<EvaluationMetrics | null>(null);
 
   const selectedTicket = computed(() =>
     tickets.value.find(t => t.id === selectedTicketId.value) || null
@@ -38,9 +41,19 @@ export const useTicketStore = defineStore('ticket', () => {
     workflowConfig.value = await workflowApi.getConfig();
   }
 
+  async function fetchMetrics() {
+    metrics.value = await evalApi.metrics();
+    return metrics.value;
+  }
+
   async function generateTicketDraft(payload: GenerateTicketDraftPayload) {
-    ticketDraftResult.value = await ticketApi.generateTicketDraft(payload);
-    return ticketDraftResult.value;
+    isGeneratingDraft.value = true;
+    try {
+      ticketDraftResult.value = await ticketApi.generateTicketDraft(payload);
+      return ticketDraftResult.value;
+    } finally {
+      isGeneratingDraft.value = false;
+    }
   }
 
   function setPageAgentStatus(status: PageActionStatus, goal = pageAgentGoal.value) {
@@ -119,6 +132,7 @@ export const useTicketStore = defineStore('ticket', () => {
     toolCalls.value = [];
     replyDraft.value = '';
     workflowPaused.value = false;
+    processError.value = null;
 
     const eventSource = new EventSource(ticketApi.getStreamUrl(ticketId));
 
@@ -170,6 +184,18 @@ export const useTicketStore = defineStore('ticket', () => {
     eventSource.addEventListener('workflow_failed', e => finish(e as MessageEvent));
 
     eventSource.addEventListener('error', () => {
+      // EventSource 会在网络抖动时自动重连；只有连接彻底关闭（CLOSED）才视为致命失败。
+      if (eventSource.readyState !== EventSource.CLOSED) {
+        return;
+      }
+      // 将仍在执行中的步骤标记为失败，避免界面停留在“执行中...”。
+      traceSteps.value.forEach(step => {
+        if (step.status === 'RUNNING') {
+          step.status = 'FAILED';
+          step.summary = '连接中断,处理未完成';
+        }
+      });
+      processError.value = '与后端的实时连接中断,处理可能未完成。请重试或刷新工单。';
       isProcessing.value = false;
       eventSource.close();
     });
@@ -246,6 +272,7 @@ export const useTicketStore = defineStore('ticket', () => {
     pageActionLogs.value = [];
     replyDraft.value = '';
     workflowPaused.value = false;
+    processError.value = null;
   }
 
   return {
@@ -258,18 +285,22 @@ export const useTicketStore = defineStore('ticket', () => {
     operationLogs,
     callRecords,
     workflowConfig,
+    metrics,
     ticketDraftResult,
+    isGeneratingDraft,
     pageActionLogs,
     pageAgentStatus,
     pageAgentGoal,
     replyDraft,
     workflowPaused,
+    processError,
     selectedTicket,
     openCount,
     closedCount,
     fetchTickets,
     fetchCallRecords,
     fetchWorkflowConfig,
+    fetchMetrics,
     generateTicketDraft,
     setPageAgentStatus,
     appendPageActionLog,

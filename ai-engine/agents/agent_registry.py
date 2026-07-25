@@ -17,8 +17,9 @@ AGENT_CARDS_JSON = Path(__file__).resolve().parent.parent / "data" / "agent_card
 class AgentRegistry:
     """Registry of all available agents, loaded from agent_cards.json.
 
-    Provides discovery by agent_id and dependency-order sorting for
-    the orchestrator to determine execution order.
+    Provides discovery by agent_id and startup validation of declared
+    dependencies.  The concrete execution order lives in
+    ``Orchestrator.process_ticket``; this registry does not derive it.
     """
 
     def __init__(self):
@@ -27,10 +28,32 @@ class AgentRegistry:
         self._cards: dict[str, AgentCard] = {
             c["agent_id"]: AgentCard(**c) for c in cards_data
         }
+        self._validate_dependencies()
         logger.info(
             f"AgentRegistry loaded {len(self._cards)} agents: "
             f"{list(self._cards.keys())}"
         )
+
+    def _validate_dependencies(self) -> None:
+        """Fail fast if any card declares a dependency on an unknown agent.
+
+        The orchestration order is defined explicitly in
+        ``Orchestrator.process_ticket``; the ``dependencies`` field is metadata
+        used for documentation and integrity checks rather than to derive the
+        run order.  We still verify every declared dependency resolves to a
+        registered agent so a typo or a removed agent surfaces at startup
+        instead of mid-pipeline.
+        """
+        missing: list[str] = []
+        for agent_id, card in self._cards.items():
+            for dep in card.dependencies:
+                if dep not in self._cards:
+                    missing.append(f"{agent_id} -> {dep}")
+        if missing:
+            raise ValueError(
+                "Agent card dependency validation failed; unknown dependencies: "
+                + ", ".join(missing)
+            )
 
     def get(self, agent_id: str) -> AgentCard | None:
         """Look up an agent by its id."""
@@ -43,33 +66,6 @@ class AgentRegistry:
     def list_for_review(self) -> list[AgentCard]:
         """Return agents that require human review of their output."""
         return [c for c in self._cards.values() if c.requires_human_review]
-
-    def get_execution_order(self) -> list[str]:
-        """Return agent_ids in topological dependency order.
-
-        Uses a simple approach: agents with no dependencies come first,
-        followed by agents whose dependencies are already in the list.
-        """
-        ordered = []
-        remaining = set(self._cards.keys())
-
-        while remaining:
-            added = False
-            for agent_id in sorted(remaining):
-                card = self._cards[agent_id]
-                if all(dep in ordered for dep in card.dependencies):
-                    ordered.append(agent_id)
-                    remaining.remove(agent_id)
-                    added = True
-                    break
-            if not added:
-                # Circular dependency or missing dep — add remaining in any order
-                logger.warning(f"Could not resolve dependencies for: {remaining}")
-                ordered.extend(sorted(remaining))
-                break
-
-        logger.info(f"Agent execution order: {ordered}")
-        return ordered
 
 
 # Module-level singleton
