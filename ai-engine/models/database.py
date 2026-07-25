@@ -44,46 +44,63 @@ async def _seed_tickets(db: Any):
 async def _seed_from_independent_data(db: Any, domain_data: dict):
     """Seed mock domain tables from independent JSON (not extracted from tickets)."""
     for customer in domain_data.get("customers", []):
+        customer_name = customer["customer_name"]
+        phone = customer["phone"]
+        segment = customer.get("segment", "standard")
+        risk_level = customer.get("risk_level", "low")
         await db.execute(
             """INSERT INTO mock_customers (customer_id, customer_name, phone, segment, risk_level)
                VALUES (?, ?, ?, ?, ?)
-               ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), phone=VALUES(phone),
-                                       segment=VALUES(segment), risk_level=VALUES(risk_level)""",
-            (customer["customer_id"], customer["customer_name"], customer["phone"],
-             customer.get("segment", "standard"), customer.get("risk_level", "low")),
+               ON DUPLICATE KEY UPDATE customer_name=?, phone=?,
+                                       segment=?, risk_level=?""",
+            (customer["customer_id"], customer_name, phone, segment, risk_level,
+             customer_name, phone, segment, risk_level),
         )
     for card in domain_data.get("cards", []):
+        product_name = card.get("product_name", "Credit Card")
+        card_status = card.get("card_status", "active")
+        credit_limit = card.get("credit_limit", 0)
         await db.execute(
             """INSERT INTO mock_cards (card_id, customer_id, card_last4, product_name, card_status, credit_limit)
                VALUES (?, ?, ?, ?, ?, ?)
-               ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), card_status=VALUES(card_status),
-                                       credit_limit=VALUES(credit_limit)""",
+               ON DUPLICATE KEY UPDATE product_name=?, card_status=?,
+                                       credit_limit=?""",
             (card["card_id"], card["customer_id"], card["card_last4"],
-             card.get("product_name", "Credit Card"), card.get("card_status", "active"), card.get("credit_limit", 0)),
+             product_name, card_status, credit_limit,
+             product_name, card_status, credit_limit),
         )
     for benefit in domain_data.get("benefits", []):
+        benefit_name = benefit.get("benefit_name", "")
+        remaining_count = benefit.get("remaining_count", 0)
         await db.execute(
             """INSERT INTO mock_benefits (benefit_id, customer_id, benefit_code, benefit_name, remaining_count, expire_at)
                VALUES (?, ?, ?, ?, ?, ?)
-               ON DUPLICATE KEY UPDATE benefit_name=VALUES(benefit_name), remaining_count=VALUES(remaining_count)""",
+               ON DUPLICATE KEY UPDATE benefit_name=?, remaining_count=?""",
             (benefit["benefit_id"], benefit["customer_id"], benefit["benefit_code"],
-             benefit.get("benefit_name", ""), benefit.get("remaining_count", 0), benefit.get("expire_at", "")),
+             benefit_name, remaining_count, benefit.get("expire_at", ""),
+             benefit_name, remaining_count),
         )
     for txn in domain_data.get("transactions", []):
+        amount = txn.get("amount", 0)
+        merchant = txn.get("merchant", "")
+        status = txn.get("status", "posted")
         await db.execute(
             """INSERT INTO mock_transactions (transaction_id, customer_id, card_last4, amount, merchant, transaction_time, status)
                VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON DUPLICATE KEY UPDATE amount=VALUES(amount), merchant=VALUES(merchant), status=VALUES(status)""",
+               ON DUPLICATE KEY UPDATE amount=?, merchant=?, status=?""",
             (txn["transaction_id"], txn["customer_id"], txn.get("card_last4", ""),
-             txn.get("amount", 0), txn.get("merchant", ""), txn.get("transaction_time", ""), txn.get("status", "posted")),
+             amount, merchant, txn.get("transaction_time", ""), status,
+             amount, merchant, status),
         )
     for app in domain_data.get("applications", []):
+        current_node = app.get("current_node", "")
         await db.execute(
             """INSERT INTO mock_applications (application_no, customer_id, product_name, current_node, expected_finish_at)
                VALUES (?, ?, ?, ?, ?)
-               ON DUPLICATE KEY UPDATE current_node=VALUES(current_node)""",
+               ON DUPLICATE KEY UPDATE current_node=?""",
             (app["application_no"], app["customer_id"], app.get("product_name", ""),
-             app.get("current_node", ""), app.get("expected_finish_at", "")),
+             current_node, app.get("expected_finish_at", ""),
+             current_node),
         )
 
 

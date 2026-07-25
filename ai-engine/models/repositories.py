@@ -315,6 +315,15 @@ class TicketRepository:
                     json.dumps({"draft": draft}, ensure_ascii=False),
                 ),
             )
+            await db.execute(
+                "UPDATE tickets SET final_reply=? WHERE id=?",
+                (draft, ticket_id),
+            )
+            await db.execute(
+                "UPDATE ai_results SET final_reply=?, reply_draft=?"
+                " WHERE ticket_id=? ORDER BY created_at DESC LIMIT 1",
+                (draft, draft, ticket_id),
+            )
             await db.commit()
 
     async def list_operation_logs(self, ticket_id: str) -> list[dict[str, Any]]:
