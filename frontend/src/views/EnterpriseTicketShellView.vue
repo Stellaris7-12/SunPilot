@@ -3,11 +3,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import BusinessFlow from '../components/business/BusinessFlow.vue'
+import MetricsDashboard from '../components/business/MetricsDashboard.vue'
 import type { BusinessFlowStage } from '../components/business/types'
 import SunPilotPanel from '../sunpilot/panel/SunPilotPanel.vue'
 import { useTicketStore } from '../stores/ticket'
 import type { CallRecordSample, CreateTicketPayload, Ticket, WorkflowField } from '../types'
-import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel } from '../domain/ticket/catalog'
+import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel, operationLabel } from '../domain/ticket/catalog'
 import { buildSupplementQuestion, buildSupplementText, missingFieldOptions } from '../domain/reply/missingInfo'
 import { evidenceItems, fieldVerificationItems } from '../domain/ticket/evidence'
 import { replyWorkspaceSections } from '../domain/ticket/workflow'
@@ -52,6 +53,13 @@ const quickQuery = ref('')
 const statusFilter = ref('all')
 const missingFieldDraft = ref<Record<string, string>>({})
 const supplementStatus = ref('')
+
+// 工单流转对话框状态
+const actionDialog = ref<'assign' | 'cancel' | 'reopen' | null>(null)
+const assigneeInput = ref('')
+const departmentInput = ref('')
+const actionReasonInput = ref('')
+const actionStatus = ref('')
 
 const commonFields: CommonField[] = [
   { name: 'customerName', label: '客户姓名', type: 'text', required: true },
@@ -154,14 +162,14 @@ const mockToolSteps = computed<MockToolStep[]>(() => {
       detail: '正在查询客户、卡片、交易或权益信息。',
     })
   }
-  return rows
-    if (!rows.length && store.aiResult && !store.isProcessing) {
-      if (ticket.value?.status === 'escalated') {
+  if (!rows.length && store.aiResult && !store.isProcessing) {
+    if (ticket.value?.status === 'escalated') {
       rows.push({ id: 'escalated-no-tool', title: '已升级，未调用外部系统', source: (store.aiResult?.intent?.label || '') + '风控门禁', status: 'blocked', detail: store.aiResult?.riskDecision || '触发升级规则，跳过自动工具调用。' })
-      } else {
+    } else {
       rows.push({ id: 'no-tool-needed', title: '本次无需外部系统调用', source: (store.aiResult?.intent?.label || '') + '处理链路', status: 'done', detail: '字段完整可直接回单复核。' })
-      }
     }
+  }
+  return rows
 })
 const replySections = computed(() => replyWorkspaceSections(store.aiResult, ticket.value))
 const replyStatus = computed(() => store.replyDraft ? '已生成' : '待处理')
@@ -198,9 +206,9 @@ const filteredTickets = computed(() => {
   return store.tickets.filter(item => {
     const text = `${item.no} ${item.customerId} ${item.customerName} ${item.title} ${item.scene} ${item.category} ${item.subcategory} ${item.content}`.toLowerCase()
     const queryOk = !queryText || text.includes(queryText)
-    const statusOk = statusFilter.value === 'all' || item.status === statusFilter.value
+    // statusOk 由服务端 watch(statusFilter) 发送的过滤参数处理，本地不再二次过滤
     const categoryOk = !selectedCategory.value || selectedCategory.value.pattern.test(`${item.no} ${item.title} ${item.scene} ${item.category} ${item.subcategory} ${item.content}`)
-    return queryOk && statusOk && categoryOk
+    return queryOk && categoryOk
   })
 })
 const queueTickets = computed(() => filteredTickets.value.slice(0, 14))
@@ -269,6 +277,7 @@ onMounted(async () => {
   if (ticketsResult.status === 'rejected') loadErrors.push('工单列表')
   if (callsResult.status === 'rejected') loadErrors.push('通话记录')
   if (workflowResult.status === 'rejected') loadErrors.push('表单配置')
+  store.fetchMetrics().catch(() => { /* 指标看板为增强信息，加载失败不阻断主流程 */ })
   hydrateCallSelection()
   await loadRouteTicket(ticketId.value)
   if (loadErrors.length) operationError.value = `数据加载失败：${loadErrors.join('、')}。请检查服务连接后刷新。`
@@ -278,6 +287,14 @@ watch(() => route.path, async () => {
   hydrateCallSelection()
   if (routeMode.value === 'dispatch') resetDispatchDraft(selectedCall.value)
   await loadRouteTicket(ticketId.value)
+  // 回到首页时，不带状态过滤重新拉取工单列表，确保 dashboard 指标正确
+  if (routeMode.value === 'home') await store.fetchTickets()
+})
+
+// 状态筛选变化时向服务端请求对应状态工单；quickQuery 仍为本地文本过滤
+watch(statusFilter, async (val) => {
+  const filters = val !== 'all' ? { status: val as import('../types').TicketStatus } : undefined
+  await store.fetchTickets(filters)
 })
 
 watch(selectedCall, current => {
@@ -579,6 +596,61 @@ function markReplyEdited() {
   replyTouched.value = true
 }
 
+function openActionDialog(type: 'assign' | 'cancel' | 'reopen') {
+  assigneeInput.value = ticket.value?.assignee || ''
+  departmentInput.value = ticket.value?.department || ''
+  actionReasonInput.value = ''
+  actionStatus.value = ''
+  actionDialog.value = type
+}
+
+function closeActionDialog() {
+  actionDialog.value = null
+  actionStatus.value = ''
+}
+
+async function handleAssign() {
+  if (!ticket.value || !assigneeInput.value.trim()) {
+    actionStatus.value = '请填写经办人。'
+    return
+  }
+  actionStatus.value = '正在转派...'
+  try {
+    await store.assignTicket(ticket.value.id, assigneeInput.value.trim(), departmentInput.value.trim() || undefined, 'desk-a1027')
+    actionDialog.value = null
+    actionStatus.value = ''
+  } catch {
+    actionStatus.value = '转派失败，请刷新后重试。'
+  }
+}
+
+async function handleCancel() {
+  if (!ticket.value || !actionReasonInput.value.trim()) {
+    actionStatus.value = '请填写取消原因。'
+    return
+  }
+  actionStatus.value = '正在取消工单...'
+  try {
+    await store.cancelTicket(ticket.value.id, actionReasonInput.value.trim(), 'desk-a1027')
+    actionDialog.value = null
+    actionStatus.value = ''
+  } catch {
+    actionStatus.value = '取消失败，请刷新后重试。'
+  }
+}
+
+async function handleReopen() {
+  if (!ticket.value) return
+  actionStatus.value = '正在重开工单...'
+  try {
+    await store.reopenTicket(ticket.value.id, actionReasonInput.value.trim(), 'desk-a1027')
+    actionDialog.value = null
+    actionStatus.value = ''
+  } catch {
+    actionStatus.value = '重开失败，请刷新后重试。'
+  }
+}
+
 function scrollToId(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -621,7 +693,7 @@ function statusLabelFor(value?: string) {
       </button>
       <div class="top-actions">
         <span>坐席：A1027 李青</span>
-        <span class="mono">2026-07-23</span>
+        <span class="mono">{{ new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) }}</span>
         <span v-if="operationError" class="status red">{{ operationError }}</span>
       </div>
     </header>
@@ -718,6 +790,8 @@ function statusLabelFor(value?: string) {
             </button>
           </section>
 
+          <MetricsDashboard :metrics="store.metrics" />
+
           <section class="sys-panel">
             <div class="sys-title">业务流转 <small>今日处理进度</small></div>
             <BusinessFlow :stages="businessFlow" />
@@ -730,7 +804,7 @@ function statusLabelFor(value?: string) {
                 <thead><tr><th>时间</th><th>客户</th><th>分类</th><th>来电摘要</th></tr></thead>
                 <tbody>
                   <tr v-for="call in store.callRecords.slice(0, 6)" :key="call.id" @click="router.push(`/dispatch/${businessCategories.find(item => item.scenes.includes(call.scenario))?.id || ''}`)">
-                    <td>{{ call.callMeta.callStartedAt || '-' }}</td>
+                    <td>{{ call.callMeta.callStartedAt ? formatShortTime(call.callMeta.callStartedAt) : '-' }}</td>
                     <td>{{ call.callMeta.customerName || call.callMeta.customerId }}</td>
                     <td>{{ call.scenario }}</td>
                     <td>{{ call.transcript.slice(0, 48) }}...</td>
@@ -766,8 +840,7 @@ function statusLabelFor(value?: string) {
               </div>
             </div>
             <div class="toolbar-actions">
-              <button class="btn-primary" type="button" @click="generateDraftFromCall">生成发单草稿</button>
-              <button class="btn-plain" type="button" @click="handleSaveDispatchDraft">暂存</button>
+              <button class="btn-plain" type="button" @click="handleSaveDispatchDraft" title="仅本地暂存，不提交系统">暂存（本地）</button>
               <button id="dispatch-submit" class="btn-primary" data-page-agent-target="dispatch-submit" type="button" :disabled="!canSubmitDraft" @click="handleSubmitDraft">发送</button>
             </div>
           </div>
@@ -943,9 +1016,21 @@ function statusLabelFor(value?: string) {
               </div>
             </div>
             <div class="toolbar-actions">
-              <button class="btn-primary" type="button" :disabled="store.isProcessing" @click="handleProcess">开始处理</button>
               <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="handleSaveReply">保存回单</button>
               <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">结案</button>
+              <button class="btn-plain" type="button" :disabled="store.isProcessing" @click="openActionDialog('assign')">转派</button>
+              <button
+                class="btn-plain"
+                type="button"
+                :disabled="store.isProcessing || ticket.status === 'cancelled' || ticket.status === 'closed'"
+                @click="openActionDialog('cancel')"
+              >取消工单</button>
+              <button
+                v-if="ticket.status === 'cancelled'"
+                class="btn-plain"
+                type="button"
+                @click="openActionDialog('reopen')"
+              >重开</button>
             </div>
           </div>
 
@@ -970,6 +1055,16 @@ function statusLabelFor(value?: string) {
                 <div class="field"><label>规定回件日期</label><strong>{{ ticket.deadline || ticket.dueAt || '-' }}</strong></div>
               </div>
               <div class="case-text">{{ ticket.content }}</div>
+              <!-- 结案/取消后补充展示 -->
+              <div v-if="ticket.finalReply" class="case-text case-text-secondary">
+                <label>最终回复</label>{{ ticket.finalReply }}
+              </div>
+              <div v-if="ticket.cancelReason" class="case-text case-text-secondary">
+                <label>取消原因</label>{{ ticket.cancelReason }}
+              </div>
+              <div v-if="ticket.closedAt" class="case-text case-text-secondary">
+                <label>结案时间</label>{{ ticket.closedAt }}
+              </div>
             </section>
 
             <section class="sys-panel">
@@ -977,7 +1072,7 @@ function statusLabelFor(value?: string) {
               <ul class="log-list">
                 <li v-for="operation in store.operationLogs.slice(0, 6)" :key="operation.id">
                   <span>{{ formatShortTime(operation.createdAt) }}</span>
-                  <strong>{{ operation.operation }}</strong>
+                  <strong>{{ operationLabel(operation.operation) }}</strong>
                   <small>{{ operation.operator }} / {{ statusLabelFor(operation.toStatus) }}</small>
                 </li>
                 <li v-if="!store.operationLogs.length">
@@ -1117,8 +1212,8 @@ function statusLabelFor(value?: string) {
         type="button"
         data-page-agent-not-interactive="true"
         data-sunpilot-panel="true"
-        :aria-label="copilotOpen ? '隐藏 SunPilot' : '展开 SunPilot'"
-        :title="copilotOpen ? '隐藏 SunPilot' : '展开 SunPilot'"
+        :aria-label="copilotOpen ? '隐藏辅助面板' : '展开辅助面板'"
+        :title="copilotOpen ? '隐藏辅助面板' : '展开辅助面板'"
         @click="copilotOpen = !copilotOpen"
       >
         {{ copilotOpen ? '›' : '‹' }}
@@ -1141,6 +1236,64 @@ function statusLabelFor(value?: string) {
       @confirm="handleHumanConfirm(true)"
       @reject="handleHumanConfirm(false)"
     />
+
+    <!-- 工单流转对话框 -->
+    <div v-if="actionDialog" class="overlay" @click.self="closeActionDialog">
+      <section class="dialog" role="dialog" aria-modal="true">
+        <!-- 转派 -->
+        <template v-if="actionDialog === 'assign'">
+          <h2>转派工单</h2>
+          <p>将工单转交其他经办人或单位继续处理。</p>
+          <div class="action-form">
+            <label>
+              <span>经办人 <em>*</em></span>
+              <input v-model="assigneeInput" type="text" placeholder="填写经办人" />
+            </label>
+            <label>
+              <span>接单单位</span>
+              <input v-model="departmentInput" type="text" placeholder="填写单位（可选）" />
+            </label>
+          </div>
+          <p v-if="actionStatus" class="action-status">{{ actionStatus }}</p>
+          <div class="actions">
+            <button class="btn btn-reject" type="button" @click="closeActionDialog">取消</button>
+            <button class="btn btn-confirm" type="button" :disabled="!assigneeInput.trim()" @click="handleAssign">确认转派</button>
+          </div>
+        </template>
+        <!-- 取消工单 -->
+        <template v-else-if="actionDialog === 'cancel'">
+          <h2>取消工单</h2>
+          <p>工单将变为已取消状态，如需恢复可使用「重开」操作。</p>
+          <div class="action-form">
+            <label>
+              <span>取消原因 <em>*</em></span>
+              <textarea v-model="actionReasonInput" placeholder="请填写取消原因" rows="3" />
+            </label>
+          </div>
+          <p v-if="actionStatus" class="action-status">{{ actionStatus }}</p>
+          <div class="actions">
+            <button class="btn btn-reject" type="button" @click="closeActionDialog">返回</button>
+            <button class="btn btn-confirm" type="button" :disabled="!actionReasonInput.trim()" @click="handleCancel">确认取消</button>
+          </div>
+        </template>
+        <!-- 重开工单 -->
+        <template v-else-if="actionDialog === 'reopen'">
+          <h2>重开工单</h2>
+          <p>将已取消的工单重新激活为「待处理」状态。</p>
+          <div class="action-form">
+            <label>
+              <span>重开备注</span>
+              <input v-model="actionReasonInput" type="text" placeholder="填写重开原因（可选）" />
+            </label>
+          </div>
+          <p v-if="actionStatus" class="action-status">{{ actionStatus }}</p>
+          <div class="actions">
+            <button class="btn btn-reject" type="button" @click="closeActionDialog">返回</button>
+            <button class="btn btn-confirm" type="button" @click="handleReopen">确认重开</button>
+          </div>
+        </template>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -1930,5 +2083,90 @@ function statusLabelFor(value?: string) {
   .case-query-bar {
     grid-template-columns: 1fr;
   }
+}
+/* 工单流转对话框 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(31, 41, 51, 0.52);
+}
+.dialog {
+  width: min(440px, 100%);
+  padding: 22px;
+  border: 1px solid var(--line-dark);
+  background: var(--panel, #fff);
+  box-shadow: 0 24px 70px rgba(31, 41, 51, 0.28);
+}
+.dialog h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+.dialog p {
+  margin: 6px 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.action-form {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+}
+.action-form label {
+  display: grid;
+  gap: 4px;
+}
+.action-form span {
+  font-size: 12px;
+  font-weight: 900;
+}
+.action-form em {
+  color: var(--danger);
+  font-style: normal;
+}
+.action-form input,
+.action-form textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-dark);
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.action-status {
+  color: var(--warn);
+  font-size: 12px;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.btn {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--line-dark);
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.btn-confirm {
+  border-color: var(--brand-dark);
+  background: var(--brand);
+  color: #fff;
+}
+.btn-confirm:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+.btn-reject {
+  border-color: rgba(180, 35, 53, 0.3);
+  background: var(--red-soft, #fff0f2);
+  color: var(--danger);
 }
 </style>

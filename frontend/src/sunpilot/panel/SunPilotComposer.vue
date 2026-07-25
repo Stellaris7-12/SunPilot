@@ -33,7 +33,7 @@ function handleKeydown(event: KeyboardEvent) {
       @keydown="handleKeydown"
     />
     <div class="composer-tools">
-      <div class="mode-switch" aria-label="SunPilot 输入模式">
+      <div class="mode-switch" aria-label="输入模式切换">
         <button type="button" :class="{ active: mode === 'qa' }" :disabled="busy" @click="emit('update:mode', 'qa')">询问</button>
         <button type="button" :class="{ active: mode === 'task' }" :disabled="busy" @click="emit('update:mode', 'task')">办理</button>
       </div>
@@ -47,15 +47,15 @@ function handleKeydown(event: KeyboardEvent) {
 <style scoped>
 .input-shell {
   display: grid;
-  gap: 8px;
-  padding: 12px;
+  gap: 6px;
+  padding: 8px 10px;
   border: 1px solid #d7dde6;
-  border-radius: 18px;
+  border-radius: 14px;
   background: #f3f5f7;
 }
 .agent-input {
-  min-height: 76px;
-  max-height: 120px;
+  min-height: 44px;
+  max-height: 96px;
   resize: vertical;
   border: 0;
   outline: 0;

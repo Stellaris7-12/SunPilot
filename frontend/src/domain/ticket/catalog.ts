@@ -44,6 +44,23 @@ export function businessText(value: string) {
   )
 }
 
+export const operationLabels: Record<string, string> = {
+  create_ticket: '工单登记',
+  edit_ticket: '编辑工单',
+  assign_ticket: '指派工单',
+  cancel_ticket: '取消工单',
+  reopen_ticket: '重新开启',
+  save_reply_draft: '保存回复草稿',
+  close_ticket: '结案归档',
+  reject_human_confirm: '退回人工处理',
+  status_change: '状态流转',
+}
+
+export function operationLabel(operation?: string) {
+  const name = operation || ''
+  return operationLabels[name] || cleanBusinessText(name) || '处理操作'
+}
+
 export function toolBusinessLabel(toolName?: string) {
   const name = toolName || ''
   if (/coupon|benefit|权益|优惠|activity/i.test(name)) return '权益活动系统'

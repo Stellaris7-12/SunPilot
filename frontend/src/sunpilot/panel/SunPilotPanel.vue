@@ -7,13 +7,10 @@ import { executePageTaskDeterministically, type PageTaskActionAuditEntry } from 
 import { buildPageTaskDirective, type PageTaskDirective } from '../taskBridge'
 import { useTicketStore } from '../../stores/ticket'
 import type { PageTaskEnvelope } from '../../types'
-import { businessFieldLabel, cleanBusinessText, toolBusinessLabel } from '../../domain/ticket/catalog'
+import { businessFieldLabel, cleanBusinessText } from '../../domain/ticket/catalog'
 import { evidenceIds as collectEvidenceIds } from '../../domain/ticket/evidence'
-import SunPilotBusinessFlow from './SunPilotBusinessFlow.vue'
 import SunPilotComposer from './SunPilotComposer.vue'
-import SunPilotFoldCard from './SunPilotFoldCard.vue'
 import SunPilotQuickActions from './SunPilotQuickActions.vue'
-import SunPilotSuggestionCard from './SunPilotSuggestionCard.vue'
 
 type MessageTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 type MessageKind = 'task' | 'activity' | 'observation' | 'history' | 'result'
@@ -128,7 +125,6 @@ const statusTone = computed(() => {
 const quickActions = computed<QuickAction[]>(() => {
   if (isDispatchPage.value) {
     return [
-      { label: '生成发单草稿', emit: 'generateDraft' },
       { label: '带入来电信息', command: '根据最新发单草稿，填入当前标准工单表单。', disabled: !store.ticketDraftResult },
       { label: '发送工单', emit: 'submitDraft', disabled: !store.ticketDraftResult },
     ]
@@ -137,7 +133,6 @@ const quickActions = computed<QuickAction[]>(() => {
   const hasMissing = Boolean(store.aiResult?.missingFields?.length)
   if (!store.aiResult) {
     return [
-      { label: '开始处理', emit: 'startAiProcess', disabled: !store.selectedTicket || store.isProcessing },
       { label: '查看待补充', emit: 'scrollMissing', disabled: !store.selectedTicket },
     ]
   }
@@ -156,8 +151,7 @@ const quickActions = computed<QuickAction[]>(() => {
 })
 const configSummary = computed(() => {
   if (!llmConfig.value) return '读取中'
-  const keyLabel = llmConfig.value.apiKeyConfigured ? `凭据 ${llmConfig.value.apiKeyPreview || '已配置'}` : '凭据未配置'
-  return `${llmConfig.value.model} · ${keyLabel}`
+  return llmConfig.value.apiKeyConfigured ? 'AI服务已连接' : 'AI服务未配置，请填写连接密钥'
 })
 const modelOptions = computed(() => {
   const allowed = new Set(llmConfig.value?.allowedModels?.length ? llmConfig.value.allowedModels : MODEL_CATALOG.map(model => model.value))
@@ -169,57 +163,32 @@ const modelOptions = computed(() => {
   return options
 })
 const isAgentRunning = computed(() => running.value || status.value === 'running')
-const suggestionTitle = computed(() => {
-  if (store.isProcessing) return '正在处理，请稍候'
-  if (store.aiResult?.missingFields?.length) return '先补充缺失信息'
-  if (store.aiResult) return '复核回单内容'
-  return isDispatchPage.value ? '先整理发单草稿' : '先开始处理工单'
-})
-const suggestionBody = computed(() =>
-  missingFieldLabels.value.length
-    ? `待补充：${missingFieldLabels.value.join('、')}`
-    : store.selectedTicket?.title || '选择左侧业务后继续办理。'
-)
-const currentPageTaskLabel = computed(() => {
-  if (!latestPageTask.value) return ''
-  return cleanBusinessText(latestPageTaskDirective.value?.summary || `待执行 ${latestPageTask.value.actions.length} 步`)
-})
-const missingFieldLabels = computed(() =>
-  (store.aiResult?.missingFields || []).map(field => businessFieldLabel(field))
-)
-const externalSystemRows = computed(() => {
-  const rows: Array<{ label: string; status: string }> = []
-  const enrichment = store.aiResult?.fieldEnrichment
-  enrichment?.sourceTools?.forEach(tool => {
-    rows.push({
-      label: toolBusinessLabel(tool),
-      status: enrichment.unresolvedFields?.length ? '需补充' : '已核验',
-    })
-  })
-  store.toolCalls.forEach(call => {
-    rows.push({
-      label: toolBusinessLabel(call.toolName),
-      status: call.success ? '已完成' : '未通过',
-    })
-  })
-  return rows.slice(0, 5)
-})
-const pilotFlowSteps = computed(() => {
-  if (isDispatchPage.value) {
-    return [
-      { label: '读取来电', status: '已完成' },
-      { label: store.ticketDraftResult ? '草稿已生成' : '整理草稿', status: store.ticketDraftResult ? '已完成' : '待处理' },
-      { label: currentPageTaskLabel.value || '等待发送', status: currentPageTaskLabel.value ? '办理中' : '待处理' },
-    ]
-  }
-  return [
-    { label: store.selectedTicket ? '读取工单' : '选择工单', status: store.selectedTicket ? '已完成' : '待处理' },
-    { label: store.isProcessing ? '接单处理' : store.aiResult ? '接单处理完成' : '等待处理', status: store.isProcessing ? '办理中' : store.aiResult ? '已完成' : '待处理' },
-    { label: externalSystemRows.value.length ? '外部系统核验' : '等待核验', status: store.isProcessing ? '办理中' : externalSystemRows.value.length ? '已完成' : '待处理' },
-    { label: missingFieldLabels.value.length ? '信息补充' : (store.replyDraft ? '回单待复核' : '整理回单'), status: missingFieldLabels.value.length ? '需补充' : currentPageTaskLabel.value || store.replyDraft ? '办理中' : '待处理' },
-  ]
+
+// 侧边栏主操作按钮：发单页为“AI辅助发单”，回单页为“AI辅助回单”
+const primaryAiLabel = computed(() => (isDispatchPage.value ? 'AI辅助发单' : 'AI辅助回单'))
+const isAiBusy = computed(() => (isDispatchPage.value ? store.isGeneratingDraft : store.isProcessing))
+const primaryAiDisabled = computed(() => {
+  if (isAiBusy.value) return true
+  return isDispatchPage.value ? false : !store.selectedTicket
 })
 
+// AI 处理状态指示：发单为草稿生成，回单为多 Agent 处理进度
+const aiStatusActive = computed(() => isAiBusy.value)
+const aiStatusText = computed(() => {
+  if (isDispatchPage.value) {
+    if (store.isGeneratingDraft) return '正在整理来电内容，生成发单草稿…'
+    return store.ticketDraftResult ? '发单草稿已生成，可带入表单。' : ''
+  }
+  if (store.isProcessing) {
+    const running = [...store.traceSteps].reverse().find(step => step.status === 'RUNNING')
+    const latest = running || store.traceSteps.at(-1)
+    if (latest) return `${latest.agent}：${latest.summary || '处理中'}`
+    return '正在处理工单…'
+  }
+  if (store.aiResult?.missingFields?.length) return '处理完成，请先补充缺失信息。'
+  if (store.aiResult) return '处理完成，可复核回单内容。'
+  return ''
+})
 function messageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
@@ -231,11 +200,6 @@ function pushMessage(message: Omit<PanelMessage, 'id'>) {
   })
 }
 
-function summarizeInput(inputValue: unknown) {
-  const text = typeof inputValue === 'string' ? inputValue : JSON.stringify(inputValue)
-  return text.length > 140 ? `${text.slice(0, 140)}...` : text
-}
-
 function appendActivity(activity: AgentActivity) {
   if (activity.type === 'thinking') {
     pushMessage({ kind: 'activity', title: '处理中', body: '正在整理当前页面信息。', tone: 'accent' })
@@ -245,7 +209,7 @@ function appendActivity(activity: AgentActivity) {
     pushMessage({
       kind: 'activity',
       title: '执行操作',
-      body: summarizeInput(activity.input),
+      body: '正在填写表单字段，请稍候。',
       tone: 'neutral',
     })
     return
@@ -272,6 +236,17 @@ function appendActivity(activity: AgentActivity) {
   pushMessage({ kind: 'activity', title: '执行异常', body: activity.message, tone: 'danger' })
 }
 
+// 工单状态中文标签（用于 QA 问答展示，不导入外部依赖）
+const STATUS_LABELS: Record<string, string> = {
+  pending: '待处理',
+  in_progress: '处理中',
+  pending_human_review: '待复核',
+  pending_human_confirm: '待人工确认',
+  pending_info: '待补充信息',
+  closed: '已结案',
+  cancelled: '已取消',
+}
+
 function answerQuestion(question: string) {
   const normalized = question.trim().toLowerCase()
   const ticket = store.selectedTicket
@@ -287,7 +262,7 @@ function answerQuestion(question: string) {
     body = '我可以说明当前工单、提示缺失字段、梳理处理依据和下一步，也可以按坐席确认带入表单或回单内容。'
   } else if (/当前|工单|案件|客户/.test(question)) {
     body = ticket
-      ? `当前工单是 ${ticket.no}：${ticket.title}。客户 ${ticket.customerName || ticket.customerId || '未知'}，状态为 ${ticket.status}。`
+      ? `当前工单是 ${ticket.no}：${ticket.title}。客户 ${ticket.customerName || ticket.customerId || '未知'}，状态为 ${STATUS_LABELS[ticket.status] || ticket.status}。`
       : '当前没有选中的工单。可以先在左侧队列选择一张工单，或在通话发单区选择通话样本。'
   } else if (/证据|依据|审计/.test(question)) {
     body = evidenceIds.length
@@ -295,7 +270,7 @@ function answerQuestion(question: string) {
       : '当前还没有可见依据编号。通常需要先处理当前工单，依据会出现在处理记录中。'
   } else if (/下一步|怎么办|建议/.test(question)) {
     body = ticket
-      ? `建议下一步：${store.isProcessing ? '等待处理完成' : store.aiResult?.missingFields?.length ? `先补充 ${store.aiResult.missingFields.join('、')}` : store.aiResult ? '复核回单、处理依据和结案建议' : '先开始处理当前工单'}。`
+      ? `建议下一步：${store.isProcessing ? '等待处理完成' : store.aiResult?.missingFields?.length ? `先补充 ${store.aiResult.missingFields.map(f => businessFieldLabel(f)).join('、')}` : store.aiResult ? '复核回单、处理依据和结案建议' : '先开始处理当前工单'}。`
       : '建议先选择工单或通话样本，再根据页面上方快捷按钮推进。'
   } else {
     body = '我先按问答处理，不会执行页面动作。你可以问“当前工单是什么”“证据有哪些”“下一步怎么办”；需要操作页面时，请切到任务模式。'
@@ -306,14 +281,13 @@ function answerQuestion(question: string) {
 async function loadLlmConfig() {
   try {
     const response = await fetch(`${apiBaseUrl}/llm/proxy/config`)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    if (!response.ok) throw new Error('连接失败')
     const data = await response.json() as LlmProxyConfig
     llmConfig.value = data
     selectedModel.value = data.model
     settingsStatus.value = ''
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '配置读取失败'
-    settingsStatus.value = `配置读取失败：${message}`
+  } catch {
+    settingsStatus.value = '配置读取失败，请联系管理员检查服务连接。'
   }
 }
 
@@ -330,16 +304,16 @@ async function saveLlmConfig() {
     })
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}))
-      throw new Error(errorBody.detail || `HTTP ${response.status}`)
+      throw new Error(errorBody.detail || '保存失败，请重试')
     }
     const data = await response.json() as LlmProxyConfig
     llmConfig.value = data
     selectedModel.value = data.model
     apiKeyInput.value = ''
-    settingsStatus.value = '已保存到后端当前进程'
+    settingsStatus.value = '已保存，本次运行有效'
   } catch (error) {
-    const message = error instanceof Error ? error.message : '保存失败'
-    settingsStatus.value = `保存失败：${message}`
+    const message = error instanceof Error ? error.message : '保存失败，请重试'
+    settingsStatus.value = message
   } finally {
     savingSettings.value = false
   }
@@ -356,15 +330,15 @@ async function saveSelectedModel() {
     })
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}))
-      throw new Error(errorBody.detail || `HTTP ${response.status}`)
+      throw new Error(errorBody.detail || '切换失败，请重试')
     }
     const data = await response.json() as LlmProxyConfig
     llmConfig.value = data
     selectedModel.value = data.model
-    settingsStatus.value = `已切换到 ${data.model}`
+    settingsStatus.value = '处理通道已切换'
   } catch (error) {
-    const message = error instanceof Error ? error.message : '保存失败'
-    settingsStatus.value = `保存失败：${message}`
+    const message = error instanceof Error ? error.message : '切换失败，请重试'
+    settingsStatus.value = message
   } finally {
     savingSettings.value = false
   }
@@ -527,6 +501,12 @@ function runQuickAction(action: QuickAction | string) {
   }
 }
 
+function triggerPrimaryAi() {
+  if (primaryAiDisabled.value) return
+  if (isDispatchPage.value) emit('generateDraft')
+  else emit('startAiProcess')
+}
+
 function setSuggestedCommand(kind: string) {
   const commands: Record<string, string> = {
     draft: '根据刚收到的发单草稿，填入发单表单并提交标准工单。',
@@ -596,6 +576,16 @@ defineExpose({ runTask, stopAgent })
       <div class="agent-state">
         <span :class="`state-dot ${statusTone}`"></span>
         <span>{{ statusLabel }}</span>
+        <button
+          class="head-ai-btn"
+          type="button"
+          :class="{ busy: isAiBusy }"
+          :disabled="primaryAiDisabled"
+          @click="triggerPrimaryAi"
+        >
+          <span v-if="isAiBusy" class="ai-spinner" aria-hidden="true"></span>
+          <span>{{ isAiBusy ? '处理中' : primaryAiLabel }}</span>
+        </button>
         <button class="mini-btn" type="button" :disabled="!isAgentRunning" @click="stopAgent">接管</button>
       </div>
     </header>
@@ -606,7 +596,7 @@ defineExpose({ runTask, stopAgent })
         <strong>{{ configSummary }}</strong>
       </div>
       <label class="settings-field">
-        <span>访问凭据</span>
+        <span>AI连接密钥</span>
         <input v-model="apiKeyInput" :disabled="savingSettings" type="password" placeholder="留空则继续使用当前连接" autocomplete="off" />
       </label>
       <label class="settings-field">
@@ -628,13 +618,10 @@ defineExpose({ runTask, stopAgent })
       <p v-if="settingsStatus" class="settings-status">{{ settingsStatus }}</p>
     </section>
 
-    <section class="pilot-summary">
-      <SunPilotSuggestionCard
-        :title="suggestionTitle"
-        :body="suggestionBody"
-        :warning="Boolean(store.aiResult?.missingFields?.length || store.workflowPaused)"
-      />
-    </section>
+    <p v-if="aiStatusActive || aiStatusText" class="ai-status-strip" :class="{ live: aiStatusActive }">
+      <span v-if="aiStatusActive" class="status-dot" aria-hidden="true"></span>
+      {{ aiStatusText }}
+    </p>
 
     <SunPilotQuickActions
       class="quick-card-shell"
@@ -643,45 +630,8 @@ defineExpose({ runTask, stopAgent })
       @select="index => runQuickAction(quickActions[index])"
     />
 
-    <SunPilotBusinessFlow class="flow-card-shell" :steps="pilotFlowSteps" />
-
-    <SunPilotFoldCard
-      class="fold-card-shell"
-      title="外部系统核验"
-      :count="externalSystemRows.length"
-      :open="Boolean(externalSystemRows.length && (store.aiResult?.missingFields?.length || store.workflowPaused))"
-    >
-      <ul v-if="externalSystemRows.length" class="fold-list compact">
-        <li v-for="row in externalSystemRows" :key="`${row.label}-${row.status}`">
-          <span>{{ row.label }}</span>
-          <strong>{{ row.status }}</strong>
-        </li>
-      </ul>
-      <p v-else>开始处理后展示客户、卡片、交易或权益系统核验过程。</p>
-    </SunPilotFoldCard>
-
-    <SunPilotFoldCard class="fold-card-shell" title="补充信息" :count="missingFieldLabels.length" :open="Boolean(missingFieldLabels.length)">
-      <ul v-if="missingFieldLabels.length" class="fold-list">
-        <li v-for="field in missingFieldLabels" :key="field">{{ field }}</li>
-      </ul>
-      <p v-else>当前暂无必须补充的字段。</p>
-    </SunPilotFoldCard>
-
-    <SunPilotFoldCard
-      class="fold-card-shell"
-      title="处理依据"
-      :count="collectEvidenceIds(store.aiResult).length"
-      :open="Boolean(!missingFieldLabels.length && collectEvidenceIds(store.aiResult).length)"
-    >
-      <ul v-if="collectEvidenceIds(store.aiResult).length" class="fold-list">
-        <li v-for="id in collectEvidenceIds(store.aiResult)" :key="id" class="mono">{{ id }}</li>
-      </ul>
-      <p v-else>处理后会在这里显示依据编号。</p>
-    </SunPilotFoldCard>
-
-    <SunPilotFoldCard class="fold-card-shell" title="操作记录" :count="messages.length">
-      <section ref="thread" class="agent-thread" aria-label="SunPilot 对话记录">
-        <article v-for="message in messages" :key="message.id" class="agent-message" :class="[message.kind, message.tone]">
+    <section ref="thread" class="agent-thread" aria-label="SunPilot 操作记录">
+      <article v-for="message in messages" :key="message.id" class="agent-message" :class="[message.kind, message.tone]">
         <div class="message-head">
           <strong>{{ message.title }}</strong>
           <span>{{ message.meta?.[0] || '' }}</span>
@@ -690,9 +640,9 @@ defineExpose({ runTask, stopAgent })
         <div v-if="message.meta?.length" class="meta-row">
           <span v-for="item in message.meta" :key="item">{{ item }}</span>
         </div>
-        </article>
-      </section>
-    </SunPilotFoldCard>
+      </article>
+      <p v-if="!messages.length" class="thread-empty">开始处理后，这里实时显示每一步操作。</p>
+    </section>
 
     <footer class="agent-composer">
       <div v-if="suggestedCommand" class="manual-suggestion">
@@ -792,6 +742,32 @@ defineExpose({ runTask, stopAgent })
   color: #a3adba;
   cursor: not-allowed;
 }
+.head-ai-btn {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+.head-ai-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.head-ai-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.head-ai-btn.busy {
+  background: linear-gradient(135deg, #475569, #334155);
+  opacity: 1;
+}
 .pilot-settings {
   display: grid;
   gap: 10px;
@@ -855,20 +831,51 @@ defineExpose({ runTask, stopAgent })
   color: #64748b;
   font-size: 12px;
 }
-.pilot-summary,
-.quick-card,
-.flow-card,
-.fold-card {
-  margin: 10px 12px 0;
+.quick-card {
+  margin: 8px 12px 0;
 }
 .summary-card,
-.quick-card,
-.flow-card,
-.fold-card {
+.quick-card {
   border: 1px solid #dbe3eb;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+.ai-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ai-spin 0.7s linear infinite;
+}
+@keyframes ai-spin {
+  to { transform: rotate(360deg); }
+}
+.ai-status-strip {
+  margin: 8px 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ai-status-strip.live {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+.ai-status-strip .status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2563eb;
+  animation: ai-pulse 1.1s ease-in-out infinite;
+}
+@keyframes ai-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
 }
 .summary-card {
   display: grid;
@@ -900,53 +907,6 @@ defineExpose({ runTask, stopAgent })
   display: grid;
   gap: 8px;
   padding: 10px;
-}
-.flow-card {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-}
-.pilot-flow {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.pilot-flow li {
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 0 7px 16px;
-  border-top: 1px solid #edf1f5;
-  position: relative;
-}
-.pilot-flow li:first-child {
-  border-top: 0;
-}
-.pilot-flow li::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 13px;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #0e7490;
-}
-.pilot-flow span {
-  min-width: 0;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 900;
-  overflow-wrap: anywhere;
-}
-.pilot-flow strong {
-  color: #64748b;
-  font-size: 11px;
-  white-space: nowrap;
 }
 .fold-card {
   overflow: hidden;
@@ -1009,14 +969,21 @@ defineExpose({ runTask, stopAgent })
   white-space: nowrap;
 }
 .agent-thread {
-  max-height: 240px;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 120px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  padding: 0 10px 10px;
+  padding: 8px 12px 10px;
   background: #fff;
+}
+.thread-empty {
+  margin: auto 0;
+  padding: 16px 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
 }
 .agent-message {
   max-width: 100%;
