@@ -1,0 +1,1 @@
+export { ticketApi } from './index'

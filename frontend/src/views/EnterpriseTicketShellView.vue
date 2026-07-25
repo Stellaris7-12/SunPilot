@@ -2,27 +2,23 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
-import AgentPanel from '../page-agent/panel/AgentPanel.vue'
+import BusinessFlow from '../components/business/BusinessFlow.vue'
+import type { BusinessFlowStage } from '../components/business/types'
+import SunPilotPanel from '../sunpilot/panel/SunPilotPanel.vue'
 import { useTicketStore } from '../stores/ticket'
 import type { CallRecordSample, CreateTicketPayload, Ticket, WorkflowField } from '../types'
+import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel } from '../domain/ticket/catalog'
+import { buildSupplementQuestion, buildSupplementText, missingFieldOptions } from '../domain/reply/missingInfo'
+import { evidenceItems, fieldVerificationItems } from '../domain/ticket/evidence'
+import { replyWorkspaceSections } from '../domain/ticket/workflow'
+import { riskMeta, statusMeta } from '../domain/ticket/status'
 import {
-  evidenceItems,
-  fieldVerificationItems,
   formatShortTime,
-  replyWorkspaceSections,
-  riskMeta,
-  statusMeta,
 } from '../utils/business'
 
 type CommonField = WorkflowField & {
   name: keyof CreateTicketPayload
   required?: boolean
-}
-
-type WorkFlowStage = {
-  id: string
-  label: string
-  status: 'waiting' | 'running' | 'done' | 'blocked'
 }
 
 type MockToolStep = {
@@ -56,33 +52,6 @@ const quickQuery = ref('')
 const statusFilter = ref('all')
 const missingFieldDraft = ref<Record<string, string>>({})
 const supplementStatus = ref('')
-
-const businessCategories = [
-  { id: 'repayment', code: '11/71', label: '协商还款', scenes: ['协商还款'], pattern: /协商还款|还款方案|延期还款|11|71/i },
-  { id: 'fraud-prevent', code: '12', label: '伪冒预防', scenes: ['伪冒预防'], pattern: /伪冒预防|非本人申请|投诉引导|12/i },
-  { id: 'fraud-invest', code: '13', label: '伪冒调查', scenes: ['伪冒调查'], pattern: /伪冒调查|管制|BLOCK|X-DK|13/i },
-  { id: 'customer-mgmt', code: '29', label: '客户经营', scenes: ['客户经营'], pattern: /客户经营|汽车分期|资料借阅|29/i },
-  { id: 'marketing', code: '30', label: '市场企划', scenes: ['市场企划'], pattern: /市场企划|饭票|影票|掌上生活|优惠券|30/i },
-  { id: 'chargeback', code: '41', label: '调单扣款', scenes: ['调单扣款'], pattern: /调单扣款|调单|扣款|公司资料异动|41/i },
-  { id: 'credit', code: '42', label: '征信', scenes: ['征信'], pattern: /征信|贷后|逾期|E CODE|42/i },
-]
-
-const businessFieldLabels: Record<string, string> = {
-  couponType: '券种',
-  reason: '补发原因',
-  customerId: '客户号',
-  customerName: '客户姓名',
-  phone: '手机号',
-  cardLast4: '卡号后四位',
-  cardName: '卡片名称',
-  activityName: '活动名称',
-  transactionDate: '交易日期',
-  transactionAmount: '交易金额',
-  merchantName: '商户名称',
-  applicationNo: '申请编号',
-  accountStatus: '账户状态',
-  creditReportType: '征信类型',
-}
 
 const commonFields: CommonField[] = [
   { name: 'customerName', label: '客户姓名', type: 'text', required: true },
@@ -186,6 +155,13 @@ const mockToolSteps = computed<MockToolStep[]>(() => {
     })
   }
   return rows
+    if (!rows.length && store.aiResult && !store.isProcessing) {
+      if (ticket.value?.status === 'escalated') {
+      rows.push({ id: 'escalated-no-tool', title: '已升级，未调用外部系统', source: (store.aiResult?.intent?.label || '') + '风控门禁', status: 'blocked', detail: store.aiResult?.riskDecision || '触发升级规则，跳过自动工具调用。' })
+      } else {
+      rows.push({ id: 'no-tool-needed', title: '本次无需外部系统调用', source: (store.aiResult?.intent?.label || '') + '处理链路', status: 'done', detail: '字段完整可直接回单复核。' })
+      }
+    }
 })
 const replySections = computed(() => replyWorkspaceSections(store.aiResult, ticket.value))
 const replyStatus = computed(() => store.replyDraft ? '已生成' : '待处理')
@@ -241,7 +217,7 @@ const dashboardCards = computed(() => [
   { label: '即将逾期', value: store.tickets.filter(item => item.riskLevel === 'high' && item.status !== 'closed').length, hint: '优先处理' },
   { label: '已完成', value: store.tickets.filter(item => item.status === 'closed').length, hint: '今日归档' },
 ])
-const businessFlow = computed<WorkFlowStage[]>(() => {
+const businessFlow = computed<BusinessFlowStage[]>(() => {
   const hasDraft = Boolean(store.ticketDraftResult)
   const hasTicket = Boolean(ticket.value || store.selectedTicketId)
   const hasExternalChecks = mockToolSteps.value.length > 0
@@ -249,7 +225,7 @@ const businessFlow = computed<WorkFlowStage[]>(() => {
   const hasMissing = missingFields.value.length > 0
   const hardBlocked = Boolean(store.workflowPaused || ticket.value?.status === 'failed' || ticket.value?.status === 'escalated')
   const current = routeMode.value
-  const statusFor = (index: number): WorkFlowStage['status'] => {
+  const statusFor = (index: number): BusinessFlowStage['status'] => {
     if (hardBlocked && index >= 5) return 'blocked'
     if (current === 'dispatch') {
       if (index === 0) return selectedCall.value ? 'done' : 'running'
@@ -278,7 +254,7 @@ const businessFlow = computed<WorkFlowStage[]>(() => {
     if (index === 2 && store.tickets.length) return 'done'
     return 'waiting'
   }
-  return ['来电受理', '发单登记', '派送接单单位', '接单处理', '外部系统核验', '信息补充', '回单复核', '结案归档']
+  return ['来电受理', '发单登记', '派送接单单位', '接单处理', '外部系统监测', '回单复核', '结案归档']
     .map((label, index) => ({ id: `stage-${index}`, label, status: statusFor(index) }))
 })
 
@@ -512,57 +488,12 @@ async function handleHumanConfirm(approved: boolean) {
   }
 }
 
-function businessFieldLabel(field: string) {
-  return businessFieldLabels[field] || field
-}
-
-function businessText(value: string) {
-  return Object.entries(businessFieldLabels).reduce(
-    (text, [key, label]) => text.replace(new RegExp(key, 'gi'), label),
-    value,
-  )
-}
-
-function toolBusinessLabel(toolName?: string) {
-  const name = toolName || ''
-  if (/coupon|benefit|权益|优惠|activity/i.test(name)) return '权益活动系统'
-  if (/transaction|trade|交易|dispute|chargeback/i.test(name)) return '交易查询系统'
-  if (/customer|profile|客户|资料/i.test(name)) return '客户资料系统'
-  if (/card|account|卡片|账户/i.test(name)) return '卡片账户系统'
-  if (/credit|征信/i.test(name)) return '征信业务系统'
-  if (/application|申请/i.test(name)) return '申请进度系统'
-  if (/mock/i.test(name)) return 'Mock Tools（外部系统模拟）'
-  return name || '外部业务系统'
-}
-
-function missingFieldOptions(field: string) {
-  if (/couponType/i.test(field)) return ['满减券', '饭票优惠券', '影票优惠券']
-  if (/reason/i.test(field)) return ['达标未发放', '券已过期未使用', '活动资格争议']
-  if (/transactionAmount|amount/i.test(field)) return ['以交易流水为准', '客户待提供金额']
-  if (/transactionDate|date/i.test(field)) return ['以账单日为准', '客户待提供日期']
-  return ['客户来电补充', '接单单位补充', '坐席核实补充']
-}
-
 function fillMissingField(field: string, value: string) {
   missingFieldDraft.value = { ...missingFieldDraft.value, [field]: value }
 }
 
-function buildSupplementText(includeEmpty = false) {
-  const rows = missingFields.value
-    .map(field => {
-      const value = String(missingFieldDraft.value[field] || '').trim()
-      if (!value && !includeEmpty) return ''
-      return `${businessFieldLabel(field)}：${value || '待客户补充'}`
-    })
-    .filter(Boolean)
-  return rows.length ? `客户补充信息：\n${rows.map(row => `- ${row}`).join('\n')}` : ''
-}
-
 function generateSupplementQuestion() {
-  const fields = missingFields.value.map(businessFieldLabel).join('、')
-  customerQuestionDraft.value = fields
-    ? `您好，为继续处理本工单，请补充${fields}。收到后我行将继续核验并反馈处理结果。`
-    : '当前暂无必须追问客户的信息。'
+  customerQuestionDraft.value = buildSupplementQuestion(missingFields.value)
   activeReplyAssist.value = 'question'
   supplementStatus.value = '已生成客户补充话术。'
   scrollToId('enterprise-reply')
@@ -570,7 +501,7 @@ function generateSupplementQuestion() {
 
 async function saveMissingSupplement(restart = false) {
   if (!ticket.value) return
-  const supplementText = buildSupplementText(false)
+  const supplementText = buildSupplementText(missingFields.value, missingFieldDraft.value, false)
   if (!supplementText) {
     supplementStatus.value = '请先填写至少一项补充信息。'
     return
@@ -654,15 +585,6 @@ function scrollToId(id: string) {
 
 function statusClass(tone?: string) {
   return `status ${tone || 'neutral'}`
-}
-
-function stageLabel(status: WorkFlowStage['status']) {
-  return {
-    waiting: '未开始',
-    running: '处理中',
-    done: '已完成',
-    blocked: '需补充',
-  }[status]
 }
 
 function priorityLabel(value?: string) {
@@ -798,12 +720,7 @@ function statusLabelFor(value?: string) {
 
           <section class="sys-panel">
             <div class="sys-title">业务流转 <small>今日处理进度</small></div>
-            <div class="business-flow">
-              <div v-for="stage in businessFlow" :key="stage.id" class="flow-node" :class="stage.status">
-                <span>{{ stage.label }}</span>
-                <strong>{{ stageLabel(stage.status) }}</strong>
-              </div>
-            </div>
+            <BusinessFlow :stages="businessFlow" />
           </section>
 
           <section class="home-grid">
@@ -857,12 +774,7 @@ function statusLabelFor(value?: string) {
 
           <section class="sys-panel">
             <div class="sys-title">业务流转 <small>发单阶段</small></div>
-            <div class="business-flow compact">
-              <div v-for="stage in businessFlow.slice(0, 3)" :key="stage.id" class="flow-node" :class="stage.status">
-                <span>{{ stage.label }}</span>
-                <strong>{{ stageLabel(stage.status) }}</strong>
-              </div>
-            </div>
+            <BusinessFlow :stages="businessFlow.slice(0, 3)" compact />
           </section>
 
           <section id="call-intake-workspace" class="dispatch-grid" data-page-agent-target="call-intake-workspace">
@@ -973,12 +885,7 @@ function statusLabelFor(value?: string) {
 
           <section class="sys-panel">
             <div class="sys-title">业务流转 <small>回单阶段</small></div>
-            <div class="business-flow compact">
-              <div v-for="stage in businessFlow.slice(3)" :key="stage.id" class="flow-node" :class="stage.status">
-                <span>{{ stage.label }}</span>
-                <strong>{{ stageLabel(stage.status) }}</strong>
-              </div>
-            </div>
+            <BusinessFlow :stages="businessFlow.slice(3)" compact />
           </section>
 
           <section class="case-query-bar">
@@ -1044,12 +951,7 @@ function statusLabelFor(value?: string) {
 
           <section class="sys-panel">
             <div class="sys-title">业务流转 <small>当前工单</small></div>
-            <div class="business-flow">
-              <div v-for="stage in businessFlow" :key="stage.id" class="flow-node" :class="stage.status">
-                <span>{{ stage.label }}</span>
-                <strong>{{ stageLabel(stage.status) }}</strong>
-              </div>
-            </div>
+            <BusinessFlow :stages="businessFlow" />
           </section>
 
           <section class="case-grid">
@@ -1087,7 +989,7 @@ function statusLabelFor(value?: string) {
             </section>
 
             <section id="mock-tool-process" class="sys-panel full-row">
-              <div class="sys-title">外部系统核验 <small>Mock Tools 过程</small></div>
+              <div class="sys-title">外部系统操作监测 <small>{{ mockToolSteps.length }} 次调用</small></div>
               <div v-if="mockToolSteps.length" class="mock-tool-flow">
                 <article v-for="step in mockToolSteps" :key="step.id" class="mock-tool-step" :class="step.status">
                   <div>
@@ -1223,7 +1125,7 @@ function statusLabelFor(value?: string) {
       </button>
 
       <aside v-if="copilotOpen" class="copilot" data-page-agent-not-interactive="true" data-sunpilot-panel="true">
-        <AgentPanel
+        <SunPilotPanel
           @generate-draft="generateDraftFromCall"
           @submit-draft="handleSubmitDraft"
           @start-ai-process="handleProcess"

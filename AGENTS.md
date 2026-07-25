@@ -69,7 +69,7 @@ TicketAgent 是信用卡工单多 Agent 演示系统：
 前端：
 
 - 企业壳：`frontend/src/views/EnterpriseTicketShellView.vue`
-- 旧页面助手：`frontend/src/components/ai/PageAssistantPanel.vue`
+- SunPilot：`frontend/src/sunpilot/`
 - 状态：`frontend/src/stores/ticket.ts`
 - API：`frontend/src/api/`
 - 业务派生：`frontend/src/utils/business.ts`

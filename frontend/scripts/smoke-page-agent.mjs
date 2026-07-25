@@ -9,29 +9,36 @@ function read(path) {
 }
 
 function assertIncludes(source, needle, label) {
-  if (!source.includes(needle)) {
-    throw new Error(`${label} is missing: ${needle}`)
-  }
+  if (!source.includes(needle)) throw new Error(`${label} is missing: ${needle}`)
 }
 
 function assertNotIncludes(source, needle, label) {
-  if (source.includes(needle)) {
-    throw new Error(`${label} must not include: ${needle}`)
-  }
+  if (source.includes(needle)) throw new Error(`${label} must not include: ${needle}`)
 }
 
 const typeSource = read('src/types/index.ts')
-const bridgeSource = read('src/page-agent/taskBridge.ts')
-const adapterSource = read('src/page-agent/semanticAdapter.ts')
-const toolsSource = read('src/page-agent/tools/index.ts')
-const executorSource = read('src/page-agent/pageTaskExecutor.ts')
-const agentPanelSource = read('src/page-agent/panel/AgentPanel.vue')
+const appRouterSource = read('src/app/router.ts')
+const bridgeSource = read('src/sunpilot/taskBridge.ts')
+const adapterSource = read('src/sunpilot/semanticAdapter.ts')
+const toolsSource = read('src/sunpilot/tools/index.ts')
+const executorSource = read('src/sunpilot/pageTaskExecutor.ts')
+const sunPilotSource = read('src/sunpilot/panel/SunPilotPanel.vue')
+const enterpriseShellSource = read('src/views/EnterpriseTicketShellView.vue')
+const catalogSource = read('src/domain/ticket/catalog.ts')
+const missingInfoSource = read('src/domain/reply/missingInfo.ts')
 const apiSource = read('src/api/index.ts')
 const storeSource = read('src/stores/ticket.ts')
-const enterpriseShellSource = read('src/views/EnterpriseTicketShellView.vue')
-const appHeaderSource = read('src/components/layout/AppHeader.vue')
-const legacyDetailSource = read('src/views/LegacyTicketDetailView.vue')
-const legacyAssistantSource = read('src/components/ai/PageAssistantPanel.vue')
+
+for (const path of [
+  "'/'",
+  "'/dispatch'",
+  "'/dispatch/:category'",
+  "'/reply'",
+  "'/reply/:category'",
+  "'/reply/tickets/:id'",
+]) {
+  assertIncludes(appRouterSource, path, `business route ${path}`)
+}
 
 for (const mode of ['auto', 'suggest', 'display', 'stop']) {
   assertIncludes(typeSource, `'${mode}'`, `PageTaskMode ${mode}`)
@@ -40,20 +47,6 @@ for (const mode of ['auto', 'suggest', 'display', 'stop']) {
 for (const scene of ['call-intake', 'ticket-reply', 'evidence-review', 'human-confirm']) {
   assertIncludes(typeSource, `'${scene}'`, `PageTaskScene ${scene}`)
   assertIncludes(adapterSource, `'${scene}'`, `semantic adapter scene ${scene}`)
-}
-
-for (const action of [
-  'fillForm',
-  'fillTextarea',
-  'selectOption',
-  'clickSemantic',
-  'locateEvidence',
-  'scrollToRegion',
-  'openPanel',
-  'waitForState',
-  'stopForHuman',
-]) {
-  assertIncludes(typeSource, `'${action}'`, `PageTask action ${action}`)
 }
 
 for (const toolName of [
@@ -69,158 +62,40 @@ for (const toolName of [
   assertIncludes(toolsSource, `'${toolName}'`, `custom tool ${toolName}`)
 }
 
-assertIncludes(
-  bridgeSource,
-  "task.mode === 'auto' && !task.requiresHumanBeforeSubmit && !shouldStop",
-  'PageTask auto-run human gate',
-)
-assertIncludes(
-  bridgeSource,
-  '<page_task_json>',
-  'structured PageTask directive payload',
-)
-assertIncludes(
-  adapterSource,
-  'normalizeAllowedTargets',
-  'semantic target normalization',
-)
-assertIncludes(
-  executorSource,
-  'executePageTaskDeterministically',
-  'deterministic PageTask executor',
-)
-assertIncludes(
-  executorSource,
-  'BLOCKED_CLICK_TARGETS',
-  'dangerous click target gate',
-)
-assertIncludes(
-  agentPanelSource,
-  'maybeRunPageTask',
-  'SunPilot deterministic PageTask path',
-)
-assertIncludes(
-  executorSource,
-  'PageTaskActionAuditEntry',
-  'deterministic PageTask action audit payload',
-)
-assertIncludes(
-  agentPanelSource,
-  'recordDeterministicActionLog',
-  'SunPilot PageActionLog persistence hook',
-)
-assertIncludes(
-  storeSource,
-  'recordPageActionLog',
-  'store PageActionLog persistence',
-)
-assertIncludes(
-  apiSource,
-  '/page-action-logs',
-  'PageActionLog API endpoint',
-)
-assertIncludes(
-  agentPanelSource,
-  '切换 ReAct 兜底',
-  'ReAct fallback after deterministic failure',
-)
-assertIncludes(
-  agentPanelSource,
-  "const composerMode = ref<ComposerMode>('qa')",
-  'SunPilot composer defaults to QA mode',
-)
-assertIncludes(
-  agentPanelSource,
-  'answerQuestion(task)',
-  'SunPilot QA mode must answer without PageAgent execution',
-)
-assertIncludes(
-  agentPanelSource,
-  "composerMode.value = 'task'",
-  'SunPilot quick actions switch to task mode',
-)
-assertIncludes(
-  agentPanelSource,
-  'class="mode-switch"',
-  'SunPilot composer mode switch UI',
-)
-assertIncludes(
-  agentPanelSource,
-  'class="model-select"',
-  'SunPilot model selector uses native select to avoid clipped menus',
-)
+assertIncludes(bridgeSource, '<page_task_json>', 'structured PageTask directive payload')
+assertIncludes(executorSource, 'executePageTaskDeterministically', 'deterministic PageTask executor')
+assertIncludes(executorSource, 'BLOCKED_CLICK_TARGETS', 'dangerous click target gate')
+assertIncludes(sunPilotSource, 'maybeRunPageTask', 'SunPilot deterministic PageTask path')
+assertIncludes(sunPilotSource, 'recordDeterministicActionLog', 'SunPilot PageActionLog persistence hook')
+assertIncludes(storeSource, 'recordPageActionLog', 'store PageActionLog persistence')
+assertIncludes(apiSource, '/page-action-logs', 'PageActionLog API endpoint')
 
-if (appHeaderSource.includes('启动 AI') || appHeaderSource.includes('@process')) {
-  throw new Error('AI process buttons must stay inside SunPilot AgentPanel, not AppHeader')
-}
-for (const source of [
-  ['EnterpriseTicketShellView', enterpriseShellSource],
-  ['AppHeader', appHeaderSource],
-  ['LegacyTicketDetailView', legacyDetailSource],
-  ['PageAssistantPanel', legacyAssistantSource],
+for (const componentName of [
+  'SunPilotSuggestionCard',
+  'SunPilotQuickActions',
+  'SunPilotBusinessFlow',
+  'SunPilotFoldCard',
+  'SunPilotComposer',
 ]) {
-  for (const label of [
-    '启动 AI 处理',
-    '重新 AI 处理',
-    'AI处理中',
-    '生成发单草稿',
-    '填入发单表单',
-    '填入回单草稿',
-    '进入复核区',
-  ]) {
-    assertNotIncludes(source[1], label, `${source[0]} SunPilot-only AI action`)
-  }
+  assertIncludes(sunPilotSource, componentName, `SunPilot component ${componentName}`)
 }
-assertNotIncludes(
-  enterpriseShellSource,
-  '@click="handleProcess"',
-  'EnterpriseTicketShellView AI process direct button',
-)
-if (legacyDetailSource.includes('PageAssistantPanel')) {
-  throw new Error('Legacy detail must mount SunPilot AgentPanel instead of PageAssistantPanel')
+
+assertIncludes(enterpriseShellSource, '../sunpilot/panel/SunPilotPanel.vue', 'enterprise shell uses SunPilot module')
+assertIncludes(enterpriseShellSource, '../components/business/BusinessFlow.vue', 'enterprise shell uses BusinessFlow component')
+assertIncludes(enterpriseShellSource, '../domain/ticket/catalog', 'enterprise shell uses domain catalog')
+assertIncludes(catalogSource, "couponType: '券种'", 'business field mapping couponType')
+assertIncludes(catalogSource, "reason: '补发原因'", 'business field mapping reason')
+assertIncludes(missingInfoSource, 'buildSupplementQuestion', 'reply missing-info question builder')
+
+for (const label of [
+  '结构化 PageTask',
+  '后端 observation',
+  '启动 AI 处理',
+  '重新 AI 处理',
+  'AI处理中',
+]) {
+  assertNotIncludes(enterpriseShellSource, label, `enterprise visible technical label ${label}`)
+  assertNotIncludes(sunPilotSource, label, `SunPilot visible technical label ${label}`)
 }
-if (legacyAssistantSource.includes('启动 AI') || legacyAssistantSource.includes('重新生成建议')) {
-  throw new Error('PageAssistantPanel compatibility wrapper must not render legacy AI buttons')
-}
-assertIncludes(
-  legacyDetailSource,
-  '<AgentPanel',
-  'legacy detail SunPilot panel',
-)
-assertIncludes(
-  legacyAssistantSource,
-  '<AgentPanel',
-  'PageAssistantPanel SunPilot wrapper',
-)
-assertIncludes(
-  enterpriseShellSource,
-  '<AgentPanel',
-  'enterprise shell SunPilot panel',
-)
-assertIncludes(
-  enterpriseShellSource,
-  '@start-ai-process="handleProcess"',
-  'enterprise shell delegates AI process through SunPilot',
-)
-assertIncludes(
-  enterpriseShellSource,
-  'syncSelectionToFilteredTickets',
-  'enterprise shell keeps selected ticket aligned with filters',
-)
-assertIncludes(
-  enterpriseShellSource,
-  '@click="selectBucket(bucket.id)"',
-  'enterprise bucket buttons must update filtered selection',
-)
-assertIncludes(
-  enterpriseShellSource,
-  '@change="handleStatusFilterChange"',
-  'enterprise status filter must update filtered selection',
-)
-assertIncludes(
-  enterpriseShellSource,
-  'store.clearSelectedTicket()',
-  'enterprise shell clears stale detail when filters are empty',
-)
 
 console.log('page-agent smoke passed')

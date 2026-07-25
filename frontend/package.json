@@ -1,10 +1,10 @@
 {
-  "name": "frontend",
+  "name": "ticketagent-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1 --port 5174",
     "build": "vue-tsc -b && vite build",
     "smoke:page-agent": "node scripts/smoke-page-agent.mjs",
     "preview": "vite preview"
