@@ -45,7 +45,7 @@
     "requires_human_review": false,
     "max_risk_level": "high",
     "timeout_seconds": 30,
-    "retry_policy": "no_retry",
+    "retry_policy": "retry_on_error",
     "dependencies": []
   },
   {
@@ -90,7 +90,7 @@
     "requires_human_review": false,
     "max_risk_level": "high",
     "timeout_seconds": 30,
-    "retry_policy": "no_retry",
+    "retry_policy": "retry_on_error",
     "dependencies": ["classifier_agent"]
   },
   {
@@ -137,7 +137,7 @@
     "requires_human_review": true,
     "max_risk_level": "high",
     "timeout_seconds": 30,
-    "retry_policy": "no_retry",
+    "retry_policy": "retry_on_error",
     "dependencies": ["classifier_agent", "intake_agent"]
   },
   {
@@ -224,7 +224,7 @@
     "requires_human_review": true,
     "max_risk_level": "high",
     "timeout_seconds": 30,
-    "retry_policy": "no_retry",
+    "retry_policy": "retry_on_error",
     "dependencies": ["classifier_agent", "intake_agent", "escalation_agent", "resolution_agent"]
   }
 ]

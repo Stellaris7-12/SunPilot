@@ -59,6 +59,8 @@ class IntakeAgent(BaseAgent):
         deterministic_fields = _deterministic_fields(
             ticket_content,
             _fields_from_config(intent_type, workflow_config),
+            workflow_config,
+            intent_type,
         )
         required = workflow_scenario(workflow_config, intent_type).required_fields
         missing = _missing_required(deterministic_fields, required)
@@ -125,13 +127,32 @@ def _merge_fields(deterministic: list[dict], llm_fields: list[dict]) -> list[dic
     return list(by_name.values())
 
 
-def _deterministic_fields(ticket_content: str, fields: list[tuple[str, str]]) -> list[dict]:
+def _deterministic_fields(
+    ticket_content: str,
+    fields: list[tuple[str, str]],
+    workflow_config: dict = None,
+    intent_type: str = None,
+) -> list[dict]:
     if not ticket_content or not fields:
         return []
+
+    # Build extractRule map from workflow_config
+    extract_rules = {}
+    if workflow_config and intent_type:
+        scenario_config = workflow_scenario(workflow_config, intent_type)
+        for field in scenario_config.fields + scenario_config.specific_fields:
+            if field.extract_rule:
+                extract_rules[field.name] = field.extract_rule
+
     values = _structured_values(ticket_content, fields)
     result = []
     for name, label in fields:
-        value = values.get(name) or _fallback_extract(name, ticket_content)
+        # Priority: structured_values > extractRule-based > fallback (with confidence check)
+        value = values.get(name)
+        if not value and name in extract_rules:
+            value = _extract_by_rule(extract_rules[name], ticket_content, values)
+        if not value:
+            value = _fallback_extract_with_confidence(name, ticket_content)
         result.append({
             "label": label,
             "name": name,
@@ -186,19 +207,106 @@ def _structured_values(
     return values
 
 
-def _fallback_extract(name: str, text: str) -> str:
-    patterns = {
-        "customerId": r"(C\d{5,})",
-        "phone": r"(1\d{2}\*{4}\d{4}|1\d{10})",
-        "cardLast4": r"卡尾(?:号)?\s*(\d{4})",
-        "caseNo": r"案件编号[:：]?\s*([0-9A-Z-]{6,})",
-        "xdk": r"X-DK[:：]?\s*([A-Z0-9-]+)",
-        "remark": r"订单号[:：]?\s*([0-9A-Z-]{5,})",
-        "accountNo": r"账户号[:：]?\s*([0-9A-Z*]{6,})",
-        "callId": r"CALLID[:：]?\s*([A-Z0-9-]+)",
+def _extract_by_rule(extract_rule: dict, text: str, context_values: dict) -> str:
+    """Extract field value using workflow_config's extractRule."""
+    rule_type = extract_rule.get("type")
+
+    if rule_type == "regex":
+        pattern = extract_rule.get("pattern")
+        if not pattern:
+            return ""
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        return match.group(1).strip() if match else ""
+
+    elif rule_type == "literal":
+        return extract_rule.get("value", "")
+
+    elif rule_type == "keyword":
+        keyword = extract_rule.get("keyword", "")
+        true_value = extract_rule.get("trueValue", "")
+        false_value = extract_rule.get("falseValue", "")
+        return true_value if keyword and keyword in text else false_value
+
+    elif rule_type == "context":
+        source = extract_rule.get("source")
+        if not source or source not in context_values:
+            return ""
+        value = context_values[source]
+        formatter = extract_rule.get("formatter", "{value}")
+        return formatter.replace("{value}", str(value))
+
+    return ""
+
+
+def _fallback_extract_with_confidence(name: str, text: str) -> str:
+    """Fallback extraction with confidence checks to prevent pollution.
+
+    Only returns a value if the match has contextual support (appears near expected labels).
+    This prevents regex from matching garbage numbers in unrelated text.
+    """
+    # Define patterns WITH required context (labels that should appear nearby)
+    patterns_with_context = {
+        "customerId": {
+            "pattern": r"(C\d{5,})",
+            "context": ["客户号", "客户编号", "customerId"],
+            "window": 20,  # characters before/after match
+        },
+        "phone": {
+            "pattern": r"(1\d{2}\*{4}\d{4}|1\d{10})",
+            "context": ["手机", "电话", "联系", "phone"],
+            "window": 20,
+        },
+        "cardLast4": {
+            "pattern": r"卡尾(?:号)?\s*(\d{4})",
+            "context": [],  # pattern itself contains context
+            "window": 0,
+        },
+        "caseNo": {
+            "pattern": r"案件编号[:：]?\s*([0-9A-Z-]{6,})",
+            "context": [],  # pattern itself contains context
+            "window": 0,
+        },
+        "xdk": {
+            "pattern": r"X-DK[:：]?\s*([A-Z0-9-]+)",
+            "context": [],  # pattern itself contains context
+            "window": 0,
+        },
+        "callId": {
+            "pattern": r"CALLID[:：]?\s*([A-Z0-9-]+)",
+            "context": [],  # pattern itself contains context
+            "window": 0,
+        },
     }
-    pattern = patterns.get(name)
-    if not pattern:
+
+    config = patterns_with_context.get(name)
+    if not config:
         return ""
+
+    pattern = config["pattern"]
+    required_context = config["context"]
+    window = config["window"]
+
     match = re.search(pattern, text, flags=re.IGNORECASE)
-    return match.group(1).strip() if match else ""
+    if not match:
+        return ""
+
+    # If no context required (pattern already contains label), return match
+    if not required_context:
+        return match.group(1).strip()
+
+    # Check if any required context word appears near the match
+    match_start = match.start()
+    match_end = match.end()
+    surrounding = text[max(0, match_start - window):min(len(text), match_end + window)]
+
+    for ctx in required_context:
+        if ctx in surrounding:
+            return match.group(1).strip()
+
+    # No context support found - likely a false positive, return empty
+    logger.debug(
+        "[IntakeAgent] Rejected low-confidence match for %s: '%s' (no context support)",
+        name,
+        match.group(0),
+    )
+    return ""

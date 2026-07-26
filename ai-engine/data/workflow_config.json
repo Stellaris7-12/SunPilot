@@ -1,11 +1,55 @@
 {
   "default_workflow": "unknown_flow",
+  "commonFields": [
+    {
+      "name": "customerId",
+      "label": "客户号",
+      "extractRule": {
+        "type": "regex",
+        "pattern": "(C\\d{5,})"
+      }
+    },
+    {
+      "name": "cardLast4",
+      "label": "卡尾号",
+      "extractRule": {
+        "type": "regex",
+        "pattern": "卡尾(?:号)?\\s*(\\d{4})"
+      }
+    },
+    {
+      "name": "phone",
+      "label": "手机号",
+      "extractRule": {
+        "type": "regex",
+        "pattern": "(1\\d{2}\\*{4}\\d{4}|1\\d{10})"
+      },
+      "default": "待补充"
+    },
+    {
+      "name": "customerName",
+      "label": "客户姓名",
+      "default": "待补充客户"
+    },
+    {
+      "name": "businessCode",
+      "label": "业务编号",
+      "extractRule": {
+        "type": "regex",
+        "pattern": "((?:DINING|COFFEE|AIRPORT|HOTEL|POINT|MALL|CONCIERGE)[A-Z0-9_]*\\d*|(?:TXN|APP)\\d{6,})"
+      }
+    }
+  ],
   "scenarios": {
     "协商还款": {
       "workflow_name": "repayment_negotiation_dispatch_flow",
       "label": "协商还款",
       "orderPrefix": "11",
       "slaDays": 2,
+      "detection": {
+        "patterns": ["协商还款", "还款方案", "延期还款", "停息", "分期偿还", "客助"],
+        "priority": 7
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -18,10 +62,10 @@
         {"name": "repaymentPlan", "label": "协商方案"}
       ],
       "specificFields": [
-        {"name": "accountType", "label": "账户类型", "type": "select", "options": ["个人消费账户", "商务卡账户"]},
-        {"name": "accountNo", "label": "账户(微信/他行卡)", "type": "text"},
-        {"name": "workOrderName", "label": "工单名称", "type": "text"},
-        {"name": "customerAssistanceTag", "label": "客助标签", "type": "select", "options": ["客助-协商还款", "一般协助", "特殊减免"]},
+        {"name": "accountType", "label": "账户类型", "type": "select", "options": ["个人消费账户", "商务卡账户"], "extractRule": {"type": "literal", "value": "个人消费账户"}},
+        {"name": "accountNo", "label": "账户(微信/他行卡)", "type": "text", "extractRule": {"type": "regex", "pattern": "(\\d{10,})"}},
+        {"name": "workOrderName", "label": "工单名称", "type": "text", "extractRule": {"type": "literal", "value": "协商还款申请"}},
+        {"name": "customerAssistanceTag", "label": "客助标签", "type": "select", "options": ["客助-协商还款", "一般协助", "特殊减免"], "extractRule": {"type": "literal", "value": "客助-协商还款"}},
         {"name": "repaymentPlan", "label": "协商方案", "type": "textarea"}
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "accountNo", "repaymentPlan"],
@@ -36,6 +80,10 @@
       "label": "伪冒预防",
       "orderPrefix": "12",
       "slaDays": 2,
+      "detection": {
+        "patterns": ["非本人申请", "冒名", "伪冒预防", "还款提醒", "投诉引导", "伪冒交易预警"],
+        "priority": 1
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -52,14 +100,14 @@
         {"name": "mainDemand", "label": "主体诉求"}
       ],
       "specificFields": [
-        {"name": "callId", "label": "CALLID", "type": "text"},
-        {"name": "callerNo", "label": "主叫号", "type": "text"},
-        {"name": "isConsumerSelf", "label": "是否消费者本人", "type": "select", "options": ["是", "否"]},
-        {"name": "complainantName", "label": "投诉人姓名", "type": "text"},
+        {"name": "callId", "label": "CALLID", "type": "text", "extractRule": {"type": "regex", "pattern": "(CASE\\d{10})"}},
+        {"name": "callerNo", "label": "主叫号", "type": "text", "extractRule": {"type": "regex", "pattern": "(1\\d{10})"}},
+        {"name": "isConsumerSelf", "label": "是否消费者本人", "type": "select", "options": ["是", "否"], "extractRule": {"type": "keyword", "keyword": "非本人", "trueValue": "否", "falseValue": "是"}},
+        {"name": "complainantName", "label": "投诉人姓名", "type": "text", "extractRule": {"type": "context", "source": "customerName"}},
         {"name": "complainantIdNo", "label": "投诉人证件号", "type": "text"},
-        {"name": "complainantPhone", "label": "投诉人手机号", "type": "text"},
-        {"name": "caseNo", "label": "案件编号", "type": "text"},
-        {"name": "workOrderCategory", "label": "工单类别", "type": "select", "options": ["投诉引导(接受投调引导)", "伪冒交易预警"]},
+        {"name": "complainantPhone", "label": "投诉人手机号", "type": "text", "extractRule": {"type": "context", "source": "phone"}},
+        {"name": "caseNo", "label": "案件编号", "type": "text", "extractRule": {"type": "regex", "pattern": "(C\\d{8})"}},
+        {"name": "workOrderCategory", "label": "工单类别", "type": "select", "options": ["投诉引导(接受投调引导)", "伪冒交易预警"], "extractRule": {"type": "keyword", "keyword": "预警", "trueValue": "伪冒交易预警", "falseValue": "投诉引导(接受投调引导)"}},
         {"name": "complaintContent", "label": "被投诉内容", "type": "textarea"},
         {"name": "mainDemand", "label": "主体诉求", "type": "textarea"}
       ],
@@ -75,6 +123,10 @@
       "label": "伪冒调查",
       "orderPrefix": "13",
       "slaDays": 3,
+      "detection": {
+        "patterns": ["伪冒调查", "卡片被.*管制", "系统管制", "两核身", "核身不过", "X-DK", "BLOCK"],
+        "priority": 2
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -86,10 +138,10 @@
         {"name": "xdk", "label": "X-DK"}
       ],
       "specificFields": [
-        {"name": "cardList", "label": "卡片列表(BLOCK)", "type": "text"},
+        {"name": "cardList", "label": "卡片列表(BLOCK)", "type": "text", "extractRule": {"type": "context", "source": "cardLast4", "formatter": "尾号{value}"}},
         {"name": "cardRemark", "label": "备注(卡号段)", "type": "text"},
-        {"name": "controlReason", "label": "管制原因", "type": "text"},
-        {"name": "xdk", "label": "X-DK", "type": "text"}
+        {"name": "controlReason", "label": "管制原因", "type": "text", "extractRule": {"type": "regex", "pattern": "(管制|BLOCK|核身不过|两核身)"}},
+        {"name": "xdk", "label": "X-DK", "type": "text", "extractRule": {"type": "regex", "pattern": "(X-DK[\\w-]*)"}}
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "cardList", "controlReason", "xdk"],
       "recommended_tool": "card.account-status-query",
@@ -103,6 +155,10 @@
       "label": "客户经营",
       "orderPrefix": "29",
       "slaDays": 6,
+      "detection": {
+        "patterns": ["客户经营", "资料借阅", "结清证明", "解抵押", "汽车分期结清", "接单单位卡部", "地址变更", "账单地址", "资料修改", "资料变更", "联系人变更", "预留手机号"],
+        "priority": 3
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -113,8 +169,8 @@
         {"name": "materialType", "label": "资料类型"}
       ],
       "specificFields": [
-        {"name": "receiveUnit", "label": "接单单位", "type": "select", "options": ["卡部[上海卡部]", "卡部[北京卡部]"]},
-        {"name": "bizSubType", "label": "业务细类", "type": "select", "options": ["资料借阅", "解抵押", "汽车分期结清证明", "个人金普卡业务", "AE百夫长卡"]},
+        {"name": "receiveUnit", "label": "接单单位", "type": "select", "options": ["卡部[上海卡部]", "卡部[北京卡部]"], "extractRule": {"type": "literal", "value": "卡部[上海卡部]"}},
+        {"name": "bizSubType", "label": "业务细类", "type": "select", "options": ["资料借阅", "解抵押", "汽车分期结清证明", "个人金普卡业务", "AE百夫长卡"], "extractRule": {"type": "keyword", "keyword": "解抵押", "trueValue": "解抵押", "falseValue": "资料借阅"}},
         {"name": "materialType", "label": "资料类型", "type": "text"}
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "receiveUnit", "bizSubType", "materialType"],
@@ -129,6 +185,10 @@
       "label": "市场企划",
       "orderPrefix": "30",
       "slaDays": 5,
+      "detection": {
+        "patterns": ["市场企划", "麦当劳", "饭票", "影票", "掌上生活", "订单号", "优惠券未到账", "优惠券", "未收到券", "活动达标", "权益", "贵宾厅", "积分", "DINING", "AIRPORT", "POINT", "MALL"],
+        "priority": 4
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -142,12 +202,12 @@
         {"name": "bizSubType", "label": "业务细类"}
       ],
       "specificFields": [
-        {"name": "cardList", "label": "关联卡片列表", "type": "text"},
+        {"name": "cardList", "label": "关联卡片列表", "type": "text", "extractRule": {"type": "context", "source": "cardLast4", "formatter": "尾号{value}"}},
         {"name": "cardName", "label": "卡片名称", "type": "text"},
-        {"name": "remark", "label": "订单号/备注", "type": "text"},
+        {"name": "remark", "label": "订单号/备注", "type": "text", "extractRule": {"type": "regex", "pattern": "((?:DINING|COFFEE|AIRPORT|HOTEL|POINT|MALL|CONCIERGE)[A-Z0-9_]*\\d*|ORD\\d{8,})"}},
         {"name": "customerFeedback", "label": "客户反馈情况", "type": "textarea"},
-        {"name": "receiveUnit", "label": "接单单位", "type": "select", "options": ["市场[020营销管理团队]", "市场[030品牌团队]"]},
-        {"name": "bizSubType", "label": "业务细类", "type": "select", "options": ["饭票总对总-麦当劳", "影票", "掌上生活", "新品牌", "品质电商", "代金券"]}
+        {"name": "receiveUnit", "label": "接单单位", "type": "select", "options": ["市场[020营销管理团队]", "市场[030品牌团队]"], "extractRule": {"type": "literal", "value": "市场[020营销管理团队]"}},
+        {"name": "bizSubType", "label": "业务细类", "type": "select", "options": ["饭票总对总-麦当劳", "影票", "掌上生活", "新品牌", "品质电商", "代金券"], "extractRule": {"type": "keyword", "keyword": "麦当劳", "trueValue": "饭票总对总-麦当劳", "falseValue": "掌上生活"}}
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "remark", "customerFeedback", "receiveUnit", "bizSubType"],
       "recommended_tool": "benefit.query",
@@ -161,6 +221,10 @@
       "label": "调单扣款",
       "orderPrefix": "41",
       "slaDays": 3,
+      "detection": {
+        "patterns": ["调单扣款", "交易调单", "调扣", "扣款", "公司资料异动", "附件", "交易", "流水", "入账", "盗刷", "非本人", "TXN", "拒付", "商户"],
+        "priority": 6
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -174,15 +238,15 @@
         {"name": "attachmentStatus", "label": "附件"}
       ],
       "specificFields": [
-        {"name": "callId", "label": "CALLID", "type": "text"},
-        {"name": "callerNo", "label": "主叫号", "type": "text"},
-        {"name": "isConsumerSelf", "label": "是否消费者本人", "type": "select", "options": ["是", "否"]},
-        {"name": "complainantName", "label": "投诉人姓名", "type": "text"},
-        {"name": "complainantPhone", "label": "投诉人手机号", "type": "text"},
-        {"name": "caseNo", "label": "案件编号", "type": "text"},
-        {"name": "workOrderCategory", "label": "工单类别", "type": "select", "options": ["调扣-一般通知", "公司资料异动", "交易调单扣款"]},
+        {"name": "callId", "label": "CALLID", "type": "text", "extractRule": {"type": "regex", "pattern": "(CASE\\d{10})"}},
+        {"name": "callerNo", "label": "主叫号", "type": "text", "extractRule": {"type": "regex", "pattern": "(1\\d{10})"}},
+        {"name": "isConsumerSelf", "label": "是否消费者本人", "type": "select", "options": ["是", "否"], "extractRule": {"type": "keyword", "keyword": "非本人", "trueValue": "否", "falseValue": "是"}},
+        {"name": "complainantName", "label": "投诉人姓名", "type": "text", "extractRule": {"type": "context", "source": "customerName"}},
+        {"name": "complainantPhone", "label": "投诉人手机号", "type": "text", "extractRule": {"type": "context", "source": "phone"}},
+        {"name": "caseNo", "label": "案件编号", "type": "text", "extractRule": {"type": "regex", "pattern": "(C\\d{8})"}},
+        {"name": "workOrderCategory", "label": "工单类别", "type": "select", "options": ["调扣-一般通知", "公司资料异动", "交易调单扣款"], "extractRule": {"type": "keyword", "keyword": "调单扣款", "trueValue": "交易调单扣款", "falseValue": "调扣-一般通知"}},
         {"name": "callPurpose", "label": "来电目的", "type": "text"},
-        {"name": "attachmentStatus", "label": "附件", "type": "select", "options": ["无附件", "已上传", "待补充"]}
+        {"name": "attachmentStatus", "label": "附件", "type": "select", "options": ["无附件", "已上传", "待补充"], "extractRule": {"type": "literal", "value": "无附件"}}
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "workOrderCategory", "callPurpose"],
       "recommended_tool": "transaction.query",
@@ -196,6 +260,10 @@
       "label": "征信",
       "orderPrefix": "42",
       "slaDays": 3,
+      "detection": {
+        "patterns": ["征信", "账户逾期", "逾期状态", "贷后历史风险", "是否敏感", "征信异议", "上报记录", "E CODE"],
+        "priority": 5
+      },
       "fields": [
         {"name": "customerId", "label": "客户号"},
         {"name": "customerName", "label": "客户姓名"},
@@ -207,10 +275,10 @@
         {"name": "overdueStatus", "label": "逾期状态"}
       ],
       "specificFields": [
-        {"name": "accountType", "label": "账户类型", "type": "select", "options": ["个人消费账户", "个人储蓄账户"]},
-        {"name": "accountNo", "label": "账户号", "type": "text"},
-        {"name": "isSensitive", "label": "是否敏感", "type": "select", "options": ["是", "否"]},
-        {"name": "overdueStatus", "label": "逾期状态", "type": "select", "options": ["正常", "已逾期", "待确认"]}
+        {"name": "accountType", "label": "账户类型", "type": "select", "options": ["个人消费账户", "个人储蓄账户"], "extractRule": {"type": "literal", "value": "个人消费账户"}},
+        {"name": "accountNo", "label": "账户号", "type": "text", "extractRule": {"type": "regex", "pattern": "(\\d{10,})"}},
+        {"name": "isSensitive", "label": "是否敏感", "type": "select", "options": ["是", "否"], "extractRule": {"type": "keyword", "keyword": "敏感", "trueValue": "是", "falseValue": "否"}},
+        {"name": "overdueStatus", "label": "逾期状态", "type": "select", "options": ["正常", "已逾期", "待确认"], "extractRule": {"type": "keyword", "keyword": "逾期", "trueValue": "已逾期", "falseValue": "正常"}}
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "accountType", "accountNo", "isSensitive", "overdueStatus"],
       "recommended_tool": "customer.lookup",

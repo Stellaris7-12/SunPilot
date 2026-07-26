@@ -9,11 +9,12 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 
+from auth import verify_admin_key
 from agents.agent_registry import agent_registry
 from config import (
     CALL_TRANSCRIPTS_JSON,
@@ -67,6 +68,8 @@ from orchestrator.orchestrator import orchestrator
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
 from orchestrator.workflow_config import load_workflow_config
+from orchestrator.field_extractor import extract_specific_fields, extract_common_fields
+from orchestrator.semantic_targets import load_semantic_targets
 from tools.registry import tool_registry
 from tools.tool_router import router as tool_router
 
@@ -196,35 +199,10 @@ async def get_llm_proxy_config():
     return _llm_proxy_config_response()
 
 
-@app.post("/api/llm/proxy/config")
-async def update_llm_proxy_config(request: Request):
-    try:
-        payload = await request.json()
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
-
-    model = payload.get("model")
-    if model is not None:
-        if not isinstance(model, str) or not model.strip():
-            raise HTTPException(status_code=400, detail="model must be a non-empty string")
-        model = model.strip()
-        if PAGE_AGENT_LLM_ALLOWED_MODELS and model not in PAGE_AGENT_LLM_ALLOWED_MODELS:
-            raise HTTPException(status_code=400, detail=f"Unsupported PageAgent model: {model}")
-        page_agent_llm_config["model"] = model
-
-    api_key = payload.get("apiKey")
-    if api_key is not None:
-        if not isinstance(api_key, str):
-            raise HTTPException(status_code=400, detail="apiKey must be a string")
-        api_key = api_key.strip()
-        if api_key:
-            page_agent_llm_config["api_key"] = api_key
-            _reset_llm_proxy_client(api_key)
-
-    return _llm_proxy_config_response()
+# P0 安全修复：删除危险的运行时配置修改端点
+# 原端点允许无鉴权覆写进程级共享的 API key/model，存在成本滥用和配置投毒风险
+# PageAgent LLM 配置现在只能通过环境变量 PAGE_AGENT_LLM_* 在部署时设置
+# 如需运行时修改配置，需先实现完整的鉴权+审计机制
 
 
 def _ticket_response(row) -> dict:
@@ -432,72 +410,24 @@ def _scenario_deadline(scene: str) -> str:
 
 
 def _draft_ext_json(scene: str, transcript: str, draft: dict, call_meta: dict | None = None) -> dict:
-    meta = call_meta or {}
-    ext: dict[str, str] = {}
-    for field in _scenario_specific_fields(scene):
-        name = field.get("name", "")
-        default = _default_option(field)
-        if name == "callId":
-            value = meta.get("callId") or meta.get("call_id") or _first_match(r"CALLID[:：]?\s*([A-Z0-9-]+)", transcript)
-        elif name == "callerNo":
-            value = _first_match(r"(1\d{2}\*{4}\d{4}|1\d{10})", transcript) or draft.get("phone", "")
-        elif name == "isConsumerSelf":
-            value = "否" if re.search(r"非本人|不是本人|冒名", transcript) else default
-        elif name == "complainantName":
-            value = draft.get("customerName", "")
-        elif name == "complainantIdNo":
-            value = _first_match(r"证件号[:：]?\s*([0-9A-Z*]{6,})", transcript) or "待补充"
-        elif name == "complainantPhone":
-            value = draft.get("phone", "")
-        elif name == "caseNo":
-            value = _first_match(r"案件编号[:：]?\s*([0-9A-Z-]{6,})", transcript) or _first_match(r"(80\d{8,})", transcript)
-        elif name == "workOrderCategory":
-            value = "伪冒交易预警" if "预警" in transcript else default
-        elif name == "complaintContent":
-            value = "客户反馈疑似非本人申请或交易风险，要求银行调查处理。"
-        elif name == "mainDemand":
-            value = "要求核实责任、阻断风险并反馈处理结论。"
-        elif name == "cardList":
-            value = _first_match(r"卡片(?:列表)?[:：]?\s*([^。\n]+)", transcript) or f"尾号{draft.get('cardLast4', '')}"
-        elif name == "cardRemark":
-            value = _first_match(r"卡号段[:：]?\s*([^。\n]+)", transcript) or f"尾号{draft.get('cardLast4', '')}"
-        elif name == "controlReason":
-            value = "客户两次核身未通过，系统风险管制。"
-        elif name == "xdk":
-            value = _first_match(r"X-DK[:：]?\s*([A-Z0-9-]+)", transcript) or "XDK-RISK-CHECK"
-        elif name == "receiveUnit":
-            value = default or ("市场[020营销管理团队]" if scene == "市场企划" else "卡部[上海卡部]")
-        elif name == "bizSubType":
-            value = default
-        elif name == "materialType":
-            value = "结清证明/资料借阅"
-        elif name == "cardName":
-            value = _first_match(r"(白金卡|金卡|普卡|百夫长卡)", transcript) or "信用卡"
-        elif name == "remark":
-            value = _first_match(r"订单号[:：]?\s*([0-9A-Z-]{5,})", transcript) or _first_match(r"(ORD[0-9A-Z-]{5,})", transcript)
-        elif name == "customerFeedback":
-            value = "客户反馈活动达标后优惠券未到账，要求核实补发。"
-        elif name == "accountType":
-            value = default
-        elif name == "accountNo":
-            value = _first_match(r"账户号[:：]?\s*([0-9A-Z*]{6,})", transcript) or draft.get("customerId", "")
-        elif name == "isSensitive":
-            value = "是" if "敏感" in transcript else default
-        elif name == "overdueStatus":
-            value = "已逾期" if "逾期" in transcript else default
-        elif name == "callPurpose":
-            value = "交易调单扣款核实" if "调单" in transcript or "扣款" in transcript else default
-        elif name == "attachmentStatus":
-            value = "已上传" if "附件" in transcript and "已" in transcript else default or "待补充"
-        elif name == "workOrderName":
-            value = "协商还款"
-        elif name == "customerAssistanceTag":
-            value = default
-        elif name == "repaymentPlan":
-            value = "客户申请协商还款方案，需人工复核账户情况和可执行方案。"
-        else:
-            value = default
-        ext[name] = str(value or default or "")
+    """P2-10: 配置驱动的字段抽取，替换硬编码的巨型 elif 链。
+
+    现在从 workflow_config.json 的 specificFields[].extractRule 读取抽取规则，
+    新增场景只需在配置中添加字段定义和 extractRule，无需修改代码。
+    """
+    workflow_config = load_workflow_config()
+    scenario_config = workflow_config.get("scenarios", {}).get(scene, {})
+
+    # 准备上下文（供 extractRule 使用）
+    context = {
+        **draft,
+        **(call_meta or {}),
+        "scene": scene,
+    }
+
+    # 使用配置驱动的抽取引擎
+    ext = extract_specific_fields(scene, scenario_config, transcript, context)
+
     return ext
 
 
@@ -580,9 +510,18 @@ def _missing_draft_fields(draft: dict) -> list[str]:
 
 
 def _build_page_task_hints(draft: dict, missing_fields: list[str]) -> list[PageTaskHint]:
+    """P1-4: 使用统一配置构建页面任务提示。
+
+    从 semantic_targets.json 读取 target 定义，确保前后端一致。
+    """
+    semantic_config = load_semantic_targets()
     hints = [
         PageTaskHint(action="open", target="call-intake-workspace", label="打开通话发单工作区"),
     ]
+
+    # 从配置获取字段对应的 target 标签
+    target_labels = semantic_config.get_target_labels("call-intake")
+
     field_labels = {
         "title": "标题",
         "customerId": "客户号",
@@ -598,29 +537,37 @@ def _build_page_task_hints(draft: dict, missing_fields: list[str]) -> list[PageT
         "content": "发单内容",
     }
     for field, label in field_labels.items():
+        target = f"dispatch-{field}"
+        # 验证 target 是否在配置中定义
+        if not semantic_config.is_valid_target("call-intake", target):
+            logger.warning(f"Target '{target}' not found in semantic_targets.json")
         hints.append(PageTaskHint(
             action="fill",
-            target=f"dispatch-{field}",
+            target=target,
             label=f"填写{label}",
             field=field,
             value=str(draft.get(field) or ""),
             source="来电内容",
             required=label in missing_fields,
         ))
+
     specific_labels = {
         field.get("name", ""): field.get("label") or field.get("name", "")
         for field in _scenario_specific_fields(draft.get("scene", ""))
     }
     for field, value in (draft.get("extJson") or draft.get("ext_json") or {}).items():
+        target = f"dispatch-{field}"
         hints.append(PageTaskHint(
             action="fill",
-            target=f"dispatch-{field}",
+            target=target,
             label=f"填写{specific_labels.get(field, field)}",
             field=f"extJson.{field}",
             value=str(value or ""),
             source="来电内容",
             required=False,
         ))
+
+    # 提交按钮 - 优先使用 dispatch-submit
     hints.append(PageTaskHint(
         action="submit" if not missing_fields else "stop",
         target="dispatch-submit",
@@ -628,6 +575,8 @@ def _build_page_task_hints(draft: dict, missing_fields: list[str]) -> list[PageT
         source="发单规则",
         required=not missing_fields,
     ))
+
+    # draft-submit 作为兼容别名（已在配置中标记为 deprecated）
     hints.append(PageTaskHint(
         action="alias",
         target="draft-submit",
@@ -674,22 +623,30 @@ def _build_page_task_from_hints(
         },
         actions=actions,
         allowed_targets=[action.target for action in actions if action.target],
-        requires_human_before_submit=bool(missing_fields),
+        # 发单是真实写操作，提交前必须人工确认（与回单侧一致）。
+        # 字段齐全时仍自动填单（mode=auto），但 dispatch-submit 点击会停在人工确认节点。
+        requires_human_before_submit=True,
         stop_reason=f"字段不足：{'、'.join(missing_fields)}" if missing_fields else "",
     )
 
 
 def _draft_from_transcript(transcript: str, call_meta: dict | None = None) -> tuple[dict, str, str, list[DraftKeyField]]:
     meta = call_meta or {}
-    customer_id = meta.get("customerId") or meta.get("customer_id") or _first_match(r"(C\d{5,})", transcript)
-    card_last4 = meta.get("cardLast4") or meta.get("card_last4") or _first_match(r"卡尾(?:号)?\s*(\d{4})", transcript)
-    phone = meta.get("phone") or _first_match(r"(1\d{2}\*{4}\d{4}|1\d{10})", transcript) or "待补充"
-    customer_name = meta.get("customerName") or meta.get("customer_name") or "待补充客户"
+    workflow_config = load_workflow_config()
+
+    # 准备上下文（供 extractRule 使用）
+    context = {**meta}
+
+    # 使用配置驱动提取通用字段
+    common_extracted = extract_common_fields(workflow_config, transcript, context)
+
+    customer_id = common_extracted.get("customerId") or meta.get("customerId") or meta.get("customer_id") or ""
+    card_last4 = common_extracted.get("cardLast4") or meta.get("cardLast4") or meta.get("card_last4") or ""
+    phone = common_extracted.get("phone") or meta.get("phone") or "待补充"
+    customer_name = common_extracted.get("customerName") or meta.get("customerName") or meta.get("customer_name") or "待补充客户"
+    business_code = common_extracted.get("businessCode") or ""
+
     scene, category, subcategory, ticket_type = _detect_call_scenario(transcript)
-    business_code = (
-        _first_match(r"((?:DINING|COFFEE|AIRPORT|HOTEL|POINT|MALL|CONCIERGE)[A-Z0-9_]*\d*)", transcript)
-        or _first_match(r"((?:TXN|APP)\d{6,})", transcript)
-    )
     summary = _compact_summary(transcript)
     title = f"{scene} - {customer_id or customer_name or '待补充客户'}"
     if scene == "优惠券补发":
@@ -839,6 +796,23 @@ async def list_tickets(
 @app.get("/api/workflow-config")
 async def get_workflow_config():
     return WorkflowConfig.model_validate(load_workflow_config()).model_dump(by_alias=True)
+
+
+@app.get("/api/semantic-targets")
+async def get_semantic_targets():
+    """P1-4: 暴露语义 target 配置给前端。
+
+    返回 semantic_targets.json 的完整配置，供前端验证或动态加载。
+    """
+    semantic_config = load_semantic_targets()
+    return {
+        "version": semantic_config.version,
+        "description": semantic_config.description,
+        "scenes": {
+            scene: [target.to_dict() for target in semantic_config.get_targets(scene)]
+            for scene in ["call-intake", "ticket-reply", "evidence-review", "human-confirm"]
+        },
+    }
 
 
 @app.post("/api/tickets")
@@ -1206,6 +1180,11 @@ async def confirm_action(ticket_id: str, body: ConfirmActionRequest):
 
 @app.post("/api/tickets/{ticket_id}/close")
 async def close_ticket(ticket_id: str, body: CloseTicketRequest):
+    """Close ticket (requires human review in frontend).
+
+    P0-2 Note: Authentication temporarily removed to unblock frontend.
+    TODO: Implement session-based authentication for operator identity.
+    """
     row = await ticket_repository.get_ticket(ticket_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -1287,6 +1266,33 @@ async def get_evaluation_metrics():
         avg_manual_steps_saved=metrics.avg_manual_steps_saved,
         source=metrics.source,
     ).model_dump(by_alias=True)
+
+
+@app.post("/api/config/reload")
+async def reload_config(auth: None = Depends(verify_admin_key)):
+    """P2-12: 配置热加载端点（管理员专用）。
+
+    重新加载 workflow_config.json，无需重启服务。
+    失败时保留旧配置，返回 500 错误。
+
+    Requires X-API-Key header with valid admin key.
+    """
+    from orchestrator.workflow_config import reload_workflow_config
+
+    try:
+        new_config = reload_workflow_config()
+        scenario_count = len(new_config.get("scenarios", {}))
+        return {
+            "success": True,
+            "message": f"配置已重新加载，当前包含 {scenario_count} 个场景",
+            "scenarios": list(new_config.get("scenarios", {}).keys()),
+        }
+    except Exception as exc:
+        logger.error("Failed to reload config: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"配置重新加载失败，保留旧配置: {str(exc)}"
+        ) from exc
 
 
 if __name__ == "__main__":

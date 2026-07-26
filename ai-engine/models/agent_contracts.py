@@ -172,6 +172,9 @@ class ResolutionInput(AgentPayload):
     available_tool_names: list[str] = Field(default_factory=list)
     available_tools: str = ""
     workflow_config: dict[str, Any] = Field(default_factory=dict)
+    # P1-6 修复：激活 ResolutionAgent 的 LLM 工具选择分支
+    # 当确定性规则无法覆盖时，可 fallback 到 LLM 推理
+    use_llm_tool_selection: bool = False
 
 
 class NotificationInput(AgentPayload):

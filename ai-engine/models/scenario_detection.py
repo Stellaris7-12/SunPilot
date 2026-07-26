@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 FITS_SCENARIOS = (
@@ -135,7 +138,11 @@ def normalize_intent_type(intent_type: str, workflow_config: dict | None = None)
 
 
 def detect_fits_scenario(text: str, workflow_config: dict | None = None) -> ScenarioDetection:
-    """Detect the FITS scenario from structured summary or raw transcript."""
+    """Detect the FITS scenario from structured summary or raw transcript.
+
+    P2-9: 场景检测规则已外置到 workflow_config.json 的 detection.patterns，
+    不再依赖硬编码的 _SCENE_PATTERNS。
+    """
     workflow_config = workflow_config or {}
     text = text or ""
     explicit_scene = _first_match(r"场景[:：]\s*([^\n]+)", text)
@@ -151,17 +158,40 @@ def detect_fits_scenario(text: str, workflow_config: dict | None = None) -> Scen
             confidence=0.99,
         )
 
-    for scene, category, subcategory, reason, pattern in _SCENE_PATTERNS:
-        if pattern.search(text):
-            normalized = normalize_scene(scene, workflow_config)
-            if normalized != "UNKNOWN":
-                return ScenarioDetection(
-                    scene=normalized,
-                    category=category,
-                    subcategory=subcategory,
-                    intent_type=normalized,
-                    reason=reason,
-                )
+    # P2-9: 从配置动态加载场景检测规则
+    scenarios = workflow_config.get("scenarios", {})
+    # 过滤掉值为 None 或没有 detection 配置的场景，按 priority 排序
+    valid_scenarios = [
+        (name, cfg) for name, cfg in scenarios.items()
+        if cfg is not None and isinstance(cfg.get("detection"), dict)
+    ]
+    sorted_scenarios = sorted(
+        valid_scenarios,
+        key=lambda item: item[1].get("detection", {}).get("priority", 999)
+    )
+
+    for scene_name, scenario_config in sorted_scenarios:
+        detection = scenario_config.get("detection", {})
+        patterns = detection.get("patterns", [])
+        if not patterns:
+            continue
+
+        # 将配置的 patterns 列表编译为正则
+        for pattern_str in patterns:
+            try:
+                # 支持正则特殊字符（如 .* 在"卡片被.*管制"中）
+                pattern = re.compile(pattern_str, re.IGNORECASE)
+                if pattern.search(text):
+                    return ScenarioDetection(
+                        scene=scene_name,
+                        category=scenario_config.get("label") or scene_name,
+                        subcategory=scenario_config.get("label") or scene_name,
+                        intent_type=scene_name,
+                        reason=f"命中场景检测规则: {pattern_str}",
+                    )
+            except re.error as e:
+                logger.warning("Invalid regex pattern in scenario %s: %s (%s)", scene_name, pattern_str, e)
+                continue
 
     scenario = _scenario_config("UNKNOWN", workflow_config)
     return ScenarioDetection(

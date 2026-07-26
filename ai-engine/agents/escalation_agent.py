@@ -82,6 +82,7 @@ class EscalationAgent(BaseAgent):
         if guard_result:
             return guard_result
 
+        # P1-6: 置信度检查（不阻断流程，仅添加检查项）
         confidence = intent.get("confidence", 0)
         if confidence < 0.7:
             checks.append({
@@ -91,17 +92,7 @@ class EscalationAgent(BaseAgent):
         else:
             checks.append({"label": "分类结果可信", "status": "通过"})
 
-        if ticket_risk == "high":
-            checks.append({"label": "工单标记为高风险，建议转人工", "status": "已拦截"})
-            return {
-                "checks": checks,
-                "risk_level": "high",
-                "risk_decision": "高风险工单，已转人工审核",
-                "can_auto_proceed": False,
-                "missing_fields": [],
-                "needs_more_info": False,
-            }
-
+        # P1-6: 中风险或需确认场景，使用 LLM 综合评估
         scenario_config = workflow_scenario(workflow_config, intent_type)
         requires_confirmation = scenario_config.requires_human_confirmation
         if ticket_risk == "medium" or requires_confirmation:

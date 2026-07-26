@@ -1,0 +1,254 @@
+SunPilot 工单智能处理引擎 —— 技术评审报告
+评审结论速览
+代码工程质量扎实：确定性 fast-lane、防 LLM 幻觉的确定性覆盖、"仅人工结案"边界、fail-fast 配置加载都做得对。但方案文档（7.26-11方案总结.md）与代码实现存在系统性偏差——文档把若干"愿景/单点能力"描述成了"已落地架构"。评审要害集中在三点："双轨制"架构在代码里不存在、配置驱动只覆盖了声明式元数据、PageAgent 的安全白名单在 ReAct 通道下整体失效。
+
+一、最严重的偏差：方案宣称的"双轨制"在代码中不存在
+方案的核心卖点是"轨道一（内部系统 API 直连，不引入 PageAgent）/ 轨道二（外部遗留系统，PageAgent 走 ReAct 探索）"。我在整个后端做了检索验证：
+
+没有任何 track / system-type 分流逻辑。全代码库找不到 is_external、has_api、轨道、system_type 之类的分支判断。orchestrator.py:106-309 的 process_ticket 是单一固定流水线，不存在"按系统可接入性走不同轨道"的决策点。
+所谓"API 直连"其实是 mock。工具执行统一走 mock_executor.py:30，其 docstring 自述 "Simulates external business APIs"。没有真实内部系统 API 调用。
+PageAgent 操作的是本应用自己的 Vue 表单，不是外部遗留系统。所有 page_task 动作的 target 都是内部语义 id：orchestrator.py:1084-1128 的 page-agent-reply-draft、enterprise-reply、sunpilot-fields；main.py:600-637 的 dispatch-<field>、draft-submit。这些是 SunPilot 自身表单元素，不存在"探索未知外部系统 DOM"的场景。
+pageHints/轨道/ReAct 在后端只出现于一条注释（config.py:49），无实现。
+结论：真实架构是"单轨：5 Agent 管道（工具为 mock）→ 生成面向自家 Vue 表单的半语义 PageTask → 前端 SunPilot 填单，坐席确认"。ReAct 引擎确实存在（fork 自阿里 page-agent），但它当前也只作用于自家表单的自由文本兜底，并未用于任何外部系统。"API 优先、UI 兜底、70%/30% 占比"是设计愿景，不是当前代码形态。 这是对外汇报时最大的表述风险——一旦评审方看代码，双轨叙事无法自证。
+
+二、后端 Agent 编排
+编排本身是确定性串接（无 LLM 路由分发，顺序硬编码在 process_ticket），这与方案"确定性流向、不上 LangGraph"的说法一致，是合理的工程选择。主要问题：
+
+严重度	问题	证据
+高	/close 结案端点无任何鉴权，任何调用方可结案——"仅人工结案"的边界在权限上是空的	main.py:1207-1223
+中	"发单 1 次 / 回单 4-5 次 LLM"与实际不符：后端发单链路 0 次 LLM（纯正则+场景检测）；回单顺畅路径（低风险+字段齐全）仅 notification 1 次，只有 UNKNOWN/中风险/缺字段才到 4-5 次	main.py:682-790、各 agent
+中	ResolutionAgent 的 LLM 选工具分支不可达：判据依赖 use_llm_tool_selection 入参，但 ResolutionInput 根本没这个字段，已知场景恒走确定性 fallback——它实为确定性组件，"Agent"名不副实	resolution_agent.py:38、agent_contracts.py:167
+中	风险门控逻辑三/四处重复（中风险确认判定散在 guard、agent、orchestrator；高风险拦截四处）	escalation_guards / escalation_agent / orchestrator.py:116
+中	重试策略不一致：5 个 Agent 中仅 resolution（几乎不调 LLM 的那个）开了重试，classifier/intake/escalation 遇瞬时网络错误 0 重试直接失败整条链路	base.py:98
+中	timeout_seconds 定义但全代码无人消费，_run_agent_step 无 wait_for 兜底	agent_card.py:30
+中	非法状态转换静默跳过：_set_ticket_status 遇非法转换只 warning 后 return，流水线继续，可致 DB 状态与返回结果 _status 不一致	orchestrator.py:766-777
+做得好、应保留：intake fast-lane + _merge_fields（LLM 只填空、绝不覆盖确定性值，intake_agent.py:106-125）；workflow_name/evidence_ids/can_close 强制确定性覆盖防幻觉（notification_agent.py:257-289）；自动流程从不设 CLOSED。
+
+关于"5 Agent 是否过度拆分"（PPT 中你自己也标了❌）：Resolution 当前确实不配称 Agent（确定性选工具+组参）；Escalation 聚合 3 Guard 合理但门控实现重复。可考虑收敛为"3 个真 LLM Agent（Classifier/Intake/Notification）+ 2 个确定性步骤（工具选择/风控门控）"，更贴合实际。
+
+三、workflow_config.json 与配置驱动
+方案宣称"每场景一份 JSON、含正则/pageHints、700+ 场景、代码零变更"。实际：
+
+单文件、8 个场景（7 业务线 + UNKNOWN），共 238 行，与"700+"差两个数量级，配置里没有 700 场景的载体。workflow_config.json
+"代码零变更新增场景"不成立（严重）：场景识别正则（scenario_detection.py:88-96）、字段取值逻辑（main.py:434-501 的巨型 elif 链，按字段名分支）、兜底抽取正则（intake_agent.py:189-204）全部硬编码在 Python。新场景引入新字段名，必须改这几处代码。配置只驱动"字段清单/SLA/必填/工具候选/模板文案"这类声明式元数据;"如何识别、如何抽取"这类行为逻辑全在代码。
+配置无正则、无 pageHints：方案说配置含"校验正则、页面元素定位"，实际都没有。
+Schema 校验极弱（高）：ApiModel 未设 extra="forbid"，运营写错键名（requiredFields→requireFields）被静默丢弃回落默认值；无必填约束、无交叉校验（required_fields 不校验是否属于 fields、工具名不校验是否在 tools.json 注册）。运营改错 → 工单永久卡 PENDING_INFO 且无告警。加载层本身是 fail-fast（workflow_config.py:41-64，这点对），但业务语义校验缺失。
+JSON 键风格混乱（camelCase 与 snake_case 混用），靠 populate_by_name=True 容错，未来易踩坑。
+@lru_cache 永不失效（workflow_config.py:41），无热加载、无 reload 端点、无 version 字段——改配置必须重启进程。
+四、PageAgent（SunPilot）功能与安全
+两条通道并存：确定性通道（executePageTaskDeterministically，不调 LLM，按后端 PageTask 执行）与 ReAct 通道（PageAgentCore.execute，每步 1 次 LLM，fork 自阿里）。ReAct 循环真实完整（observe→think→act，PageAgentCore.ts:283-391）。要害问题：
+
+严重度	问题	证据
+高	白名单/阻断集只在确定性通道生效，ReAct 通道整体失效。CLAUDE.md 声称的"无任意 DOM-index 点击、无直接 save/close/transfer"在 ReAct 下仅靠 system prompt 软约束，无代码兜底。click_element_by_index 接受任意 index；click_semantic_target 接受任意 target（可点 page-agent-close-ticket）不校验白名单	tools/index.ts:135-147, 284-298
+高	/api/llm/proxy/* 无鉴权，且 POST /proxy/config 无鉴权即可覆写进程级共享的 API key/model（开放中继、成本滥用、多用户串号/投毒）	main.py:184-227
+中	ReAct 无死循环/无进展检测，代码里明确标注 @todo loop detection；"同一动作≤3次"只写在 prompt。唯一硬保护是 15 步上限	PageAgentCore.ts:542
+中	走哪条通道靠字符串前缀匹配隐式判定（带入/填入…），坐席改措辞即绕过确定性通道进 ReAct，用户无感知	SunPilotPanel.vue:449-456
+中	发单表单可自动点击提交：字段齐全时 mode=auto、下发 clickSemantic → dispatch-submit，确定性执行器放行（该 target 不在阻断集），无人工确认即真实提交。需确认是否为预期产品行为	main.py:624-630、pageTaskExecutor.ts:84
+低	execute_javascript 用 eval 执行，默认运行时删除（边界当前成立），但生产应物理剔除而非仅运行时删；useless 工具、重复类型系统、陈旧 README 未清理	tools/index.ts、PageController.ts:390
+pageHints 协议本身设计不错：是"半语义"协议（kind+稳定语义 target，非 DOM 坐标），业务大脑不感知 DOM。但前后端各存一份 target 清单（后端 _build_page_task_hints 硬编码 dispatch-*，前端 semanticAdapter 又维护一份），无单一事实源，已出现 dispatch-* 与 draft-* 两套并存的漂移。
+
+五、优化方案（按优先级）
+P0 — 安全（生产阻塞项）
+
+给 /api/llm/proxy/* 加最小鉴权 + 限流；把运行时改 key 的 /proxy/config 写接口去掉或限管理员，key 改为部署期配置。
+把白名单/阻断集/点击目标校验下沉到工具执行层（在 runTool 或每个 click 工具内做 target 归属校验），让 ReAct 与确定性通道共用同一套硬门控，而非依赖 prompt。
+/close 结案端点补鉴权。
+生产打包物理剔除 execute_javascript/executeJavascript。
+P1 — 弥合"文档 vs 现实"的表述风险（对外汇报关键）
+5. 二选一：要么在文档中如实降级表述——"当前为单轨（5 Agent + mock 工具 + 自家表单填单），双轨/外部系统 ReAct 为下一阶段规划"；要么在代码中真正实现分流骨架（按场景/系统配置选择 execution_channel: api | pageagent，即使 api 侧暂时接 mock）。我建议先做前者止血，再排期后者。
+6. 修正"发单 1 次 / 回单 4-5 次 LLM"为"发单后端 0 次、回单 1-5 次视场景"。
+7. 明确 ResolutionAgent 定位：要么接通 use_llm_tool_selection 入参真正启用 LLM，要么降格为 orchestrator 内的确定性工具选择步骤。
+
+P2 — 配置驱动补强（决定能否规模化到 700 场景）
+8. 给 WorkflowConfig 设 extra="forbid" + field_validator 交叉校验（required⊆fields、tool∈tools.json、orderPrefix 非空），把校验从"demo 未启用"提为强制。
+9. 把抽取规则/场景检测正则外置到配置（字段级 extract 规则、场景级 detect 规则），由通用引擎解释执行——这是"零代码新增场景"能否兑现的关键。
+10. 单文件拆为 per-scenario 目录 + 索引；加 version 字段;提供受保护的 POST /api/config/reload（内部 cache_clear+重校验，失败保留旧缓存）。
+
+P3 — 健壮性与清理
+11. ReAct 增加基于 action.name+input 指纹的重复检测 + "连续无 DOM 变化"提前终止。
+12. classifier/intake/escalation 开启重试；_run_agent_step 用 wait_for(timeout_seconds) 兜底或删除该误导字段。
+13. 风险门控收敛为单一决策函数；非法状态转换改为告警上抛而非静默跳过。
+14. 前后端语义 target 收敛为单一事实源;清理 useless 工具/重复类型/陈旧文档;更新 CLAUDE.md（shim 文件实为 5 行实例别名）。
+
+需要的话，我可以就其中任一项（例如 P0 的白名单下沉、或 P2 的抽取规则外置）先出一个具体的代码改造方案。要我把这份报告落成一个 markdown 文档存进 doc/ 吗？
+
+workflow_config.json 与配置驱动 这个模块还有拯救的空间吗，还是说这个设计是一个彻底的失败
+workflow_config.json 与配置驱动有明确的拯救路径，设计本身不是失败——它只是完成了30%，停在了"声明式元数据"这一层，没有往下推进到"行为逻辑"层。这不是架构错误，而是实施深度不足。
+
+让我具体分析：
+
+当前做对了什么（这些是可以保留的基础）
+配置加载基础设施健全：load_workflow_config + Pydantic schema + to_runtime_dict 的转换链路是对的，fail-fast 也对。
+字段清单、SLA、模板、必填位由配置驱动已经生效——这些声明式元数据确实做到了"改配置不改代码"。
+半语义协议（workflow_name、tool_name、field name）的设计是对的——用稳定的语义标识而非下标/坐标，为后续扩展留了空间。
+这些不是失败，是可用但未完工的地基。
+
+核心问题：行为逻辑硬编码阻塞了规模化
+真正的瓶颈在三处硬编码：
+
+1. 场景识别规则（scenario_detection.py）
+
+# 当前：硬编码正则
+_SCENE_PATTERNS = {
+    "协商还款": re.compile(r"协商还款|延期还款|..."),
+    "伪冒预防": re.compile(r"伪冒预防|欺诈预警|..."),
+    # ... 7 个场景写死
+}
+拯救方案：把正则移入配置
+
+
+// workflow_config.json
+{
+  "scenarios": {
+    "repayment_negotiation": {
+      "detection": {
+        "patterns": ["协商还款", "延期还款", "分期调整"],
+        "keywords": ["协商", "还款"],
+        "priority": 1
+      }
+    }
+  }
+}
+通用引擎读配置构建正则，加一个场景只需加一段 JSON。这不是推翻重来，是把现有逻辑数据化。
+
+2. 字段抽取规则（main.py:434-501 的巨型 elif）
+
+# 当前：按字段名硬编码分支
+def _draft_ext_json(transcript, ...):
+    if "callId" in specific:
+        ext["callId"] = _first_match(r"(CASE\d{10})", transcript)
+    elif "caseNo" in specific:
+        ext["caseNo"] = _first_match(r"(C\d{8})", transcript)
+    # ... 20+ 个 elif
+拯救方案：字段级抽取规则外置
+
+
+{
+  "scenarios": {
+    "repayment_negotiation": {
+      "specificFields": [
+        {
+          "name": "callId",
+          "label": "来电编号",
+          "extractRule": {
+            "type": "regex",
+            "pattern": "CASE\\d{10}",
+            "fallback": null
+          }
+        },
+        {
+          "name": "repaymentPlan",
+          "label": "还款方案",
+          "extractRule": {
+            "type": "structured",
+            "source": "llm_merge"
+          }
+        }
+      ]
+    }
+  }
+}
+通用抽取器遍历 specificFields，按 extractRule.type 调度到 regex/structured/lookup 引擎。新字段只需加 JSON entry，不改代码。
+
+3. 场景特定业务逻辑（main.py:469 等散点硬编码）
+
+# 当前：散落的场景判断
+receiver = "市场[020营销管理团队]" if scene == "市场企划" else "..."
+拯救方案：提到配置的 workflow 级参数
+
+
+{
+  "scenarios": {
+    "market_planning": {
+      "workflow_params": {
+        "default_receiver": "市场[020营销管理团队]",
+        "require_attachment": true
+      }
+    }
+  }
+}
+代码改为 receiver = scenario_config.get("workflow_params", {}).get("default_receiver", "通用处理")。
+
+技术可行性：不需要推翻重来
+关键是你已有的架构完全可以承载这三个改造：
+
+Pydantic schema 可以加嵌套的 detection/extractRule/workflow_params 字段。
+load_workflow_config 已经把配置全量加载到内存，运行时访问无性能问题。
+当前代码里已经在按字段名/场景名做分发，只是分发表硬编码在 Python——你要做的是把这张表挪到 JSON，分发逻辑改成 table-driven。
+我给个最小改造路径（2-3 天工作量，不动现有业务逻辑）：
+
+阶段一：场景检测规则外置（先啃最硬的骨头）
+在 WorkflowScenario 加一个字段：
+
+class WorkflowScenario(ApiModel):
+    # ... 现有字段
+    detection: Optional[Dict[str, Any]] = None  # {"patterns": [...], "keywords": [...], "priority": int}
+修改 normalize_scene（scenario_detection.py:99）：
+
+def normalize_scene(raw_scene: str) -> str:
+    config = load_workflow_config()
+    # 按 priority 排序，串行匹配
+    for scenario in sorted(config["scenarios"].values(), key=lambda s: s.get("detection", {}).get("priority", 999)):
+        detection = scenario.get("detection")
+        if not detection: continue
+        # 动态构建正则
+        patterns = detection.get("patterns", [])
+        if any(re.search(p, raw_scene) for p in patterns):
+            return scenario["workflow_name"]
+    return "UNKNOWN"
+把现有 7 个场景的正则从 _SCENE_PATTERNS 照抄到 workflow_config.json 的 detection.patterns。
+工作量：1 天（schema + 迁移逻辑 + 把现有正则搬进 JSON）。风险：低，现有场景行为不变，只是数据源换了。
+
+阶段二：字段抽取规则外置（解决 elif 链）
+specificFields 加 extractRule：
+
+class FieldDefinition(ApiModel):
+    name: str
+    label: str
+    type: Optional[str] = "text"
+    extract_rule: Optional[Dict[str, Any]] = None  # {"type": "regex", "pattern": "..."}
+新建通用抽取器：
+
+def extract_by_rule(field_name: str, rule: dict, transcript: str, context: dict) -> Optional[str]:
+    rule_type = rule.get("type")
+    if rule_type == "regex":
+        return _first_match(rule["pattern"], transcript)
+    elif rule_type == "structured":
+        return context.get(field_name)  # 从 LLM merge 结果取
+    elif rule_type == "lookup":
+        return context.get(rule["source_field"])
+    return None
+_draft_ext_json 重构为循环：
+
+def _draft_ext_json(transcript, scenario_config, llm_context):
+    ext = {}
+    for field in scenario_config.get("specific_fields", []):
+        rule = field.get("extract_rule")
+        if rule:
+            ext[field["name"]] = extract_by_rule(field["name"], rule, transcript, llm_context)
+    return ext
+工作量：1.5 天（抽取器框架 + 把现有 20 个 elif 翻译成 JSON extractRule）。风险：中（需要回归测试确保抽取结果不变）。
+
+阶段三：补强校验 + 文档（稳固基础）
+ApiModel 设 extra="forbid"，WorkflowScenario 加 @field_validator 检查 required_fields ⊆ fields、recommended_tool ∈ 工具注册表。
+写配置文档（JSON schema + 示例 + 字段说明）。
+工作量：0.5 天。
+
+三阶段改完后的效果
+新增场景：在 JSON 里加一个 scenario block（detection patterns + fields + extractRule + template），0 行代码变更。
+700 场景扩展瓶颈消失：配置文件拆成目录结构（data/scenarios/repayment_negotiation.json），每个场景独立维护。
+运营可以安全维护：配置有强校验（forbid extra + 交叉校验），改错会在加载时 fail；extractRule 是声明式的，运营看文档就能写正则/选 type。
+对比"推翻重来"方案
+如果你说"配置驱动彻底失败，我们改用 LLM 自由抽取所有字段"：
+
+丢掉确定性 fast-lane：现在低风险场景 0 次 LLM 秒级返回，改成全 LLM 后每工单至少 3-5 秒 + 成本 × 5。
+丢掉字段契约：当前 required_fields 清单保证了下游一定能拿到这些键；改成自由抽取，下游要写一堆 .get(key, default) 防护，且 LLM 可能幻觉出不存在的字段名。
+700 场景更难维护：每个场景的 prompt 是长文本，比 JSON 配置更难 diff、review、版本管理。
+所以**"配置驱动"这条路本身是对的**，只是你现在走了 30%（声明式元数据）就停了，剩下 70%（行为规则外置）没做。
+
+我的建议
+继续做，而非推翻。按上面三阶段路径（3 天改造），先把场景检测和字段抽取外置，让"新增场景"这个高频操作真正做到零代码。这能让你在答辩/汇报时理直气壮地说"配置驱动已落地"。
+
+如果你担心工作量，我可以直接帮你改第一阶段（场景检测外置）——先把 7 个场景的 detection 规则写进 JSON，把 normalize_scene 改成 table-driven，跑一遍 smoke 测试验证行为不变。你看到这个改造是"增量、低风险、立竿见影"的，后面两阶段就有信心推了。
+
+要我现在就动手改吗？还是你想先看一个具体到代码行的改造 diff 预览？

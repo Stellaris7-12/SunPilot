@@ -141,9 +141,8 @@ export class PageAgentCore extends EventTarget {
 			}
 		}
 
-		if (!this.config.experimentalScriptExecutionTool) {
-			this.tools.delete('execute_javascript')
-		}
+		// P0-4 安全修复：execute_javascript 已从工具集中物理删除
+		// 移除运行时条件检查，因为工具本身已不存在
 	}
 
 	/** Get current agent status */

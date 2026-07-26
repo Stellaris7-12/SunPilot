@@ -35,6 +35,7 @@ from models.ai_result import (
     VerifyCheck,
 )
 from models.repositories import agent_execution_log_repository, ticket_repository, tool_call_repository
+from models.pipeline_context_repository import pipeline_context_repository
 from models.scenario_detection import normalize_intent_type
 from models.ticket import RiskLevel, Ticket, TicketStatus
 from models.workflow import workflow_scenario
@@ -43,6 +44,7 @@ from orchestrator.schema_validator import validate_agent_payload
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
 from orchestrator.workflow_config import load_workflow_config
+from orchestrator.semantic_targets import load_semantic_targets
 from tools.mock_executor import mock_executor
 from tools.registry import tool_registry
 
@@ -111,6 +113,10 @@ class Orchestrator:
                 return await self._fail(ctx, f"Ticket {ticket_id} not found")
             ctx.ticket = ticket
 
+            # 在把状态切到 IN_PROGRESS 之前，先捕获入口时的原始状态，
+            # 否则快照重入判断（下方）会因状态已被改写而永远不成立。
+            entry_status = ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status)
+
             await self._set_ticket_status(ticket, TicketState.IN_PROGRESS.value)
 
             if ticket.risk_level == RiskLevel.HIGH or ticket.risk_level == RiskLevel.HIGH.value:
@@ -118,38 +124,74 @@ class Orchestrator:
                 await self._emit_terminal(push, ticket_id, result)
                 return result
 
-            ticket_context = self._build_ticket_context(ticket)
-            ctx.ticket_context = ticket_context
-            intent_result = await self._run_agent_step(
-                "classifier_agent",
-                "Classifier Agent / 分类与优先级判定",
-                self.classifier_agent,
-                ClassifierInput(
-                    ticket_content=ticket_context,
-                    workflow_config=workflow_config,
-                ).to_agent_dict(),
-                trace,
-                push,
-            )
-            intent_result = coerce_intent_result(intent_result)
-            intent_result = _normalize_pipeline_intent(intent_result, workflow_config)
-            ctx.intent_result = intent_result
+            # P1-8: 检查是否有快照（PENDING_INFO/PENDING_HUMAN_CONFIRM 重入）
+            snapshot = await pipeline_context_repository.get_snapshot(ticket_id)
+            if snapshot and entry_status in ("pending_info", "pending_human_confirm"):
+                logger.info(
+                    "[Orchestrator] Resuming from snapshot for ticket %s (status=%s)",
+                    ticket_id,
+                    ticket.status,
+                )
+                # 加载快照中的 intent_result（意图不变，跳过 Classifier）
+                intent_result = snapshot["intent_result"]
+                ctx.intent_result = intent_result
+                ticket_context = self._build_ticket_context(ticket)
+                ctx.ticket_context = ticket_context
 
-            extract_result = await self._run_agent_step(
-                "intake_agent",
-                "Intake Agent / 接单与信息提取",
-                self.intake_agent,
-                IntakeInput(
-                    ticket_content=ticket_context,
-                    intent_type=intent_result.get("type", "UNKNOWN"),
-                    intent_label=intent_result.get("label", "未知"),
-                    workflow_config=workflow_config,
-                ).to_agent_dict(),
-                trace,
-                push,
-            )
-            extract_result = coerce_intake_result(extract_result)
-            ctx.extract_result = extract_result
+                # PENDING_INFO 重入时，必须重新运行 IntakeAgent 来提取补充的信息
+                # 只跳过 Classifier，不跳过 Intake
+                logger.info(
+                    "[Orchestrator] Resumed with intent=%s, re-running IntakeAgent to extract supplementary info",
+                    intent_result.get("type"),
+                )
+                extract_result = await self._run_agent_step(
+                    "intake_agent",
+                    "Intake Agent / 接单与信息提取（重入）",
+                    self.intake_agent,
+                    IntakeInput(
+                        ticket_content=ticket_context,
+                        intent_type=intent_result.get("type", "UNKNOWN"),
+                        intent_label=intent_result.get("label", "未知"),
+                        workflow_config=workflow_config,
+                    ).to_agent_dict(),
+                    trace,
+                    push,
+                )
+                ctx.extract_result = extract_result
+            else:
+                # 正常流程：从头运行 Classifier 和 Intake
+                ticket_context = self._build_ticket_context(ticket)
+                ctx.ticket_context = ticket_context
+                intent_result = await self._run_agent_step(
+                    "classifier_agent",
+                    "Classifier Agent / 分类与优先级判定",
+                    self.classifier_agent,
+                    ClassifierInput(
+                        ticket_content=ticket_context,
+                        workflow_config=workflow_config,
+                    ).to_agent_dict(),
+                    trace,
+                    push,
+                )
+                intent_result = coerce_intent_result(intent_result)
+                intent_result = _normalize_pipeline_intent(intent_result, workflow_config)
+                ctx.intent_result = intent_result
+
+                extract_result = await self._run_agent_step(
+                    "intake_agent",
+                    "Intake Agent / 接单与信息提取",
+                    self.intake_agent,
+                    IntakeInput(
+                        ticket_content=ticket_context,
+                        intent_type=intent_result.get("type", "UNKNOWN"),
+                        intent_label=intent_result.get("label", "未知"),
+                        workflow_config=workflow_config,
+                    ).to_agent_dict(),
+                    trace,
+                    push,
+                )
+                extract_result = coerce_intake_result(extract_result)
+                ctx.extract_result = extract_result
 
             await self._run_field_enrichment(
                 ticket,
@@ -186,6 +228,7 @@ class Orchestrator:
                 "resolution_agent",
                 "Resolution Agent / 解决方案与执行",
                 self.resolution_agent,
+                # P1-6 修复：UNKNOWN 场景启用 LLM 工具选择作为 fallback
                 ResolutionInput(
                     intent=intent_result,
                     fields=extract_result.get("fields", []),
@@ -194,6 +237,7 @@ class Orchestrator:
                     available_tool_names=available_tool_names,
                     available_tools=tool_registry.get_all_summaries(),
                     workflow_config=workflow_config,
+                    use_llm_tool_selection=(intent_result.get("type") == "UNKNOWN"),
                 ).to_agent_dict(),
                 trace,
                 push,
@@ -292,6 +336,95 @@ class Orchestrator:
                 )
                 ctx.verify_result = verify_result
 
+                # P1-7 故障自愈：工具失败时先尝试 LLM 反思-重试，而非立即升级
+                if not tool_result.success:
+                    # 只重试一次，避免无限循环
+                    if not ctx.tool_retry_attempted:
+                        logger.info(
+                            "[Orchestrator] Tool failed: %s. Attempting LLM-guided retry...",
+                            tool_result.failure_reason or tool_result.message,
+                        )
+                        ctx.tool_retry_attempted = True
+
+                        # 让 ResolutionAgent 通过 LLM 分析错误并修正参数
+                        retry_input = ResolutionInput(
+                            intent=intent_result,
+                            fields=extract_result.get("fields", []),
+                            ticket_content=ticket_context,
+                            ticket=self._ticket_payload(ticket),
+                            available_tool_names=available_tool_names,
+                            available_tools=tool_registry.get_all_summaries(),
+                            workflow_config=workflow_config,
+                            use_llm_tool_selection=True,  # 强制使用 LLM 分析
+                        ).to_agent_dict()
+
+                        # 在 prompt 中注入失败信息（通过 ticket 字段传递上下文）
+                        retry_input["ticket"]["_previous_tool_failure"] = {
+                            "tool_name": tool_name,
+                            "params": tool_params,
+                            "error": tool_result.failure_reason or tool_result.message,
+                        }
+
+                        retry_result = await self._run_agent_step(
+                            "resolution_agent",
+                            "Resolution Agent / 故障自愈重试",
+                            self.resolution_agent,
+                            retry_input,
+                            trace,
+                            push,
+                        )
+                        retry_result = coerce_tool_plan(retry_result)
+
+                        retry_tool_name = retry_result.get("tool_name", "")
+                        retry_tool_params = retry_result.get("tool_params", {})
+
+                        # 如果 LLM 给出了不同的参数或工具，尝试重新执行
+                        if not retry_result.get("skip") and retry_tool_name and (
+                            retry_tool_params != tool_params or retry_tool_name != tool_name
+                        ):
+                            # 重试路径同样必须经过工具校验，不能绕过 validate_tool_call。
+                            # 校验失败则放弃重试，落到下方的升级逻辑（沿用原始失败结果）。
+                            retry_allowed_names = (
+                                retry_result.get("available_tool_names") or available_tool_names
+                            )
+                            retry_valid, retry_msg, retry_normalized = tool_registry.validate_tool_call(
+                                retry_tool_name,
+                                retry_tool_params,
+                                allowed_tool_names=retry_allowed_names,
+                                allow_missing_required=True,
+                            )
+                            if not retry_valid:
+                                logger.info(
+                                    "[Orchestrator] Retry rejected by validation: %s (%s)",
+                                    retry_tool_name,
+                                    retry_msg,
+                                )
+                            else:
+                                retry_tool_name = (
+                                    tool_registry.resolve_tool_name(retry_tool_name) or retry_tool_name
+                                )
+                                retry_tool_params = retry_normalized
+                                logger.info(
+                                    "[Orchestrator] Retrying with corrected params: %s",
+                                    retry_tool_name,
+                                )
+                                tool_result = await mock_executor.execute(retry_tool_name, retry_tool_params)
+                                ctx.tool_result = tool_result
+                                await self._persist_tool_call(ticket.id, retry_tool_name, retry_tool_params, tool_result)
+
+                                # 重新运行 escalation 校验
+                                verify_result = await self._run_escalation_step(
+                                    ticket,
+                                    intent_result,
+                                    extract_result,
+                                    workflow_config,
+                                    trace,
+                                    push,
+                                    tool_result=tool_result,
+                                )
+                                ctx.verify_result = verify_result
+
+                # 重试后仍失败，或风控拦截，才升级
                 if not tool_result.success or not verify_result.get("can_auto_proceed", True):
                     failure_reason = (
                         verify_result.get("risk_decision")
@@ -417,6 +550,17 @@ class Orchestrator:
     ) -> dict:
         if ctx.ticket is None:
             return await self._fail(ctx, "PipelineContext missing ticket")
+
+        # P1-8: 保存 pipeline context 快照，支持重入时跳过已完成的 Agent
+        await pipeline_context_repository.save_snapshot(
+            ticket_id=ctx.ticket.id,
+            intent_result=ctx.intent_result,
+            extract_result=ctx.extract_result,
+            status=status,
+            tool_params=ctx.tool_params,
+            verify_result=ctx.verify_result,
+        )
+
         return await self._complete_with_notification(
             ticket=ctx.ticket,
             intent_result=ctx.intent_result,
@@ -515,16 +659,13 @@ class Orchestrator:
         risk_level = verify_result.get("risk_level", "low")
         can_auto = verify_result.get("can_auto_proceed", True)
 
+        # 完全信任 EscalationAgent 的 LLM 决策，不再硬编码中风险强制暂停
         if not can_auto:
             failure_reason = verify_result.get("risk_decision", "需要人工处理")
             return await self._escalate(ctx, failure_reason, verify_result=verify_result)
 
-        if risk_level == "medium" and not ctx.confirmed:
-            return await self._pause(
-                ctx,
-                status=TicketState.PENDING_HUMAN_CONFIRM.value,
-                pause_type="human_confirm",
-            )
+        # 删除了原有的硬编码：if risk_level == "medium" and not ctx.confirmed
+        # 现在由 EscalationAgent 的 can_auto_proceed 全权决策是否需要人工确认
 
         return None
 
@@ -1077,6 +1218,9 @@ class Orchestrator:
             if value and value not in evidence_ids:
                 evidence_ids.append(str(value))
 
+        # P1-4: 使用统一配置获取允许的 targets
+        semantic_config = load_semantic_targets()
+
         if status == TicketState.PENDING_HUMAN_REVIEW.value:
             mode = "auto"
             scene = "ticket-reply"
@@ -1128,6 +1272,9 @@ class Orchestrator:
         )
         actions.append(final_action)
 
+        # 从统一配置获取 allowed_targets，确保前后端一致
+        allowed_targets = semantic_config.get_allowed_targets(scene)
+
         return PageTaskEnvelope(
             id=f"reply-{ticket.id}",
             source="ai_result",
@@ -1146,13 +1293,7 @@ class Orchestrator:
                 "status": status,
             },
             actions=actions,
-            allowed_targets=[
-                "page-agent-reply-draft",
-                "sunpilot-evidence",
-                "sunpilot-fields",
-                "enterprise-reply",
-                "human-confirm",
-            ],
+            allowed_targets=allowed_targets,
             requires_human_before_submit=True,
             stop_reason=stop_reason,
         )

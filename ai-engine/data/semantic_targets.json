@@ -1,0 +1,184 @@
+{
+  "$schema": "semantic_targets_schema",
+  "version": "1.0.0",
+  "description": "PageAgent 语义 target 单一事实源 - 前后端共享",
+  "scenes": {
+    "call-intake": {
+      "label": "通话发单",
+      "targets": [
+        {
+          "target": "call-intake-workspace",
+          "label": "通话发单工作区",
+          "capabilities": ["scroll", "wait"]
+        },
+        {
+          "target": "call-transcript-panel",
+          "label": "通话全文",
+          "capabilities": ["scroll", "wait"]
+        },
+        {
+          "target": "ticket-draft-form",
+          "label": "标准工单草稿表单",
+          "capabilities": ["scroll", "wait"]
+        },
+        {
+          "target": "dispatch-title",
+          "label": "标题",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-customerId",
+          "label": "客户号",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-customerName",
+          "label": "客户姓名",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-phone",
+          "label": "手机号",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-cardLast4",
+          "label": "卡尾号",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-scene",
+          "label": "场景",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-category",
+          "label": "业务类型",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-subcategory",
+          "label": "具体内容",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-priority",
+          "label": "优先级",
+          "capabilities": ["select"]
+        },
+        {
+          "target": "dispatch-riskLabel",
+          "label": "预警等级",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-riskLevel",
+          "label": "风险等级",
+          "capabilities": ["select"]
+        },
+        {
+          "target": "dispatch-needReply",
+          "label": "是否需要回复",
+          "capabilities": ["select"]
+        },
+        {
+          "target": "dispatch-deadline",
+          "label": "规定回件日期",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-content",
+          "label": "发单内容",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "dispatch-submit",
+          "label": "提交标准工单",
+          "capabilities": ["click"]
+        },
+        {
+          "target": "draft-submit",
+          "label": "提交标准工单 (兼容别名)",
+          "capabilities": ["click"],
+          "aliasFor": "dispatch-submit",
+          "deprecated": true
+        }
+      ]
+    },
+    "ticket-reply": {
+      "label": "工单回单",
+      "targets": [
+        {
+          "target": "enterprise-ticket-detail",
+          "label": "工单详情",
+          "capabilities": ["scroll", "wait"]
+        },
+        {
+          "target": "page-agent-reply-draft",
+          "label": "客户回单草稿",
+          "capabilities": ["fill"]
+        },
+        {
+          "target": "sunpilot-evidence",
+          "label": "证据区",
+          "capabilities": ["locate", "scroll"]
+        },
+        {
+          "target": "sunpilot-fields",
+          "label": "字段区",
+          "capabilities": ["scroll"]
+        },
+        {
+          "target": "enterprise-reply",
+          "label": "回单复核区",
+          "capabilities": ["scroll", "wait"]
+        },
+        {
+          "target": "page-agent-close-ticket",
+          "label": "复核结案按钮",
+          "capabilities": ["click"]
+        }
+      ]
+    },
+    "evidence-review": {
+      "label": "证据审计",
+      "targets": [
+        {
+          "target": "sunpilot-evidence",
+          "label": "证据区",
+          "capabilities": ["locate", "scroll"]
+        },
+        {
+          "target": "sunpilot-audit",
+          "label": "审计区",
+          "capabilities": ["scroll", "wait"]
+        },
+        {
+          "target": "enterprise-reply",
+          "label": "回单复核区",
+          "capabilities": ["scroll"]
+        }
+      ]
+    },
+    "human-confirm": {
+      "label": "人工确认",
+      "targets": [
+        {
+          "target": "human-confirm",
+          "label": "人工确认区",
+          "capabilities": ["scroll", "wait", "stop"]
+        },
+        {
+          "target": "sunpilot-fields",
+          "label": "字段区",
+          "capabilities": ["scroll"]
+        },
+        {
+          "target": "sunpilot-evidence",
+          "label": "证据区",
+          "capabilities": ["locate", "scroll"]
+        }
+      ]
+    }
+  }
+}

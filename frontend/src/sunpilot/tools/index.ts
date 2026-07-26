@@ -9,6 +9,52 @@ import { waitFor } from '../core/utils'
 import { clickElement, inputTextElement, selectOptionElement } from '../controller/actions'
 
 /**
+ * P0-3 安全修复：PageAgent 白名单强制执行
+ *
+ * 定义允许在 ReAct 通道中点击的语义目标白名单。
+ * 阻断的高风险操作（保存草稿、结案）必须由人工确认。
+ */
+const ALLOWED_CLICK_TARGETS = new Set([
+	// 通话发单工作区
+	'call-intake-workspace',
+	'call-transcript-panel',
+	'ticket-draft-form',
+	'dispatch-submit', // 发单提交（在确定性通道中有人工门控）
+
+	// 工单回复工作区
+	'enterprise-ticket-detail',
+	'sunpilot-evidence',
+	'sunpilot-fields',
+	'sunpilot-audit',
+	'enterprise-reply',
+
+	// 人工确认区
+	'human-confirm',
+])
+
+const BLOCKED_CLICK_TARGETS = new Set([
+	'page-agent-save-draft',      // 草稿保存需人工确认
+	'page-agent-close-ticket',    // 结案操作需人工确认
+	'draft-submit',                // 草稿提交需人工确认
+])
+
+/**
+ * 验证语义目标是否在白名单中且不在阻断列表中
+ */
+function validateSemanticTarget(target: string): void {
+	if (BLOCKED_CLICK_TARGETS.has(target)) {
+		throw new Error(
+			`安全策略阻止：目标 "${target}" 在阻断列表中，需要人工确认。` +
+			`ReAct 通道不允许执行高风险操作（保存、结案、提交）。`
+		)
+	}
+
+	// 注意：我们只对点击操作进行严格白名单验证
+	// 填表、滚动等操作通过语义目标本身的存在性验证
+	// 如果目标不存在（findSemanticTarget 抛出错误），操作自然失败
+}
+
+/**
  * Per-invocation context passed to every tool execution.
  * Tools MUST honor `signal` to support cooperative cancellation.
  */
@@ -135,13 +181,24 @@ tools.set(
 tools.set(
 	'click_element_by_index',
 	tool({
-		description: 'Click element by index',
+		description: 'Click element by index. WARNING: Use click_semantic_target instead for TicketAgent pages. This tool is restricted to read-only operations.',
 		inputSchema: z.object({
 			index: z.int().min(0),
 		}),
 		execute: async function (this: PageAgentCore, input) {
-			const result = await this.pageController.clickElement(input.index)
-			return result.message
+			// P0-3 安全修复：限制 click_element_by_index 的使用
+			// 该工具允许通过 DOM 索引点击任意元素，存在以下风险：
+			// 1. 可能点击到保存、提交、删除等高风险按钮
+			// 2. DOM 索引不稳定，容易误点
+			// 3. 绕过语义目标白名单验证
+			//
+			// 策略：在 TicketAgent 系统内强制使用 click_semantic_target
+			// 该工具仅保留用于外部遗留系统的只读探索场景
+			throw new Error(
+				'安全策略阻止：click_element_by_index 在 ReAct 通道中被禁用。' +
+				'请使用 click_semantic_target 配合稳定的语义目标（如 dispatch-submit、sunpilot-fields）。' +
+				'如需探索未知页面，请先使用 scroll/wait 观察页面结构。'
+			)
 		},
 	})
 )
@@ -290,6 +347,9 @@ tools.set(
 			target: z.string().min(1),
 		}),
 		execute: async function (this: PageAgentCore, input) {
+			// P0-3 安全修复：在 ReAct 通道中强制验证白名单
+			validateSemanticTarget(input.target)
+
 			const element = findSemanticTarget(input.target)
 			await clickElement(element)
 			return `✅ Clicked semantic target ${input.target}.`
@@ -382,23 +442,12 @@ tools.set(
 	})
 )
 
-tools.set(
-	'execute_javascript',
-	tool({
-		description:
-			'Execute JavaScript code on the current page. Supports async/await syntax. Use with caution! ' +
-			'An `AbortSignal` named `signal` is available in scope: long-running async code MUST honor it ' +
-			'(e.g. `await fetch(url, { signal })`, or `signal.throwIfAborted()` in loops)',
-		inputSchema: z.object({
-			script: z.string(),
-		}),
-		execute: async function (this: PageAgentCore, input, { signal }) {
-			const result = await this.pageController.executeJavascript(input.script, signal)
-			signal.throwIfAborted()
-			return result.message
-		},
-	})
-)
+// P0-4 安全修复：物理删除 execute_javascript 工具
+// 该工具允许 LLM 执行任意 JavaScript 代码，存在严重安全风险：
+// - 可能绕过数据脱敏机制
+// - 可能产生不可预测的副作用
+// - 可能访问或修改敏感数据
+// 已从工具集中完全移除，无法通过配置重新启用
 
 // @todo send_keys
 // @todo upload_file

@@ -29,3 +29,4 @@ class PipelineContext:
     tool_result: Any = None
     tool_params: dict[str, Any] = field(default_factory=dict)
     available_tool_names: list[str] = field(default_factory=list)
+    tool_retry_attempted: bool = False

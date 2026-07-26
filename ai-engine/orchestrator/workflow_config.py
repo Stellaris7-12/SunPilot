@@ -2,8 +2,8 @@
 
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 
 from models.workflow import WorkflowConfig
 
@@ -12,10 +12,10 @@ WORKFLOW_CONFIG_JSON = Path(__file__).resolve().parent.parent / "data" / "workfl
 
 logger = logging.getLogger(__name__)
 
-# workflow_config.json 是场景配置的唯一权威来源（single source of truth）。
-# 这里仅保留一个最小空壳，作为“文件缺失/损坏时可辨识的结构参考”，
-# 而**不再**作为静默回退：任何加载/校验失败都会 fail-fast 抛出，
-# 以免运行在一份与 JSON 漂移的内置副本上。
+# P2-12: Remove @lru_cache, use manual cache + thread-safe reload
+_config_cache: dict | None = None
+_config_lock = Lock()
+
 MINIMAL_WORKFLOW_CONFIG = {
     "default_workflow": "unknown_flow",
     "scenarios": {
@@ -38,16 +38,8 @@ MINIMAL_WORKFLOW_CONFIG = {
 }
 
 
-@lru_cache(maxsize=1)
-def load_workflow_config() -> dict:
-    """Load and validate the workflow config from disk (fail-fast).
-
-    ``workflow_config.json`` is the authoritative source of scenario config.
-    If the file is missing, malformed, or fails schema validation we raise
-    immediately rather than silently falling back to a built-in copy that may
-    have drifted from the JSON — a drifted config would corrupt field maps,
-    gating, and closure suggestions in ways that are hard to diagnose.
-    """
+def _load_and_validate() -> dict:
+    """Load and validate config file (internal, no cache)."""
     try:
         with open(WORKFLOW_CONFIG_JSON, "r", encoding="utf-8") as file:
             payload = json.load(file)
@@ -62,6 +54,39 @@ def load_workflow_config() -> dict:
     except ValueError as exc:
         logger.error("Workflow config validation failed: %s", exc)
         raise RuntimeError(f"工作流配置校验失败: {exc}") from exc
+
+
+def load_workflow_config() -> dict:
+    """Load and validate the workflow config from disk (with cache).
+
+    P2-12: Support hot reload, cache after first call, use reload_workflow_config() to refresh.
+    """
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache
+
+    with _config_lock:
+        if _config_cache is not None:
+            return _config_cache
+        _config_cache = _load_and_validate()
+        return _config_cache
+
+
+def reload_workflow_config() -> dict:
+    """P2-12: Reload config file, clear cache.
+
+    Keep old cache on failure to avoid service unavailable.
+    """
+    global _config_cache
+    with _config_lock:
+        try:
+            new_config = _load_and_validate()
+            _config_cache = new_config
+            logger.info("Workflow config reloaded successfully from %s", WORKFLOW_CONFIG_JSON)
+            return new_config
+        except Exception as exc:
+            logger.error("Failed to reload workflow config, keeping old cache: %s", exc)
+            raise
 
 
 def get_scenario_config(intent_type: str) -> dict:

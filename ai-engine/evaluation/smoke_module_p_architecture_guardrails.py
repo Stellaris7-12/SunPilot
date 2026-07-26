@@ -71,17 +71,51 @@ def main():
         "DispatcherAgent must not be wired as a sixth backend business agent",
     )
 
-    app_header = read_text(ROOT_DIR / "frontend" / "src" / "components" / "layout" / "AppHeader.vue")
-    legacy_detail = read_text(ROOT_DIR / "frontend" / "src" / "views" / "LegacyTicketDetailView.vue")
-    legacy_assistant = read_text(ROOT_DIR / "frontend" / "src" / "components" / "ai" / "PageAssistantPanel.vue")
-    agent_panel = read_text(ROOT_DIR / "frontend" / "src" / "page-agent" / "panel" / "AgentPanel.vue")
+    # P1-7 fix: PipelineContext is a dataclass, not a dict. The tool-failure
+    # self-heal retry must use attribute access, never ctx.get()/ctx[...],
+    # otherwise every tool failure raises AttributeError and collapses to FAILED.
+    pipeline_context_source = read_text(ENGINE_DIR / "orchestrator" / "pipeline_context.py")
+    assert_true(
+        "tool_retry_attempted" in pipeline_context_source,
+        "PipelineContext must declare tool_retry_attempted for the self-heal retry guard",
+    )
+    assert_not_contains(
+        orchestrator_source,
+        'ctx.get("_tool_retry_attempted")',
+        "Retry guard must use ctx.tool_retry_attempted, not dict-style ctx.get()",
+    )
+    assert_not_contains(
+        orchestrator_source,
+        'ctx["_tool_retry_attempted"]',
+        "Retry guard must use ctx.tool_retry_attempted, not dict-style ctx[...]",
+    )
+    assert_true(
+        "ctx.tool_retry_attempted" in orchestrator_source,
+        "Retry guard must read/write ctx.tool_retry_attempted attribute",
+    )
 
-    assert_not_contains(app_header, "启动 AI", "AppHeader must not render an AI action")
-    assert_not_contains(app_header, "@process", "AppHeader must not emit AI process events")
-    assert_not_contains(legacy_detail, "PageAssistantPanel", "Legacy detail must mount SunPilot AgentPanel")
-    assert_true("<AgentPanel" in legacy_detail, "Legacy detail must mount AgentPanel")
-    assert_true("<AgentPanel" in legacy_assistant, "PageAssistantPanel must remain a thin AgentPanel wrapper")
-    assert_true("startAiProcess" in agent_panel, "SunPilot AgentPanel must own the AI process quick action")
+    # AI process action is owned exclusively by the SunPilot panel. The shell's
+    # top bar and the layout wrapper must not render or emit their own AI action;
+    # the SunPilot panel owns startAiProcess and the shell wires it via @start-ai-process.
+    shell_view = read_text(ROOT_DIR / "frontend" / "src" / "views" / "EnterpriseTicketShellView.vue")
+    enterprise_layout = read_text(ROOT_DIR / "frontend" / "src" / "layouts" / "EnterpriseLayout.vue")
+    sunpilot_panel = read_text(ROOT_DIR / "frontend" / "src" / "sunpilot" / "panel" / "SunPilotPanel.vue")
+
+    assert_not_contains(shell_view, "启动 AI", "Shell top bar must not render an AI action button")
+    assert_true("<SunPilotPanel" in shell_view, "Shell must mount the SunPilot panel")
+    assert_true(
+        '@start-ai-process="handleProcess"' in shell_view,
+        "Shell must wire the AI process action through the SunPilot panel event",
+    )
+    assert_not_contains(
+        enterprise_layout,
+        "startAiProcess",
+        "Enterprise layout wrapper must not own the AI process action",
+    )
+    assert_true(
+        "startAiProcess" in sunpilot_panel,
+        "SunPilot panel must own the AI process quick action",
+    )
 
     print("module P architecture guardrails smoke passed")
 
