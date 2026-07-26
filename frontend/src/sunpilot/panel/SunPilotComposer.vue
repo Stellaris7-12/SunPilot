@@ -47,15 +47,15 @@ function handleKeydown(event: KeyboardEvent) {
 <style scoped>
 .input-shell {
   display: grid;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 6px 8px;
   border: 1px solid #d7dde6;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #f3f5f7;
 }
 .agent-input {
-  min-height: 44px;
-  max-height: 96px;
+  min-height: 22px;
+  max-height: 88px;
   resize: vertical;
   border: 0;
   outline: 0;
@@ -74,7 +74,7 @@ function handleKeydown(event: KeyboardEvent) {
   gap: 6px;
 }
 .mode-switch {
-  min-height: 30px;
+  min-height: 26px;
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px;
@@ -85,7 +85,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 .mode-switch button,
 .key-chip {
-  min-height: 26px;
+  min-height: 22px;
   padding: 0 9px;
   border: 0;
   border-radius: 999px;
@@ -94,7 +94,7 @@ function handleKeydown(event: KeyboardEvent) {
   font-weight: 900;
 }
 .mode-switch button {
-  min-width: 44px;
+  min-width: 40px;
   background: transparent;
 }
 .mode-switch button.active {
@@ -112,15 +112,15 @@ function handleKeydown(event: KeyboardEvent) {
   color: #475569;
 }
 .send-btn {
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  min-height: 34px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
   border: 0;
   border-radius: 999px;
   background: #d1d5db;
   color: #fff;
-  font-size: 21px;
+  font-size: 18px;
   line-height: 1;
   font-weight: 900;
 }

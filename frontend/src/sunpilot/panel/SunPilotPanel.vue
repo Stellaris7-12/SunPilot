@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { bindTicketPageAgentBridge } from '../bridge'
 import { createTicketPageAgent, type AgentActivity, type AgentStatus, type HistoricalEvent } from '..'
@@ -10,7 +10,6 @@ import type { PageTaskEnvelope } from '../../types'
 import { businessFieldLabel, cleanBusinessText } from '../../domain/ticket/catalog'
 import { evidenceIds as collectEvidenceIds } from '../../domain/ticket/evidence'
 import SunPilotComposer from './SunPilotComposer.vue'
-import SunPilotQuickActions from './SunPilotQuickActions.vue'
 
 type MessageTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 type MessageKind = 'task' | 'activity' | 'observation' | 'history' | 'result'
@@ -223,6 +222,14 @@ const agentTimeline = computed<TimelineNode[]>(() => {
   }))
 })
 const showTimeline = computed(() => agentTimeline.value.length > 0)
+
+// 时间线节点增多时自动滚到底部，让最新状态始终可见（超出高度可纵向滚动）
+const timelineTrack = ref<HTMLElement | null>(null)
+watch(() => agentTimeline.value.length, () => {
+  void nextTick(() => {
+    if (timelineTrack.value) timelineTrack.value.scrollTop = timelineTrack.value.scrollHeight
+  })
+})
 
 function messageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
@@ -590,13 +597,6 @@ function setSuggestedCommand(kind: string) {
 
 onMounted(() => {
   void loadLlmConfig()
-  messages.value = [{
-    id: messageId('welcome'),
-    kind: 'result',
-    title: 'SunPilot',
-    body: route.path.startsWith('/dispatch') ? '我可以协助整理来电内容、带入发单字段，并在坐席确认后发送工单。' : '我可以协助梳理当前工单、带入回单内容，并提示复核前需要确认的事项。',
-    tone: 'neutral',
-  }]
 
   agent.addEventListener('activity', event => appendActivity((event as CustomEvent<AgentActivity>).detail))
   agent.addEventListener('historychange', () => appendLatestHistory(agent.history))
@@ -704,6 +704,7 @@ defineExpose({ runTask, stopAgent })
 
     <section
       v-if="showTimeline"
+      ref="timelineTrack"
       class="agent-timeline"
       :class="{ processing: aiStatusActive }"
       aria-label="Agent 处理时间线"
@@ -732,24 +733,19 @@ defineExpose({ runTask, stopAgent })
       </TransitionGroup>
     </section>
 
-    <SunPilotQuickActions
-      class="quick-card-shell"
-      :actions="quickActions"
-      :busy="isAgentRunning"
-      @select="index => runQuickAction(quickActions[index])"
-    />
-
     <section ref="thread" class="agent-thread" aria-label="SunPilot 操作记录">
-      <article v-for="message in messages" :key="message.id" class="agent-message" :class="[message.kind, message.tone]">
-        <div class="message-head">
-          <strong>{{ message.title }}</strong>
-          <span>{{ message.meta?.[0] || '' }}</span>
-        </div>
-        <p>{{ message.body }}</p>
-        <div v-if="message.meta?.length" class="meta-row">
-          <span v-for="item in message.meta" :key="item">{{ item }}</span>
-        </div>
-      </article>
+      <TransitionGroup name="msg" tag="div" class="thread-track">
+        <article v-for="message in messages" :key="message.id" class="agent-message" :class="[message.kind, message.tone]">
+          <div class="message-head">
+            <strong>{{ message.title }}</strong>
+            <span>{{ message.meta?.[0] || '' }}</span>
+          </div>
+          <p>{{ message.body }}</p>
+          <div v-if="message.meta?.length" class="meta-row">
+            <span v-for="item in message.meta" :key="item">{{ item }}</span>
+          </div>
+        </article>
+      </TransitionGroup>
       <p v-if="!messages.length" class="thread-empty">开始处理后，这里实时显示每一步操作。</p>
     </section>
 
@@ -757,6 +753,18 @@ defineExpose({ runTask, stopAgent })
       <div v-if="suggestedCommand" class="manual-suggestion">
         <span>收到业务信息，等待坐席唤起</span>
         <button type="button" :disabled="isAgentRunning" @click="runQuickAction(suggestedCommand)">执行建议</button>
+      </div>
+      <div v-if="quickActions.length" class="quick-strip" role="toolbar" aria-label="快捷操作">
+        <button
+          v-for="action in quickActions"
+          :key="action.label"
+          class="quick-chip"
+          type="button"
+          :disabled="isAgentRunning || action.disabled"
+          @click="runQuickAction(action)"
+        >
+          {{ action.label }}
+        </button>
       </div>
       <SunPilotComposer
         v-model="input"
@@ -940,11 +948,41 @@ defineExpose({ runTask, stopAgent })
   color: #64748b;
   font-size: 12px;
 }
-.quick-card {
-  margin: 8px 12px 0;
+/* 快捷操作：压缩为 composer 上方的一行横向 chip，可横向滚动，不再占独立卡片 */
+.quick-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
 }
-.summary-card,
-.quick-card {
+.quick-strip::-webkit-scrollbar { display: none; }
+.quick-chip {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid #d7e0ec;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff, #f5f8fd);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.quick-chip:hover:not(:disabled) {
+  border-color: #2563eb;
+  background: #eff5ff;
+  color: #1d4ed8;
+}
+.quick-chip:active:not(:disabled) { transform: translateY(1px); }
+.quick-chip:disabled {
+  color: #a3adba;
+  background: #f5f6f8;
+  cursor: not-allowed;
+}
+.summary-card {
   border: 1px solid #dbe3eb;
   border-radius: 8px;
   background: #fff;
@@ -962,7 +1000,7 @@ defineExpose({ runTask, stopAgent })
   to { transform: rotate(360deg); }
 }
 .ai-status-strip {
-  margin: 8px 12px 0;
+  margin: 10px 12px 4px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -993,13 +1031,23 @@ defineExpose({ runTask, stopAgent })
 
 /* ===== Agent 实时处理时间线（垂直流光） ===== */
 .agent-timeline {
-  margin: 10px 12px 2px;
+  margin: 14px 12px 4px;
   padding: 12px 12px 8px;
   border: 1px solid #e6ecf5;
   border-radius: 12px;
   background: linear-gradient(180deg, #fbfdff, #f4f8ff);
-  overflow: hidden;
+  max-height: 208px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #c3d0e4 transparent;
+  scroll-behavior: smooth;
 }
+.agent-timeline::-webkit-scrollbar { width: 6px; }
+.agent-timeline::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: #c3d0e4;
+}
+.agent-timeline::-webkit-scrollbar-track { background: transparent; }
 .tl-track {
   list-style: none;
   margin: 0;
@@ -1133,7 +1181,7 @@ defineExpose({ runTask, stopAgent })
 .tl-move { transition: transform 0.35s ease; }
 @media (prefers-reduced-motion: reduce) {
   .tl-pulse, .agent-timeline.processing .tl-track::after, .tl-icon { animation: none; }
-  .tl-enter-active, .tl-move { transition: none; }
+  .tl-enter-active, .tl-move, .msg-enter-active, .msg-move { transition: none; }
 }
 
 .summary-card {
@@ -1232,10 +1280,14 @@ defineExpose({ runTask, stopAgent })
   min-height: 120px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   overflow-y: auto;
   padding: 8px 12px 10px;
   background: #fff;
+}
+.thread-track {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
 }
 .thread-empty {
   margin: auto 0;
@@ -1244,40 +1296,58 @@ defineExpose({ runTask, stopAgent })
   font-size: 12px;
   text-align: center;
 }
+/* 输出卡片：左侧强调竖条 + 细腻渐变底 + 柔和投影，观感更高级 */
 .agent-message {
+  position: relative;
   max-width: 100%;
   display: grid;
-  gap: 7px;
-  padding: 10px 11px;
-  border: 1px solid #dbe3eb;
-  border-radius: 6px;
-  background: #fff;
+  gap: 6px;
+  padding: 11px 12px 11px 14px;
+  border: 1px solid #e4eaf2;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff, #fbfcfe);
   color: var(--ink);
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px -8px rgba(15, 23, 42, 0.12);
+}
+.agent-message::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: #cbd5e1;
 }
 .agent-message.task {
   width: fit-content;
   max-width: 88%;
   margin-left: auto;
-  border-color: #99f6e4;
-  background: #ecfeff;
+  padding-left: 12px;
+  border-color: #bef0e8;
+  background: linear-gradient(180deg, #f2fdfb, #ecfeff);
 }
+.agent-message.task::before { display: none; }
 .agent-message.accent {
-  border-color: #bae6fd;
-  background: #f0f9ff;
+  border-color: #cfe6fb;
+  background: linear-gradient(180deg, #f6fbff, #eff8ff);
 }
+.agent-message.accent::before { background: linear-gradient(180deg, #3b82f6, #2563eb); }
 .agent-message.success {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+  border-color: #c3ecd0;
+  background: linear-gradient(180deg, #f5fdf8, #f0fdf4);
 }
+.agent-message.success::before { background: linear-gradient(180deg, #34d399, #16a34a); }
 .agent-message.warning {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: #f6e2a6;
+  background: linear-gradient(180deg, #fffdf3, #fffbeb);
 }
+.agent-message.warning::before { background: linear-gradient(180deg, #fbbf24, #d97706); }
 .agent-message.danger {
-  border-color: #efc2c2;
-  background: #fff5f5;
+  border-color: #f2cccc;
+  background: linear-gradient(180deg, #fff7f7, #fff5f5);
 }
+.agent-message.danger::before { background: linear-gradient(180deg, #f87171, #dc2626); }
 .message-head {
   display: flex;
   align-items: center;
@@ -1288,6 +1358,8 @@ defineExpose({ runTask, stopAgent })
   min-width: 0;
   color: var(--ink);
   font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
 }
 .message-head span {
   flex: 0 0 auto;
@@ -1299,11 +1371,14 @@ defineExpose({ runTask, stopAgent })
   margin: 0;
   color: var(--ink-soft);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.meta-row,
-.quick-row {
+/* 逐条消息进入：轻微上浮淡入，避免一次性堆叠 */
+.msg-enter-from { opacity: 0; transform: translateY(8px); }
+.msg-enter-active { transition: opacity 0.32s ease, transform 0.32s ease; }
+.msg-move { transition: transform 0.32s ease; }
+.meta-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -1326,9 +1401,9 @@ defineExpose({ runTask, stopAgent })
   bottom: 0;
   z-index: 2;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   margin-top: auto;
-  padding: 10px 12px 12px;
+  padding: 8px 12px 10px;
   border-top: 1px solid #dce3ea;
   background: #fff;
 }
