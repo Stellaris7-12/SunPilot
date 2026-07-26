@@ -449,7 +449,10 @@ async function maybeRunPageTask(task: string) {
   const isStructuredTask =
     task === suggestedCommand.value ||
     task === directive.instruction ||
-    task.startsWith('执行当前建议')
+    task.startsWith('执行当前建议') ||
+    task.startsWith('带入') ||
+    task.startsWith('填入') ||
+    task.startsWith('根据最新')
   if (!isStructuredTask) return null
 
   deterministicAbort = new AbortController()
