@@ -1,4 +1,5 @@
 import type { AiProcessResult, EvaluationMetrics, Ticket, TicketOperationLog, TicketStatus, ToolCallLog, TraceStep } from '../types';
+import { businessFieldLabel } from '../domain/ticket/catalog';
 
 export type Tone = 'green' | 'blue' | 'amber' | 'red' | 'neutral';
 
@@ -228,7 +229,7 @@ export function fieldVerificationItems(result?: AiProcessResult | null): FieldVe
   Object.entries(enrichment?.filledFields || {}).forEach(([key, value]) => {
     items.set(key, {
       id: key,
-      label: key,
+      label: businessFieldLabel(key),
       value: stringifyValue(value),
       source: sourceTools,
       evidenceId: enrichmentEvidence,
@@ -240,7 +241,7 @@ export function fieldVerificationItems(result?: AiProcessResult | null): FieldVe
   result.missingFields?.forEach(field => {
     items.set(field, {
       id: field,
-      label: field,
+      label: businessFieldLabel(field),
       value: '-',
       source: '补全兜底',
       evidenceId: '-',

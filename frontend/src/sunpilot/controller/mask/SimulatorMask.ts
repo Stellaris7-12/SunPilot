@@ -32,6 +32,17 @@ export class SimulatorMask extends EventTarget {
 		try {
 			const motion = new Motion({
 				mode: isPageDark() ? 'dark' : 'light',
+				// 黄色系发光：以工单系统琥珀色 #c47b18 为基调的金黄渐层，低调不刺眼
+				colors: [
+					'rgb(196, 123, 24)',
+					'rgb(217, 152, 42)',
+					'rgb(235, 183, 74)',
+					'rgb(201, 141, 51)',
+				],
+				// 细边 + 收窄发光 + 硬朗圆角：保留扫描动效但显著降低炫酷感
+				borderWidth: 3,
+				glowWidth: 64,
+				borderRadius: 2,
 				styles: { position: 'absolute', inset: '0' },
 			})
 			this.motion = motion

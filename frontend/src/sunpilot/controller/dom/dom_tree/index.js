@@ -221,12 +221,13 @@ export default (
 
 			if (!rects || rects.length === 0) return index // Exit if no rects
 
-			// Generate a color based on the index
+			// Generate a color based on the index.
+			// 与工单系统同色系：统一蓝-灰调，低调成体系，不喧宾夺主。
 			const colors = [
-				'#0E7490',
-				'#0F766E',
-				'#2563EB',
-				'#64748B',
+				'#216c9e',
+				'#2f7bb0',
+				'#3f6f97',
+				'#5a748d',
 			]
 			const colorIndex = index % colors.length
 			let baseColor = colors[colorIndex]
@@ -263,11 +264,12 @@ export default (
 
 				const overlay = document.createElement('div')
 				overlay.style.position = 'fixed'
-				overlay.style.border = `1px dashed ${baseColor}`
+				// 低调实线细边 + 工单系统硬朗 2px 圆角，替换原阿里高饱和虚线圆角
+				overlay.style.border = `1px solid ${baseColor}`
 				overlay.style.backgroundColor = backgroundColor
 				overlay.style.pointerEvents = 'none'
 				overlay.style.boxSizing = 'border-box'
-				overlay.style.borderRadius = '5px'
+				overlay.style.borderRadius = '2px'
 
 				const top = rect.top + iframeOffset.y
 				const left = rect.left + iframeOffset.x
@@ -276,6 +278,22 @@ export default (
 				overlay.style.left = `${left}px`
 				overlay.style.width = `${rect.width}px`
 				overlay.style.height = `${rect.height}px`
+
+				// 扫描式逐个淡入：克制的入场动效，避免生硬闪现
+				if (typeof overlay.animate === 'function') {
+					overlay.animate(
+						[
+							{ opacity: 0, transform: 'scale(0.985)' },
+							{ opacity: 1, transform: 'scale(1)' },
+						],
+						{
+							duration: 220,
+							delay: Math.min(index * 18, 360),
+							easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+							fill: 'backwards',
+						},
+					)
+				}
 
 				fragment.appendChild(overlay)
 				overlays.push({ element: overlay, initialRect: rect }) // Store overlay and its rect
@@ -286,10 +304,11 @@ export default (
 			label = document.createElement('div')
 			label.className = 'playwright-highlight-label'
 			label.style.position = 'fixed'
-			label.style.background = 'rgba(15, 118, 110, 0.78)'
+			// 同色系深蓝小徽标，硬朗 2px 圆角，去掉原胶囊高光感
+			label.style.background = 'rgba(33, 108, 158, 0.92)'
 			label.style.color = 'white'
 			label.style.padding = '0 4px'
-			label.style.borderRadius = '999px'
+			label.style.borderRadius = '2px'
 			label.style.fontSize = `${Math.min(10, Math.max(8, firstRect.height / 3))}px`
 			label.style.lineHeight = '16px'
 			label.style.boxShadow = 'none'

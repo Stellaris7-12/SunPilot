@@ -96,12 +96,14 @@ const suggestedCommand = ref('')
 const latestBusinessContext = ref('')
 const latestPageTask = ref<PageTaskEnvelope | null>(null)
 const latestPageTaskDirective = ref<PageTaskDirective | null>(null)
+const pendingQuestion = ref<{ resolve: (answer: string) => void; reject: (error: Error) => void } | null>(null)
 let unbindBridge: (() => void) | null = null
 let deterministicAbort: AbortController | null = null
 
 const isDispatchPage = computed(() => route.path.startsWith('/dispatch'))
 const modeLabel = computed(() => isDispatchPage.value ? '发单辅助' : '回单辅助')
 const placeholder = computed(() => {
+  if (pendingQuestion.value) return '回复 SunPilot 的提问后回车发送'
   if (composerMode.value === 'qa') return isDispatchPage.value ? '可询问发单字段、客户诉求或下一步' : '可询问当前工单、处理依据或下一步'
   return isDispatchPage.value ? '例如：根据这通电话整理发单内容' : '例如：整理处理意见并带入回单'
 })
@@ -162,6 +164,8 @@ const modelOptions = computed(() => {
   return options
 })
 const isAgentRunning = computed(() => running.value || status.value === 'running')
+// SunPilot 提问待回复时，输入框需保持可用，让坐席即时回答
+const composerBusy = computed(() => isAgentRunning.value && !pendingQuestion.value)
 
 // 侧边栏主操作按钮：发单页为“AI辅助发单”，回单页为“AI辅助回单”
 const primaryAiLabel = computed(() => (isDispatchPage.value ? 'AI辅助发单' : 'AI辅助回单'))
@@ -548,7 +552,17 @@ async function stopAgent() {
 
 function submit() {
   const task = input.value.trim()
-  if (!task || isAgentRunning.value) return
+  if (!task) return
+  // SunPilot 在 ReAct 过程中提问时，优先把输入作为回答返回
+  if (pendingQuestion.value) {
+    input.value = ''
+    pushMessage({ kind: 'task', title: '坐席回答', body: task, tone: 'neutral' })
+    const pending = pendingQuestion.value
+    pendingQuestion.value = null
+    pending.resolve(task)
+    return
+  }
+  if (isAgentRunning.value) return
   input.value = ''
   if (composerMode.value === 'qa') {
     pushMessage({ kind: 'task', title: '坐席提问', body: task, tone: 'neutral' })
@@ -598,6 +612,37 @@ function setSuggestedCommand(kind: string) {
 onMounted(() => {
   void loadLlmConfig()
 
+  // 接入 ReAct 的 ask_user：把提问渲染成待回复消息，等待坐席通过底部输入框作答
+  agent.onAskUser = (question, options) => {
+    return new Promise<string>((resolve, reject) => {
+      pushMessage({ kind: 'result', title: 'SunPilot 提问', body: cleanBusinessText(question), tone: 'accent' })
+      store.setPageAgentStatus('thinking', '等待坐席回答')
+      const signal = options?.signal
+      const cleanup = () => signal?.removeEventListener('abort', onAbort)
+      const onAbort = () => {
+        if (pendingQuestion.value?.reject !== reject) return
+        pendingQuestion.value = null
+        cleanup()
+        reject(new Error('提问已取消'))
+      }
+      if (signal?.aborted) {
+        reject(new Error('提问已取消'))
+        return
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      pendingQuestion.value = {
+        resolve: answer => {
+          cleanup()
+          resolve(answer)
+        },
+        reject: error => {
+          cleanup()
+          reject(error)
+        },
+      }
+    })
+  }
+
   agent.addEventListener('activity', event => appendActivity((event as CustomEvent<AgentActivity>).detail))
   agent.addEventListener('historychange', () => appendLatestHistory(agent.history))
   agent.addEventListener('statuschange', () => {
@@ -631,6 +676,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   unbindBridge?.()
+  pendingQuestion.value?.reject(new Error('面板已关闭'))
+  pendingQuestion.value = null
   void agent.stop()
   agent.dispose()
 })
@@ -770,7 +817,7 @@ defineExpose({ runTask, stopAgent })
         v-model="input"
         v-model:mode="composerMode"
         :placeholder="placeholder"
-        :busy="isAgentRunning"
+        :busy="composerBusy"
         @submit="submit"
         @open-settings="settingsOpen = !settingsOpen"
       />

@@ -3,12 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ai/ConfirmDialog.vue'
 import BusinessFlow from '../components/business/BusinessFlow.vue'
-import MetricsDashboard from '../components/business/MetricsDashboard.vue'
 import type { BusinessFlowStage } from '../components/business/types'
 import SunPilotPanel from '../sunpilot/panel/SunPilotPanel.vue'
 import { useTicketStore } from '../stores/ticket'
 import type { CallRecordSample, CreateTicketPayload, Ticket, WorkflowField } from '../types'
-import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel, operationLabel, operatorLabel } from '../domain/ticket/catalog'
+import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel } from '../domain/ticket/catalog'
 import { buildSupplementQuestion, buildSupplementText, missingFieldOptions } from '../domain/reply/missingInfo'
 import { evidenceItems, fieldVerificationItems } from '../domain/ticket/evidence'
 import { replyWorkspaceSections } from '../domain/ticket/workflow'
@@ -287,7 +286,6 @@ onMounted(async () => {
   if (ticketsResult.status === 'rejected') loadErrors.push('工单列表')
   if (callsResult.status === 'rejected') loadErrors.push('通话记录')
   if (workflowResult.status === 'rejected') loadErrors.push('表单配置')
-  store.fetchMetrics().catch(() => { /* 指标看板为增强信息，加载失败不阻断主流程 */ })
   hydrateCallSelection()
   await loadRouteTicket(ticketId.value)
   if (loadErrors.length) operationError.value = `数据加载失败：${loadErrors.join('、')}。请检查服务连接后刷新。`
@@ -691,9 +689,6 @@ function ticketRisk(item: Ticket) {
   return riskMeta(item.riskLevel, item.riskLabel)
 }
 
-function statusLabelFor(value?: string) {
-  return statusMeta(value).label
-}
 </script>
 
 <template>
@@ -801,8 +796,6 @@ function statusLabelFor(value?: string) {
               <small>{{ card.hint }}</small>
             </button>
           </section>
-
-          <MetricsDashboard :metrics="store.metrics" />
 
           <section class="sys-panel">
             <div class="sys-title">业务流转 <small>今日处理进度</small></div>
@@ -1052,7 +1045,7 @@ function statusLabelFor(value?: string) {
           </section>
 
           <section class="case-grid">
-            <section class="sys-panel">
+            <section class="sys-panel full-row">
               <div class="sys-title">工单详情 <small>发单信息</small></div>
               <div class="field-grid">
                 <div class="field"><label>发单编号</label><strong class="mono">{{ ticket.no }}</strong></div>
@@ -1077,22 +1070,6 @@ function statusLabelFor(value?: string) {
               <div v-if="ticket.closedAt" class="case-text case-text-secondary">
                 <label>结案时间</label>{{ ticket.closedAt }}
               </div>
-            </section>
-
-            <section class="sys-panel">
-              <div class="sys-title">处理记录 <small>近期操作</small></div>
-              <ul class="log-list">
-                <li v-for="operation in store.operationLogs.slice(0, 6)" :key="operation.id">
-                  <span>{{ formatShortTime(operation.createdAt) }}</span>
-                  <strong>{{ operationLabel(operation.operation) }}</strong>
-                  <small>{{ operatorLabel(operation.operator) }} / {{ statusLabelFor(operation.toStatus) }}</small>
-                </li>
-                <li v-if="!store.operationLogs.length">
-                  <span>{{ formatShortTime(ticket.createdAt) }}</span>
-                  <strong>工单登记</strong>
-                  <small>等待接单处理。</small>
-                </li>
-              </ul>
             </section>
 
             <section id="mock-tool-process" class="sys-panel full-row">
@@ -1539,36 +1516,6 @@ function statusLabelFor(value?: string) {
   color: var(--muted);
   font-size: 12px;
 }
-.business-flow {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
-  gap: 1px;
-  background: var(--line);
-}
-.business-flow.compact {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-}
-.flow-node {
-  min-width: 0;
-  min-height: 62px;
-  display: grid;
-  align-content: center;
-  gap: 5px;
-  padding: 9px;
-  background: #fff;
-  box-shadow: inset 0 3px 0 var(--line-dark);
-}
-.flow-node.done { box-shadow: inset 0 3px 0 var(--green); }
-.flow-node.running { box-shadow: inset 0 3px 0 var(--blue); background: #f2f8fc; }
-.flow-node.blocked { box-shadow: inset 0 3px 0 var(--amber); background: #fff8ea; }
-.flow-node span {
-  font-size: 12px;
-  font-weight: 900;
-}
-.flow-node strong {
-  color: var(--ink-soft);
-  font-size: 12px;
-}
 .home-grid,
 .case-grid {
   display: grid;
@@ -1772,13 +1719,27 @@ function statusLabelFor(value?: string) {
   background: #fff;
   text-align: left;
 }
+.verification-chip > span,
 .verification-chip strong,
 .verification-chip small {
   overflow-wrap: anywhere;
 }
+/* 三行字号明确区分：字段名(标签) → 核验值(主) → 备注(次)，避免继承 16px 默认字号 */
+.verification-chip > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.verification-chip strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
 .verification-chip small {
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.45;
 }
 .verification-chip.verified,
 .verification-chip.enriched { box-shadow: inset 3px 0 0 var(--green); }
@@ -1863,25 +1824,6 @@ function statusLabelFor(value?: string) {
   color: var(--ink-soft);
   font-size: 12px;
   line-height: 1.55;
-}
-.log-list {
-  margin: 0;
-  padding: 0 10px 10px;
-  list-style: none;
-}
-.log-list li {
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line);
-}
-.log-list span,
-.log-list small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.log-list strong {
-  display: block;
-  margin: 3px 0;
-  font-size: 12px;
 }
 .reply-command-row {
   display: flex;

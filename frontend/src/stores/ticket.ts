@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AiProcessResult, CallRecordSample, CreateTicketPayload, EvaluationMetrics, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload, WorkflowConfig } from '../types';
-import { evalApi, ticketApi, workflowApi } from '../api';
+import type { AiProcessResult, CallRecordSample, CreateTicketPayload, GenerateTicketDraftPayload, PageActionLogEntry, PageActionLogPayload, PageActionLogRecord, PageActionStatus, RiskLevel, Ticket, TicketDraftResult, TicketListFilters, TicketOperationLog, ToolCallLog, TraceStep, UpdateTicketPayload, WorkflowConfig } from '../types';
+import { ticketApi, workflowApi } from '../api';
 
 export const useTicketStore = defineStore('ticket', () => {
   const tickets = ref<Ticket[]>([]);
@@ -21,7 +21,6 @@ export const useTicketStore = defineStore('ticket', () => {
   const replyDraft = ref('');
   const workflowPaused = ref(false);
   const processError = ref<string | null>(null);
-  const metrics = ref<EvaluationMetrics | null>(null);
 
   const selectedTicket = computed(() =>
     tickets.value.find(t => t.id === selectedTicketId.value) || null
@@ -39,11 +38,6 @@ export const useTicketStore = defineStore('ticket', () => {
 
   async function fetchWorkflowConfig() {
     workflowConfig.value = await workflowApi.getConfig();
-  }
-
-  async function fetchMetrics() {
-    metrics.value = await evalApi.metrics();
-    return metrics.value;
   }
 
   async function generateTicketDraft(payload: GenerateTicketDraftPayload) {
@@ -286,7 +280,6 @@ export const useTicketStore = defineStore('ticket', () => {
     operationLogs,
     callRecords,
     workflowConfig,
-    metrics,
     ticketDraftResult,
     isGeneratingDraft,
     pageActionLogs,
@@ -301,7 +294,6 @@ export const useTicketStore = defineStore('ticket', () => {
     fetchTickets,
     fetchCallRecords,
     fetchWorkflowConfig,
-    fetchMetrics,
     generateTicketDraft,
     setPageAgentStatus,
     appendPageActionLog,
