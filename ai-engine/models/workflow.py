@@ -25,6 +25,8 @@ class WorkflowScenario(ApiModel):
     specific_fields: list[WorkflowField] = Field(default_factory=list)
     required_fields: list[str] = Field(default_factory=list)
     recommended_tool: str = ""
+    candidate_tools: list[str] = Field(default_factory=list)
+    classifier_hint: str = ""
     requires_human_confirmation: bool = False
     notification_template: str = ""
 

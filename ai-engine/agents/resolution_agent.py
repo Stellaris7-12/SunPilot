@@ -12,44 +12,6 @@ from tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
-_INTENT_TOOL_MAP = {
-    "协商还款": [
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "伪冒预防": [
-        "card.account-status-query",
-        "customer.lookup",
-        "ticket.history-search",
-    ],
-    "伪冒调查": [
-        "card.account-status-query",
-        "customer.lookup",
-        "ticket.history-search",
-    ],
-    "客户经营": [
-        "customer.lookup",
-        "customer.profile-query",
-        "ticket.history-search",
-    ],
-    "市场企划": [
-        "benefit.query",
-        "benefit.entitlement-query",
-        "campaign.eligibility-check",
-    ],
-    "调单扣款": [
-        "transaction.query",
-        "transaction.detail-query",
-        "merchant.info-query",
-    ],
-    "征信": [
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-}
-
 RESOLUTION_SYSTEM_PROMPT = """你是信用卡工单解决方案与业务工具选择专家。
 请根据工单原文、结构化工单、分类结果和已抽取字段，在提供的 tools 中选择最合适的一个工具。
 
@@ -127,8 +89,9 @@ def _candidate_tool_names(input_data: dict, intent_type: str, workflow_config: d
     if isinstance(provided, str):
         provided = [item.strip() for item in provided.split(",") if item.strip()]
     registry_candidates = [tool.name for tool in tool_registry.list_for_intent(intent_type, workflow_config)]
-    mapped = _INTENT_TOOL_MAP.get(intent_type, [])
-    recommended = workflow_scenario(workflow_config, intent_type).recommended_tool
+    scenario = workflow_scenario(workflow_config, intent_type)
+    mapped = scenario.candidate_tools
+    recommended = scenario.recommended_tool
     names = []
     for name in [recommended, *provided, *registry_candidates, *mapped]:
         if name and name not in names and tool_registry.get(name):

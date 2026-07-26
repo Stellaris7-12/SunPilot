@@ -14,7 +14,6 @@ export const ticketApi = {
   cancel: (id: string, reason: string, operator = 'operator') => api.post<Ticket>(`/tickets/${id}/cancel`, { reason, operator }).then(r => r.data),
   reopen: (id: string, reason = '', operator = 'operator') => api.post<Ticket>(`/tickets/${id}/reopen`, { reason, operator }).then(r => r.data),
   saveDraft: (id: string, draft: string, operator = 'operator') => api.post<{ticketId: string; status: string}>(`/tickets/${id}/reply-draft`, { draft, operator }).then(r => r.data),
-  aiProcess: (id: string) => api.post<ProcessTicketResponse>(`/tickets/${id}/ai-process`).then(r => r.data),
   getStreamUrl: (id: string) => `${API_BASE_URL}/tickets/${id}/ai-process-stream`,
   confirmAction: (id: string, approved: boolean) => api.post<ProcessTicketResponse | {ticketId: string; status: string}>(`/tickets/${id}/confirm-action`, { ticketId: id, approved }).then(r => r.data),
   close: (id: string, finalReply: string) => api.post<{ticketId: string; status: string}>(`/tickets/${id}/close`, { ticketId: id, finalReply }).then(r => r.data),

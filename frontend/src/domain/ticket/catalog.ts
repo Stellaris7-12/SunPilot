@@ -61,6 +61,20 @@ export function operationLabel(operation?: string) {
   return operationLabels[name] || cleanBusinessText(name) || '处理操作'
 }
 
+export const operatorLabels: Record<string, string> = {
+  operator: '坐席',
+  system: '系统',
+  sunpilot: 'SunPilot 助手',
+  agent: '智能体',
+  human: '人工复核岗',
+}
+
+export function operatorLabel(operator?: string) {
+  const name = (operator || '').trim()
+  if (!name) return '系统'
+  return operatorLabels[name] || cleanBusinessText(name) || name
+}
+
 export function toolBusinessLabel(toolName?: string) {
   const name = toolName || ''
   if (/coupon|benefit|权益|优惠|activity/i.test(name)) return '权益活动系统'

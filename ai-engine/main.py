@@ -62,7 +62,7 @@ from models.repositories import (
     tool_call_repository,
     trace_repository,
 )
-from models.scenario_detection import detect_fits_scenario, normalize_scene
+from models.scenario_detection import detect_fits_scenario, normalize_scene, scenario_display_label
 from orchestrator.orchestrator import orchestrator
 from orchestrator.state_machine import TicketState, TicketStateMachine
 from orchestrator.trace import TraceCollector, TraceStatus
@@ -373,10 +373,13 @@ def _call_record_response(row: dict) -> dict:
         "agent": row.get("agent") or "",
         "callStartedAt": row.get("call_started_at") or "",
     }
+    raw_scenario = row.get("scenario", "") or ""
     return {
         "id": row.get("id", ""),
         "source": row.get("source", ""),
-        "scenario": row.get("scenario", ""),
+        # 统一按 FITS 场景键输出，供前端业务分类过滤/展示
+        "scenario": normalize_scene(raw_scenario, load_workflow_config()),
+        "scenarioLabel": scenario_display_label(raw_scenario, load_workflow_config()),
         "riskLevel": row.get("risk_level", "low"),
         "callMeta": call_meta,
         "transcript": row.get("transcript", ""),
@@ -733,14 +736,19 @@ async def generate_ticket_draft(body: GenerateTicketDraftRequest):
             raise HTTPException(status_code=404, detail="Call sample not found")
 
     if sample:
-        draft = dict(sample.get("ticketDraft") or {})
         transcript = sample.get("transcript") or body.transcript
         call_meta = sample.get("callMeta") or {}
+        sample_draft = dict(sample.get("ticketDraft") or {})
+        # 历史/无草稿的通话记录 ticketDraft 可能为空或缺必填字段，
+        # 先用通话文本合成一份完整草稿作为兜底，再用样本已有字段覆盖，
+        # 避免空草稿直接进入 CreateTicketRequest 触发 500（“来电内容整理失败”）。
+        base_draft, base_summary, base_type, _ = _draft_from_transcript(transcript, call_meta)
+        draft = {**base_draft, **{k: v for k, v in sample_draft.items() if str(v or "").strip()}}
         draft = _apply_dispatch_config(draft, transcript, call_meta)
-        summary = _compact_summary(transcript)
-        detected_type = draft.get("scene") or "UNKNOWN"
+        summary = _compact_summary(transcript) or base_summary
+        detected_type = draft.get("scene") or base_type or "UNKNOWN"
         key_fields = _build_key_fields(draft, sample.get("expected"))
-        confidence = 0.96
+        confidence = 0.96 if sample_draft else 0.82
         source_call_id = sample.get("id", "")
     else:
         transcript = body.transcript.strip()

@@ -8,7 +8,7 @@ import type { BusinessFlowStage } from '../components/business/types'
 import SunPilotPanel from '../sunpilot/panel/SunPilotPanel.vue'
 import { useTicketStore } from '../stores/ticket'
 import type { CallRecordSample, CreateTicketPayload, Ticket, WorkflowField } from '../types'
-import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel, operationLabel } from '../domain/ticket/catalog'
+import { businessCategories, businessFieldLabel, businessText, toolBusinessLabel, operationLabel, operatorLabel } from '../domain/ticket/catalog'
 import { buildSupplementQuestion, buildSupplementText, missingFieldOptions } from '../domain/reply/missingInfo'
 import { evidenceItems, fieldVerificationItems } from '../domain/ticket/evidence'
 import { replyWorkspaceSections } from '../domain/ticket/workflow'
@@ -173,13 +173,14 @@ const mockToolSteps = computed<MockToolStep[]>(() => {
 })
 const replySections = computed(() => replyWorkspaceSections(store.aiResult, ticket.value))
 const replyStatus = computed(() => store.replyDraft ? '已生成' : '待处理')
-const canClose = computed(() => Boolean(
-  ticket.value &&
-  ticket.value.status === 'pending_human_review' &&
-  store.replyDraft &&
-  !store.isProcessing &&
-  store.aiResult?.notification?.closureSuggestion?.canClose,
-))
+const canClose = computed(() => {
+  if (!ticket.value || !store.replyDraft || store.isProcessing) return false
+  // 高风险已升级工单：人工复核并生成回单后可直接结案
+  if (ticket.value.status === 'escalated') return true
+  // 常规工单：需通过结案建议门禁
+  return ticket.value.status === 'pending_human_review'
+    && Boolean(store.aiResult?.notification?.closureSuggestion?.canClose)
+})
 const needsHumanConfirm = computed(() => ticket.value?.status === 'pending_human_confirm')
 const showConfirmDialog = computed(() => Boolean(ticket.value && (store.workflowPaused || confirmVisible.value)))
 const replyWorkspaceStatus = computed(() => {
@@ -231,9 +232,18 @@ const businessFlow = computed<BusinessFlowStage[]>(() => {
   const hasExternalChecks = mockToolSteps.value.length > 0
   const hasReply = Boolean(store.replyDraft || store.aiResult?.notification?.standardReply?.body)
   const hasMissing = missingFields.value.length > 0
-  const hardBlocked = Boolean(store.workflowPaused || ticket.value?.status === 'failed' || ticket.value?.status === 'escalated')
+  const isEscalated = ticket.value?.status === 'escalated'
+  const isClosed = ticket.value?.status === 'closed'
+  const hardBlocked = Boolean(store.workflowPaused || ticket.value?.status === 'failed')
   const current = routeMode.value
   const statusFor = (index: number): BusinessFlowStage['status'] => {
+    // 高风险已升级工单：前序节点已完成，回单复核待人工处理，结案归档可直接完成
+    if (isEscalated) {
+      if (index <= 4) return 'done'
+      if (index === 5) return 'running'
+      return 'waiting'
+    }
+    if (isClosed && index >= 5) return 'done'
     if (hardBlocked && index >= 5) return 'blocked'
     if (current === 'dispatch') {
       if (index === 0) return selectedCall.value ? 'done' : 'running'
@@ -1073,7 +1083,7 @@ function statusLabelFor(value?: string) {
                 <li v-for="operation in store.operationLogs.slice(0, 6)" :key="operation.id">
                   <span>{{ formatShortTime(operation.createdAt) }}</span>
                   <strong>{{ operationLabel(operation.operation) }}</strong>
-                  <small>{{ operation.operator }} / {{ statusLabelFor(operation.toStatus) }}</small>
+                  <small>{{ operatorLabel(operation.operator) }} / {{ statusLabelFor(operation.toStatus) }}</small>
                 </li>
                 <li v-if="!store.operationLogs.length">
                   <span>{{ formatShortTime(ticket.createdAt) }}</span>

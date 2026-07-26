@@ -347,6 +347,40 @@ async function saveSelectedModel() {
   }
 }
 
+// 将 bridge observation 转换为用户可读的卡片标题和内容，不向用户暴露 LLM 内部 JSON
+function buildObservationCard(kind: string): { title: string; body: string } {
+  if (kind === 'draft') {
+    const result = store.ticketDraftResult
+    const draft = result?.ticketDraft
+    const parts = [
+      draft?.customerName ? `客户：${draft.customerName}` : null,
+      (draft?.scene || result?.detectedScenario) ? `场景：${draft?.scene || result?.detectedScenario}` : null,
+      (draft?.riskLabel || draft?.riskLevel) ? `风险：${draft?.riskLabel || draft?.riskLevel}` : null,
+    ].filter((p): p is string => Boolean(p))
+    return {
+      title: '发单草稿已生成',
+      body: parts.length ? parts.join('  ·  ') : '草稿已准备好，可带入发单表单。',
+    }
+  }
+  if (kind === 'ai_result' || kind === 'paused') {
+    const result = store.aiResult
+    const label = result?.intent?.label || result?.intent?.type
+    const missing = result?.missingFields
+    const canClose = result?.notification?.closureSuggestion?.canClose
+    const parts = [
+      label ? `场景：${label}` : null,
+      result?.riskDecision ? `风险决策：${result.riskDecision}` : null,
+      missing?.length ? `缺失字段：${missing.join('、')}` : '字段完整',
+      kind === 'ai_result' && canClose ? '建议结案' : null,
+    ].filter((p): p is string => Boolean(p))
+    return {
+      title: kind === 'paused' ? '需人工确认' : '多Agent处理完成',
+      body: parts.length ? parts.join('  ·  ') : kind === 'paused' ? '流程已暂停，等待人工处理。' : '处理结果已返回，请复核回单。',
+    }
+  }
+  return { title: '业务提示', body: '' }
+}
+
 function appendLatestHistory(history: HistoricalEvent[]) {
   const latest = history.at(-1)
   if (!latest) return
@@ -538,8 +572,11 @@ onMounted(() => {
   unbindBridge = bindTicketPageAgentBridge(agent, store, {
     onObservation: (content, kind) => {
       if (kind !== 'trace' && kind !== 'processing') latestBusinessContext.value = content
-      pushMessage({ kind: 'observation', title: '业务提示', body: content, tone: kind === 'paused' ? 'warning' : 'accent' })
       setSuggestedCommand(kind)
+      // trace/processing 仅作为 LLM 上下文推送，不在面板显示独立卡片
+      if (kind === 'trace' || kind === 'processing') return
+      const { title, body } = buildObservationCard(kind)
+      pushMessage({ kind: 'observation', title, body: body || cleanBusinessText(content).slice(0, 120), tone: kind === 'paused' ? 'warning' : 'accent' })
     },
     onPageTask: (task, kind) => {
       const directive = buildPageTaskDirective(task)

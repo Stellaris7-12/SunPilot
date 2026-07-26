@@ -24,59 +24,6 @@ _MISSING_VALUES = {
     None,
 }
 
-_INTENT_CANDIDATE_TOOLS = {
-    "协商还款": [
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "伪冒预防": [
-        "card.account-status-query",
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "伪冒调查": [
-        "card.account-status-query",
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "客户经营": [
-        "customer.lookup",
-        "customer.profile-query",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "市场企划": [
-        "benefit.query",
-        "benefit.entitlement-query",
-        "campaign.eligibility-check",
-        "customer.lookup",
-        "knowledge.policy-search",
-    ],
-    "调单扣款": [
-        "transaction.query",
-        "transaction.detail-query",
-        "merchant.info-query",
-        "card.account-status-query",
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "征信": [
-        "customer.lookup",
-        "customer.profile-query",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-    "UNKNOWN": [
-        "customer.lookup",
-        "ticket.history-search",
-        "knowledge.policy-search",
-    ],
-}
-
 _PARAM_ALIASES = {
     "merchant": "merchantName",
     "merchant_name": "merchantName",
@@ -178,12 +125,9 @@ class ToolRegistry:
     ) -> list[ToolDefinition]:
         """Return the narrow tool set exposed to the LLM for one intent."""
         workflow_config = workflow_config or {}
-        candidates = list(_INTENT_CANDIDATE_TOOLS.get(intent_type, []))
-        recommended = (
-            workflow_config.get("scenarios", {})
-            .get(intent_type, {})
-            .get("recommended_tool")
-        )
+        scenario = workflow_config.get("scenarios", {}).get(intent_type, {})
+        candidates = list(scenario.get("candidate_tools", []))
+        recommended = scenario.get("recommended_tool")
         if recommended:
             candidates.insert(0, recommended)
 

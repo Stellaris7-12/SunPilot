@@ -26,6 +26,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "accountNo", "repaymentPlan"],
       "recommended_tool": "customer.lookup",
+      "candidateTools": ["customer.lookup", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "客户申请还款协商、延期、客助或特殊方案",
       "requires_human_confirmation": true,
       "notification_template": "已记录协商还款诉求，建议人工复核账户、方案和客户承诺还款安排。"
     },
@@ -63,6 +65,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "caseNo", "workOrderCategory", "mainDemand"],
       "recommended_tool": "card.account-status-query",
+      "candidateTools": ["card.account-status-query", "customer.lookup", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "疑似非本人申请、冒名、伪冒交易预警或投诉引导",
       "requires_human_confirmation": true,
       "notification_template": "已记录疑似伪冒预防诉求，建议人工复核客户身份、案件编号和风险阻断状态。"
     },
@@ -89,6 +93,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "cardList", "controlReason", "xdk"],
       "recommended_tool": "card.account-status-query",
+      "candidateTools": ["card.account-status-query", "customer.lookup", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "卡片被管制、两核身不过、X-DK 或调查组介入",
       "requires_human_confirmation": true,
       "notification_template": "已记录伪冒调查诉求，建议人工核验卡片管制原因和调查组处理意见。"
     },
@@ -113,6 +119,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "receiveUnit", "bizSubType", "materialType"],
       "recommended_tool": "customer.lookup",
+      "candidateTools": ["customer.lookup", "customer.profile-query", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "资料借阅、结清证明、解抵押、卡部承接材料类诉求",
       "requires_human_confirmation": true,
       "notification_template": "已记录客户经营类资料诉求，建议由卡部人工复核资料类型和办理材料。"
     },
@@ -143,6 +151,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "remark", "customerFeedback", "receiveUnit", "bizSubType"],
       "recommended_tool": "benefit.query",
+      "candidateTools": ["benefit.query", "benefit.entitlement-query", "campaign.eligibility-check", "customer.lookup", "knowledge.policy-search"],
+      "classifierHint": "活动权益、优惠券、饭票、影票、掌上生活和营销活动反馈",
       "requires_human_confirmation": false,
       "notification_template": "已记录市场企划类活动反馈，建议核验订单号、活动资格和补发规则。"
     },
@@ -176,6 +186,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "workOrderCategory", "callPurpose"],
       "recommended_tool": "transaction.query",
+      "candidateTools": ["transaction.query", "transaction.detail-query", "merchant.info-query", "card.account-status-query", "customer.lookup", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "交易调单、调扣、扣款、交易查询或争议取证",
       "requires_human_confirmation": true,
       "notification_template": "已记录调单扣款类诉求，建议核验交易信息、附件材料和调扣处理意见。"
     },
@@ -202,6 +214,8 @@
       ],
       "required_fields": ["customerId", "customerName", "phone", "content", "accountType", "accountNo", "isSensitive", "overdueStatus"],
       "recommended_tool": "customer.lookup",
+      "candidateTools": ["customer.lookup", "customer.profile-query", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "征信、贷后风险、逾期状态和敏感账户核实",
       "requires_human_confirmation": true,
       "notification_template": "已记录征信类诉求，建议人工复核账户类型、逾期状态和敏感信息处理要求。"
     },
@@ -215,6 +229,8 @@
       ],
       "required_fields": [],
       "recommended_tool": "",
+      "candidateTools": ["customer.lookup", "ticket.history-search", "knowledge.policy-search"],
+      "classifierHint": "无法识别或不属于以上场景",
       "requires_human_confirmation": true,
       "notification_template": "当前诉求无法稳定识别，建议补充信息或转人工处理。"
     }

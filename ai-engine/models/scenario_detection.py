@@ -18,14 +18,50 @@ FITS_SCENARIOS = (
 )
 
 LEGACY_SCENE_ALIASES = {
+    # 权益 / 活动 / 积分 → 市场企划
     "优惠券补发": "市场企划",
     "权益资格查询": "市场企划",
+    "活动资格查询": "市场企划",
+    "积分争议": "市场企划",
+    # 客户资料 → 客户经营
     "资料修改": "客户经营",
     "资料变更": "客户经营",
+    "商务卡资料变更": "客户经营",
+    # 交易 → 调单扣款
     "交易查询": "调单扣款",
     "交易核查": "调单扣款",
     "交易争议": "调单扣款",
+    # 卡片管制 / 挂失 → 伪冒调查
+    "挂失补卡": "伪冒调查",
+    # 还款 → 协商还款
+    "分期还款": "协商还款",
+    # 征信
     "征信异议": "征信",
+}
+
+# 历史种子数据中的英文 snake_case 场景标识 → FITS 场景键
+LEGACY_SCENARIO_ALIASES = {
+    "coupon_reissue": "市场企划",
+    "benefit_query": "市场企划",
+    "campaign_eligibility": "市场企划",
+    "points_adjustment": "市场企划",
+    "missing_coupon_type": "市场企划",
+    "customer_info_update": "客户经营",
+    "business_card_profile": "客户经营",
+    "mobile_phone_update": "客户经营",
+    "transaction_query": "调单扣款",
+    "transaction_dispute": "调单扣款",
+    "refund_status": "调单扣款",
+    "installment_repayment": "协商还款",
+    "lost_card_replacement": "伪冒调查",
+    "credit_report_dispute": "征信",
+    # 无对应 FITS 业务线的历史场景，统一落到未分类
+    "application_progress": "UNKNOWN",
+    "application_progress_missing_no": "UNKNOWN",
+    "annual_fee": "UNKNOWN",
+    "credit_limit": "UNKNOWN",
+    "complaint": "UNKNOWN",
+    "cross_department": "UNKNOWN",
 }
 
 LEGACY_INTENT_ALIASES = {
@@ -35,6 +71,7 @@ LEGACY_INTENT_ALIASES = {
     "TRANSACTION_DISPUTE": "调单扣款",
     "APPLICATION_PROGRESS_QUERY": "UNKNOWN",
     "CARD_STATUS_CHANGE": "伪冒调查",
+    "REPAYMENT_NEGOTIATION": "协商还款",
 }
 
 
@@ -65,8 +102,26 @@ def normalize_scene(scene: str, workflow_config: dict | None = None) -> str:
     scenarios = (workflow_config or {}).get("scenarios", {})
     if scene in scenarios:
         return scene
-    alias = LEGACY_SCENE_ALIASES.get(scene, scene)
-    return alias if alias in scenarios else "UNKNOWN"
+    # 依次尝试：中文历史场景别名 → 英文种子场景别名 → 大写意图别名
+    for alias_map in (LEGACY_SCENE_ALIASES, LEGACY_SCENARIO_ALIASES, LEGACY_INTENT_ALIASES):
+        alias = alias_map.get(scene)
+        if alias:
+            return alias if (alias in scenarios or alias == "UNKNOWN") else "UNKNOWN"
+    return "UNKNOWN"
+
+
+def scenario_display_label(scene: str, workflow_config: dict | None = None) -> str:
+    """Return the Chinese FITS label for any stored/legacy scenario value.
+
+    Used at API read-time to unify mixed CN/EN scenario data into a single
+    Chinese display format for the dispatch/reply lists.
+    """
+    workflow_config = workflow_config or {}
+    normalized = normalize_scene(scene, workflow_config)
+    scenario = _scenario_config(normalized, workflow_config)
+    if normalized == "UNKNOWN":
+        return scenario.get("label", "未知场景")
+    return scenario.get("label") or normalized
 
 
 def normalize_intent_type(intent_type: str, workflow_config: dict | None = None) -> str:

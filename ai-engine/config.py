@@ -41,7 +41,7 @@ def get_env(name: str, default: str = "") -> str:
 # LLM Configuration
 LLM_BASE_URL = get_env("LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_API_KEY = get_env("DEEPSEEK_API_KEY", get_env("LLM_API_KEY", "sk-your-api-key-here"))
-LLM_MODEL = get_env("LLM_MODEL", "deepseek-chat")
+LLM_MODEL = get_env("LLM_MODEL", "deepseek-v4-flash")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "30"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))

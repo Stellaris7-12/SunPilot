@@ -8,20 +8,11 @@ from models.scenario_detection import FITS_SCENARIOS, scenario_result
 
 logger = logging.getLogger(__name__)
 
-CLASSIFIER_SYSTEM_PROMPT = """你是一个信用卡工单分类与优先级判定专家。
-请分析工单内容，判断客户诉求属于以下哪类场景：
-1. 协商还款 - 客户申请还款协商、延期、客助或特殊方案
-2. 伪冒预防 - 疑似非本人申请、冒名、伪冒交易预警或投诉引导
-3. 伪冒调查 - 卡片被管制、两核身不过、X-DK 或调查组介入
-4. 客户经营 - 资料借阅、结清证明、解抵押、卡部承接材料类诉求
-5. 市场企划 - 活动权益、优惠券、饭票、影票、掌上生活和营销活动反馈
-6. 调单扣款 - 交易调单、调扣、扣款、交易查询或争议取证
-7. 征信 - 征信、贷后风险、逾期状态和敏感账户核实
-8. UNKNOWN - 无法识别或不属于以上场景
+_CLASSIFIER_PROMPT_HEADER = "你是一个信用卡工单分类与优先级判定专家。\n请分析工单内容，判断客户诉求属于以下哪类场景："
 
-请以 JSON 格式返回：
+_CLASSIFIER_PROMPT_FOOTER = """请以 JSON 格式返回：
 {
-  "type": "协商还款 | 伪冒预防 | 伪冒调查 | 客户经营 | 市场企划 | 调单扣款 | 征信 | UNKNOWN",
+  "type": "场景类型 | UNKNOWN",
   "label": "场景中文名称",
   "confidence": 0.0,
   "workflow_name": "对应流程名",
@@ -29,6 +20,24 @@ CLASSIFIER_SYSTEM_PROMPT = """你是一个信用卡工单分类与优先级判�
 }
 
 只返回 JSON，不要包含其他文字。"""
+
+
+def _build_classifier_prompt(workflow_config: dict) -> str:
+    """Build the classifier system prompt from config scenarios (single source of truth)."""
+    scenarios = workflow_config.get("scenarios", {}) if isinstance(workflow_config, dict) else {}
+    lines = [_CLASSIFIER_PROMPT_HEADER]
+    index = 1
+    for intent_type, scenario in scenarios.items():
+        if intent_type == "UNKNOWN":
+            continue
+        hint = (scenario or {}).get("classifier_hint", "")
+        label = (scenario or {}).get("label", intent_type)
+        lines.append(f"{index}. {intent_type} - {hint or label}")
+        index += 1
+    lines.append(f"{index}. UNKNOWN - 无法识别或不属于以上场景")
+    lines.append("")
+    lines.append(_CLASSIFIER_PROMPT_FOOTER)
+    return "\n".join(lines)
 
 
 class ClassifierAgent(BaseAgent):
@@ -61,7 +70,8 @@ class ClassifierAgent(BaseAgent):
         user_prompt = f"请分析以下工单内容，识别业务场景和处理路径：\n\n{ticket_content}"
 
         logger.info("[ClassifierAgent] Analyzing ticket content (%s chars)", len(ticket_content))
-        result = await self.call_llm(CLASSIFIER_SYSTEM_PROMPT, user_prompt)
+        system_prompt = _build_classifier_prompt(workflow_config)
+        result = await self.call_llm(system_prompt, user_prompt)
 
         scenarios = workflow_config.get("scenarios", {})
         intent_type = result.get("type") or "UNKNOWN"
