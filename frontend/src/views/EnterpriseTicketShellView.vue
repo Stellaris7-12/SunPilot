@@ -549,6 +549,8 @@ async function saveMissingSupplement(restart = false) {
       content: nextContent,
       extJson: {
         ...(ticket.value.extJson || {}),
+        // 结构化补充值直接写到 extJson 顶层（键=缺失字段名），供后端 Agent 确定性读取。
+        ...supplement,
         supplementInfo: {
           ...((ticket.value.extJson?.supplementInfo as Record<string, unknown> | undefined) || {}),
           ...supplement,

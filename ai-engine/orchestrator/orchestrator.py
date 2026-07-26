@@ -11,7 +11,7 @@ from agents.classifier_agent import ClassifierAgent
 from agents.escalation_agent import EscalationAgent
 from agents.intake_agent import IntakeAgent
 from agents.notification_agent import NotificationAgent
-from agents.resolution_agent import ResolutionAgent
+from agents.resolution_agent import READ_ONLY_QUERY_TOOLS, ResolutionAgent
 from models.agent_card import AgentCard
 from models.agent_contracts import (
     ClassifierInput,
@@ -49,6 +49,9 @@ from tools.mock_executor import mock_executor
 from tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
+
+# 缺失字段 LLM 解析循环的硬性轮次上限，防止无限查询。
+_MAX_MISSING_RESOLUTION_ROUNDS = 2
 
 
 class Orchestrator:
@@ -677,34 +680,199 @@ class Orchestrator:
     ) -> dict | None:
         if ctx.ticket is None:
             return await self._fail(ctx, "PipelineContext missing ticket")
+        missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
+        if not missing_params:
+            return None
+
+        # Round 0（确定性）：mock 只读补全，直接把能查到的写回参数。
+        missing_params = await self._enrich_missing_params(ctx, tool_name, tool_params, missing_params)
+        if not missing_params:
+            return None
+
+        # Round 1~2（LLM 规划）：把缺失字段交回 ResolutionAgent，让它决定查工具还是回原文抽。
+        missing_params = await self._llm_resolve_missing_params(ctx, tool_name, tool_params, missing_params)
+        if not missing_params:
+            return None
+
+        # 仍然缺失 → 暂停到 PENDING_INFO，交人工补充（附结构化缺失字段元数据）。
+        return await self._pause_for_missing_params(ctx, tool_name, tool_params, missing_params)
+
+    async def _enrich_missing_params(
+        self,
+        ctx: PipelineContext,
+        tool_name: str,
+        tool_params: dict,
+        missing_params: list[dict],
+    ) -> list[dict]:
+        """Round 0：调用 mock_executor.enrich_params 做确定性只读补全。"""
+        enrich = getattr(mock_executor, "enrich_params", None)
+        if not callable(enrich):
+            return missing_params
+        enriched_params, enrichment_result = await enrich(tool_name, tool_params, ctx.ticket)
+        if enrichment_result.get("filledFields"):
+            tool_params.clear()
+            tool_params.update(enriched_params)
+            ctx.extract_result["_field_enrichment"] = enrichment_result
+            ctx.trace.add_step(
+                agent="Field Enrichment / 字段补全",
+                agent_id="field_enrichment",
+                summary=(
+                    "Filled "
+                    f"{len(enrichment_result.get('filledFields', {}))} field(s) via "
+                    f"{', '.join(enrichment_result.get('sourceTools', []))}"
+                ),
+                duration="0ms",
+                status=TraceStatus.SUCCESS,
+            )
+            missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
+        return missing_params
+
+    async def _llm_resolve_missing_params(
+        self,
+        ctx: PipelineContext,
+        tool_name: str,
+        tool_params: dict,
+        missing_params: list[dict],
+    ) -> list[dict]:
+        """有界 LLM 解析循环：让 ResolutionAgent 决定查只读工具或回原文抽取缺失字段。"""
+        resolver = getattr(self.resolution_agent, "resolve_missing_fields", None)
+        if not callable(resolver):
+            return missing_params
+
+        ticket = ctx.ticket
+        ticket_content = getattr(ticket, "content", "") or ""
+        query_results: list[dict] = []
+
+        for round_index in range(_MAX_MISSING_RESOLUTION_ROUNDS):
+            agent_id = f"field_resolution_{round_index}"
+            await ctx.push("agent_start", {
+                "agent_id": agent_id,
+                "agent_name": f"Field Resolution / 缺失字段补全 (第{round_index + 1}轮)",
+                "timestamp": time.time(),
+            })
+            ctx.trace.add_step(
+                agent=f"Field Resolution / 缺失字段补全 (第{round_index + 1}轮)",
+                agent_id=agent_id,
+                summary=f"待补全字段: {', '.join(item['name'] for item in missing_params)}",
+                duration="思考中",
+                status=TraceStatus.RUNNING,
+            )
+
+            action = await resolver({
+                "target_tool": tool_name,
+                "missing_params": missing_params,
+                "known_params": dict(tool_params),
+                "ticket_content": ticket_content,
+                "ticket": self._ticket_payload(ticket),
+                "query_results": query_results,
+            })
+
+            action_type = action.get("action")
+            summary = ""
+            status = TraceStatus.SUCCESS
+
+            if action_type == "call_tool":
+                query_tool = action.get("tool_name", "")
+                query_params = {**tool_params, **(action.get("tool_params") or {})}
+                is_valid, _msg, normalized_query = tool_registry.validate_tool_call(
+                    query_tool,
+                    query_params,
+                    allowed_tool_names=READ_ONLY_QUERY_TOOLS,
+                    allow_missing_required=True,
+                )
+                if not is_valid:
+                    summary = f"拒绝非法查询工具: {query_tool}"
+                    status = TraceStatus.FAILED
+                else:
+                    query_tool = tool_registry.resolve_tool_name(query_tool) or query_tool
+                    query_result = await mock_executor.execute(query_tool, normalized_query)
+                    filled = self._merge_query_result(tool_name, tool_params, query_result)
+                    query_results.append({
+                        "tool": query_tool,
+                        "params": normalized_query,
+                        "success": query_result.success,
+                        "business_result": query_result.business_result,
+                        "data": query_result.data,
+                    })
+                    summary = (
+                        f"查询 {query_tool}"
+                        + (f"，补全 {', '.join(filled)}" if filled else "，未直接补全字段")
+                    )
+                    status = TraceStatus.SUCCESS if query_result.success else TraceStatus.FAILED
+            elif action_type == "extract":
+                filled = self._apply_resolved_fields(tool_name, tool_params, action.get("fields", {}))
+                if filled:
+                    summary = f"从原文/查询结果抽取: {', '.join(filled)}"
+                    status = TraceStatus.SUCCESS
+                else:
+                    summary = "LLM 抽取的字段均无效"
+                    status = TraceStatus.FAILED
+            else:  # give_up 或未知
+                summary = f"LLM 无法补全: {action.get('reason', '未给出方案')}"
+                status = TraceStatus.SKIPPED
+
+            ctx.trace.update_last(summary, "0ms", status)
+            await ctx.push("agent_complete", {
+                "agent_id": agent_id,
+                "summary": summary,
+                "duration_ms": 0,
+                "status": status.value,
+            })
+
+            missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
+            if not missing_params:
+                return []
+            if action_type not in {"call_tool", "extract"}:
+                break
+
+        return missing_params
+
+    def _merge_query_result(
+        self,
+        target_tool: str,
+        tool_params: dict,
+        query_result,
+    ) -> list[str]:
+        """把只读查询返回的数据确定性地展平并写回目标工具的缺失参数。"""
+        if not getattr(query_result, "success", False):
+            return []
+        flat: dict = {}
+        for value in (query_result.data or {}).values():
+            if isinstance(value, dict):
+                flat.update(value)
+        if not flat:
+            return []
+        candidates = tool_registry.normalize_params(target_tool, flat)
+        return self._apply_resolved_fields(target_tool, tool_params, candidates)
+
+    def _apply_resolved_fields(
+        self,
+        target_tool: str,
+        tool_params: dict,
+        fields: dict,
+    ) -> list[str]:
+        """只把目标工具当前仍缺失的必填参数写回，避免 LLM 覆盖既有值。"""
+        if not isinstance(fields, dict) or not fields:
+            return []
+        normalized = tool_registry.normalize_params(target_tool, fields)
+        missing_now = {item["name"] for item in tool_registry.get_missing_required_params(target_tool, tool_params)}
+        filled: list[str] = []
+        for name, value in normalized.items():
+            if name in missing_now and value not in {"", "未提取", "未提供", "未填写", None}:
+                tool_params[name] = value
+                filled.append(name)
+        return filled
+
+    async def _pause_for_missing_params(
+        self,
+        ctx: PipelineContext,
+        tool_name: str,
+        tool_params: dict,
+        missing_params: list[dict],
+    ) -> dict | None:
         ticket = ctx.ticket
         extract_result = ctx.extract_result
         verify_result = ctx.verify_result
-        missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
-        if missing_params:
-            enrich = getattr(mock_executor, "enrich_params", None)
-            if callable(enrich):
-                enriched_params, enrichment_result = await enrich(tool_name, tool_params, ticket)
-            else:
-                enriched_params, enrichment_result = tool_params, {}
-            if enrichment_result.get("filledFields"):
-                tool_params.clear()
-                tool_params.update(enriched_params)
-                extract_result["_field_enrichment"] = enrichment_result
-                ctx.trace.add_step(
-                    agent="Field Enrichment / 字段补全",
-                    agent_id="field_enrichment",
-                    summary=(
-                        "Filled "
-                        f"{len(enrichment_result.get('filledFields', {}))} field(s) via "
-                        f"{', '.join(enrichment_result.get('sourceTools', []))}"
-                    ),
-                    duration="0ms",
-                    status=TraceStatus.SUCCESS,
-                )
-                missing_params = tool_registry.get_missing_required_params(tool_name, tool_params)
-        if not missing_params:
-            return None
 
         missing_fields = [item["name"] for item in missing_params]
         follow_up_builder = getattr(self.intake_agent, "build_follow_up_prompt", None)

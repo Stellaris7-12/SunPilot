@@ -93,7 +93,12 @@ class TicketContext(ApiModel):
         ]
         lines = [f"{label}: {value}" for label, value in parts if value]
         for key, value in self.ext_json.items():
-            if value not in {"", None}:
+            if isinstance(value, dict):
+                # 展开嵌套补充字段（如人工补充信息 supplementInfo），避免子键被 str() 吞掉。
+                for sub_key, sub_value in value.items():
+                    if sub_value not in {"", None}:
+                        lines.append(f"扩展字段.{key}.{sub_key}: {sub_value}")
+            elif value not in {"", None}:
                 lines.append(f"扩展字段.{key}: {value}")
         return "\n".join(lines)
 

@@ -12,6 +12,24 @@ from tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
+# 补全字段时允许暴露给 LLM 的只读查询工具（严禁任何有副作用的写工具）。
+READ_ONLY_QUERY_TOOLS = [
+    "customer.lookup",
+    "customer.profile-query",
+    "card.account-status-query",
+    "transaction.query",
+    "transaction.detail-query",
+    "benefit.query",
+    "benefit.entitlement-query",
+    "campaign.eligibility-check",
+    "application.progress-query",
+    "coupon.status-query",
+    "ticket.history-search",
+    "knowledge.policy-search",
+    "merchant.info-query",
+    "statement.bill-query",
+]
+
 RESOLUTION_SYSTEM_PROMPT = """你是信用卡工单解决方案与业务工具选择专家。
 请根据工单原文、结构化工单、分类结果和已抽取字段，在提供的 tools 中选择最合适的一个工具。
 
@@ -20,6 +38,22 @@ RESOLUTION_SYSTEM_PROMPT = """你是信用卡工单解决方案与业务工具�
 2. 参数必须来自工单、结构化字段或已抽取字段；不要编造客户号、金额、券码、交易号。
 3. 交易争议类工具只用于查询取证或准备人工复核，不能表示已经完成结案。
 4. 如果无法确定工具或关键参数不足，可以返回 JSON：{"skip": true, "skip_reason": "..."}。
+"""
+
+RESOLVE_MISSING_SYSTEM_PROMPT = """你是信用卡工单的字段补全规划专家。
+业务工具执行前发现缺少必填参数，你的任务是决定如何取到这些缺失字段的值。
+
+你有两种手段（每次只选其一）：
+A. 调用一个只读查询工具（provided tools）去业务系统查询，例如按客户号/卡号/交易信息检索。
+B. 直接从工单原文、结构化工单或此前查询结果中抽取字段值。
+
+决策规则：
+1. 如果缺失字段可以直接从工单原文或已有查询结果中读到，返回 JSON：{"fields": {"参数名": "值", ...}}。
+   - 参数名必须使用缺失字段清单里给出的英文字段名（如 customerId、transactionId、couponType）。
+   - 值必须真实来源于原文或查询结果，禁止编造客户号、金额、券码、交易号、卡号。
+2. 如果需要查库才能拿到，请直接发起一次 tool call（只调用一个只读查询工具），参数用你已知的定位信息（如 customerId、cardLast4、amount、merchantName）。
+3. 如果既无法查询也无法从原文抽取，返回 JSON：{"give_up": true, "reason": "说明原因"}。
+4. 绝不虚构任何业务标识；不确定就 give_up，交给人工补充。
 """
 
 
@@ -82,6 +116,103 @@ class ResolutionAgent(BaseAgent):
             result.get("skip"),
         )
         return result
+
+    async def resolve_missing_fields(self, input_data: dict) -> dict:
+        """决定如何补全某个工具缺失的必填参数：查只读工具、回原文抽取、或放弃。
+
+        入参 input_data:
+          - target_tool: 目标业务工具名（缺参数的工具）
+          - missing_params: [{name, description, example}, ...] 缺失参数元数据
+          - known_params: dict 目前已知参数
+          - ticket_content: str 工单原文
+          - ticket: dict 结构化工单
+          - query_results: [{tool, params, data, business_result}, ...] 此前查询结果
+
+        返回:
+          {"action": "call_tool", "tool_name": ..., "tool_params": {...}}
+          {"action": "extract", "fields": {name: value, ...}}
+          {"action": "give_up", "reason": "..."}
+        """
+        missing_params = input_data.get("missing_params", [])
+        query_tool_names = [name for name in READ_ONLY_QUERY_TOOLS if tool_registry.get(name)]
+        openai_tools = tool_registry.to_openai_tools(query_tool_names)
+
+        user_prompt = self._build_user_prompt({
+            "target_tool": input_data.get("target_tool", ""),
+            "missing_params": missing_params,
+            "known_params": input_data.get("known_params", {}),
+            "ticket_content": input_data.get("ticket_content", ""),
+            "ticket": input_data.get("ticket", {}),
+            "query_results": input_data.get("query_results", []),
+            "read_only_query_tools": query_tool_names,
+        })
+
+        logger.info(
+            "[ResolutionAgent] Resolving missing fields for %s: %s",
+            input_data.get("target_tool", ""),
+            [item.get("name") for item in missing_params],
+        )
+        llm_result = await self.call_llm(
+            RESOLVE_MISSING_SYSTEM_PROMPT,
+            user_prompt,
+            tools=openai_tools,
+            tool_choice="auto",
+        )
+        return _missing_action_from_llm(llm_result, query_tool_names, missing_params)
+
+
+def _missing_action_from_llm(
+    llm_result: dict,
+    query_tool_names: list[str],
+    missing_params: list[dict],
+) -> dict:
+    if not isinstance(llm_result, dict):
+        return {"action": "give_up", "reason": "LLM 未返回可解析结果"}
+
+    for tool_call in llm_result.get("tool_calls", []):
+        function = tool_call.get("function", {})
+        corrected = tool_registry.closest_tool_name(function.get("name", ""), query_tool_names)
+        if corrected:
+            return {
+                "action": "call_tool",
+                "tool_name": corrected,
+                "tool_params": function.get("arguments", {}) or {},
+            }
+
+    content_json = llm_result.get("content_json") or {}
+    if not isinstance(content_json, dict):
+        return {"action": "give_up", "reason": "LLM 返回格式无法解析"}
+
+    if content_json.get("give_up"):
+        return {"action": "give_up", "reason": content_json.get("reason", "LLM 放弃补全")}
+
+    raw_tool_name = content_json.get("tool_name") or content_json.get("toolName")
+    if raw_tool_name:
+        corrected = tool_registry.closest_tool_name(raw_tool_name, query_tool_names)
+        if corrected:
+            return {
+                "action": "call_tool",
+                "tool_name": corrected,
+                "tool_params": (
+                    content_json.get("tool_params")
+                    or content_json.get("toolParams")
+                    or content_json.get("arguments")
+                    or {}
+                ),
+            }
+
+    fields = content_json.get("fields")
+    if isinstance(fields, dict):
+        allowed = {item.get("name") for item in missing_params}
+        cleaned = {
+            key: value
+            for key, value in fields.items()
+            if key in allowed and value not in {"", "未提取", "未提供", "未填写", None}
+        }
+        if cleaned:
+            return {"action": "extract", "fields": cleaned}
+
+    return {"action": "give_up", "reason": "LLM 未给出可用的补全方案"}
 
 
 def _candidate_tool_names(input_data: dict, intent_type: str, workflow_config: dict) -> list[str]:

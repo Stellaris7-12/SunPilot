@@ -130,7 +130,8 @@ export const useTicketStore = defineStore('ticket', () => {
     aiResult.value = null;
     traceSteps.value = [];
     toolCalls.value = [];
-    replyDraft.value = '';
+    // 保留既有 replyDraft：重新处理时不清空，等新结果到达再由 applyProcessResult 覆盖，
+    // 避免重跑中断或连接断开导致草稿（含人工修改）丢失，也不出现空窗期。
     workflowPaused.value = false;
     processError.value = null;
 
