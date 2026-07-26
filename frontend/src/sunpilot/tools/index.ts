@@ -9,29 +9,9 @@ import { waitFor } from '../core/utils'
 import { clickElement, inputTextElement, selectOptionElement } from '../controller/actions'
 
 /**
- * P0-3 安全修复：PageAgent 白名单强制执行
- *
- * 定义允许在 ReAct 通道中点击的语义目标白名单。
- * 阻断的高风险操作（保存草稿、结案）必须由人工确认。
+ * P0-3 安全修复：PageAgent 高风险操作阻断列表。
+ * 阻断的高风险操作（保存草稿、结案、提交）必须由人工确认。
  */
-const ALLOWED_CLICK_TARGETS = new Set([
-	// 通话发单工作区
-	'call-intake-workspace',
-	'call-transcript-panel',
-	'ticket-draft-form',
-	'dispatch-submit', // 发单提交（在确定性通道中有人工门控）
-
-	// 工单回复工作区
-	'enterprise-ticket-detail',
-	'sunpilot-evidence',
-	'sunpilot-fields',
-	'sunpilot-audit',
-	'enterprise-reply',
-
-	// 人工确认区
-	'human-confirm',
-])
-
 const BLOCKED_CLICK_TARGETS = new Set([
 	'page-agent-save-draft',      // 草稿保存需人工确认
 	'page-agent-close-ticket',    // 结案操作需人工确认
@@ -185,7 +165,7 @@ tools.set(
 		inputSchema: z.object({
 			index: z.int().min(0),
 		}),
-		execute: async function (this: PageAgentCore, input) {
+		execute: async function (this: PageAgentCore) {
 			// P0-3 安全修复：限制 click_element_by_index 的使用
 			// 该工具允许通过 DOM 索引点击任意元素，存在以下风险：
 			// 1. 可能点击到保存、提交、删除等高风险按钮

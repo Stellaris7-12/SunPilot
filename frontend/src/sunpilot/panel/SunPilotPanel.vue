@@ -192,6 +192,38 @@ const aiStatusText = computed(() => {
   if (store.aiResult) return '处理完成，可复核回单内容。'
   return ''
 })
+
+// 实时 Agent 处理时间线：把编排器逐条推送的 traceSteps 渲染成垂直流光节点。
+// 仅回单页展示（发单页无多 Agent 链路）。
+interface TimelineNode {
+  id: string
+  title: string
+  detail: string
+  duration: string
+  state: 'done' | 'running' | 'failed' | 'skipped'
+}
+const STATE_BY_STATUS: Record<string, TimelineNode['state']> = {
+  SUCCESS: 'done',
+  RUNNING: 'running',
+  FAILED: 'failed',
+  SKIPPED: 'skipped',
+}
+function shortAgentName(agent: string): string {
+  const parts = agent.split('/')
+  return (parts.length > 1 ? parts[1] : parts[0]).trim()
+}
+const agentTimeline = computed<TimelineNode[]>(() => {
+  if (isDispatchPage.value) return []
+  return store.traceSteps.map((step, index) => ({
+    id: `${step.agentId || 'step'}-${index}`,
+    title: shortAgentName(step.agent) || `步骤 ${index + 1}`,
+    detail: step.summary || '处理中…',
+    duration: step.status === 'RUNNING' ? '' : step.duration || '',
+    state: STATE_BY_STATUS[step.status] || 'running',
+  }))
+})
+const showTimeline = computed(() => agentTimeline.value.length > 0)
+
 function messageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
@@ -670,6 +702,36 @@ defineExpose({ runTask, stopAgent })
       {{ aiStatusText }}
     </p>
 
+    <section
+      v-if="showTimeline"
+      class="agent-timeline"
+      :class="{ processing: aiStatusActive }"
+      aria-label="Agent 处理时间线"
+    >
+      <TransitionGroup name="tl" tag="ol" class="tl-track">
+        <li
+          v-for="node in agentTimeline"
+          :key="node.id"
+          class="tl-node"
+          :class="node.state"
+        >
+          <span class="tl-marker" aria-hidden="true">
+            <svg v-if="node.state === 'done'" viewBox="0 0 24 24" class="tl-icon"><path d="M5 13l4 4L19 7" /></svg>
+            <svg v-else-if="node.state === 'failed'" viewBox="0 0 24 24" class="tl-icon"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            <span v-else-if="node.state === 'running'" class="tl-pulse"></span>
+            <span v-else class="tl-hollow"></span>
+          </span>
+          <div class="tl-body">
+            <div class="tl-head">
+              <strong>{{ node.title }}</strong>
+              <span v-if="node.duration" class="tl-dur">{{ node.duration }}</span>
+            </div>
+            <p class="tl-detail">{{ node.detail }}</p>
+          </div>
+        </li>
+      </TransitionGroup>
+    </section>
+
     <SunPilotQuickActions
       class="quick-card-shell"
       :actions="quickActions"
@@ -928,6 +990,152 @@ defineExpose({ runTask, stopAgent })
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1.1); }
 }
+
+/* ===== Agent 实时处理时间线（垂直流光） ===== */
+.agent-timeline {
+  margin: 10px 12px 2px;
+  padding: 12px 12px 8px;
+  border: 1px solid #e6ecf5;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfdff, #f4f8ff);
+  overflow: hidden;
+}
+.tl-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+/* 贯穿竖轴：底色轨道 */
+.tl-track::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: #dce4f0;
+  border-radius: 2px;
+}
+/* 处理中：竖轴上叠加一段向下流动的高光 */
+.agent-timeline.processing .tl-track::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 0;
+  width: 2px;
+  height: 42px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, transparent, #3b82f6, transparent);
+  animation: tl-flow 1.8s ease-in-out infinite;
+}
+@keyframes tl-flow {
+  0% { transform: translateY(-42px); opacity: 0; }
+  30% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateY(calc(100% + 42px)); opacity: 0; }
+}
+.tl-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  padding: 5px 0;
+}
+.tl-marker {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2px #dce4f0 inset;
+  transition: box-shadow 0.35s ease, background 0.35s ease;
+}
+.tl-node.done .tl-marker {
+  background: #2563eb;
+  box-shadow: 0 0 0 2px #2563eb inset;
+}
+.tl-node.failed .tl-marker {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px #dc2626 inset;
+}
+.tl-node.running .tl-marker {
+  box-shadow: 0 0 0 2px #3b82f6 inset;
+}
+.tl-icon {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: tl-pop 0.3s ease;
+}
+@keyframes tl-pop {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.tl-hollow {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #b6c2d6;
+}
+/* RUNNING 节点：呼吸光晕 */
+.tl-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: tl-breathe 1.2s ease-in-out infinite;
+}
+@keyframes tl-breathe {
+  0%, 100% { transform: scale(0.7); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+  50% { transform: scale(1); box-shadow: 0 0 0 5px rgba(59, 130, 246, 0); }
+}
+.tl-body {
+  min-width: 0;
+  padding-top: 1px;
+}
+.tl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tl-head strong {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #142033;
+}
+.tl-node.running .tl-head strong { color: #1d4ed8; }
+.tl-node.skipped { opacity: 0.6; }
+.tl-dur {
+  flex: none;
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+.tl-detail {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #64748b;
+  word-break: break-word;
+}
+/* 逐条进入动画：从上方轻微下滑淡入 */
+.tl-enter-from { opacity: 0; transform: translateY(-6px); }
+.tl-enter-active { transition: opacity 0.35s ease, transform 0.35s ease; }
+.tl-move { transition: transform 0.35s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .tl-pulse, .agent-timeline.processing .tl-track::after, .tl-icon { animation: none; }
+  .tl-enter-active, .tl-move { transition: none; }
+}
+
 .summary-card {
   display: grid;
   gap: 6px;
