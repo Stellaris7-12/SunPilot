@@ -61,11 +61,14 @@ const actionReasonInput = ref('')
 const actionStatus = ref('')
 
 const commonFields: CommonField[] = [
+  { name: 'title', label: '标题', type: 'text', required: true },
   { name: 'customerName', label: '客户姓名', type: 'text', required: true },
   { name: 'customerId', label: '客户号', type: 'text' },
   { name: 'phone', label: '手机号', type: 'text', required: true },
   { name: 'cardLast4', label: '卡号后四位', type: 'text', required: true },
   { name: 'priority', label: '件别', type: 'select', options: ['normal', 'urgent', 'critical'] },
+  { name: 'riskLabel', label: '风险标签', type: 'text' },
+  { name: 'riskLevel', label: '风险等级', type: 'text' },
   { name: 'scene', label: '工单分类', type: 'text', required: true },
   { name: 'category', label: '业务类型', type: 'text' },
   { name: 'subcategory', label: '业务细分类型', type: 'text' },
@@ -602,6 +605,17 @@ function insertEvidenceText(id: string) {
   replyTouched.value = true
 }
 
+// 演示用：清空发单表单（保留 store.ticketDraftResult，PageAgent 仍可代填）
+function clearDraftForm() {
+  draftForm.value = { ...emptyTicketDraft(), scene: currentScene.value }
+}
+
+// 演示用：清空回单草稿（保留 store.aiResult，PageAgent 仍可代填）
+function clearReplyDraft() {
+  store.replyDraft = ''
+  replyTouched.value = false
+}
+
 function markReplyEdited() {
   replyTouched.value = true
 }
@@ -845,6 +859,7 @@ function ticketRisk(item: Ticket) {
               </div>
             </div>
             <div class="toolbar-actions">
+              <button class="btn-plain" type="button" :disabled="!store.ticketDraftResult" @click="clearDraftForm" title="清空表单字段，保留AI草稿数据，可用 PageAgent 重新代填">清空表单</button>
               <button class="btn-plain" type="button" @click="handleSaveDispatchDraft" title="仅本地暂存，不提交系统">暂存（本地）</button>
               <button id="dispatch-submit" class="btn-primary" data-page-agent-target="dispatch-submit" type="button" :disabled="!canSubmitDraft" @click="handleSubmitDraft">发送</button>
             </div>
@@ -1153,6 +1168,7 @@ function ticketRisk(item: Ticket) {
                   </select>
                 </label>
                 <button class="btn-plain" type="button" @click="applyTemplate">套用模板</button>
+                <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="clearReplyDraft" title="清空回单内容，可用 PageAgent 重新代填">清空回单</button>
                 <button class="btn-plain" type="button" :disabled="!store.replyDraft" @click="handleSaveReply">保存回单</button>
                 <button class="btn-primary" type="button" :disabled="!canClose" @click="handleClose">提交复核并结案</button>
                 <button v-if="needsHumanConfirm" class="btn-primary" type="button" @click="openHumanConfirm">人工确认</button>

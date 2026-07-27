@@ -44,6 +44,7 @@ interface QuickAction {
   command?: string
   emit?: 'generateDraft' | 'submitDraft' | 'startAiProcess' | 'scrollReply' | 'scrollMissing' | 'openHumanConfirm'
   disabled?: boolean
+  primary?: boolean
 }
 
 const emit = defineEmits<{
@@ -126,7 +127,12 @@ const statusTone = computed(() => {
 const quickActions = computed<QuickAction[]>(() => {
   if (isDispatchPage.value) {
     return [
-      { label: '带入来电信息', command: '根据最新发单草稿，填入当前标准工单表单。', disabled: !store.ticketDraftResult },
+      {
+        label: store.ticketDraftResult ? '🤖 PageAgent 代填表单' : '🤖 PageAgent 代填（请先生成草稿）',
+        command: '根据最新发单草稿，填入当前标准工单表单。',
+        disabled: !store.ticketDraftResult,
+        primary: true,
+      },
       { label: '发送工单', emit: 'submitDraft', disabled: !store.ticketDraftResult },
     ]
   }
@@ -134,6 +140,12 @@ const quickActions = computed<QuickAction[]>(() => {
   const hasMissing = Boolean(store.aiResult?.missingFields?.length)
   if (!store.aiResult) {
     return [
+      {
+        label: store.selectedTicket ? '🤖 PageAgent 代填（请先 AI 处理）' : '🤖 PageAgent 代填（请先选择工单）',
+        command: '根据最新处理结果，填入客户回单编辑器。',
+        disabled: true,
+        primary: true,
+      },
       { label: '查看待补充', emit: 'scrollMissing', disabled: !store.selectedTicket },
     ]
   }
@@ -145,7 +157,7 @@ const quickActions = computed<QuickAction[]>(() => {
     ]
   }
   return [
-    { label: '带入回单内容', command: '根据最新处理结果，填入客户回单编辑器。', disabled: !store.aiResult },
+    { label: '🤖 PageAgent 代填回单', command: '根据最新处理结果，填入客户回单编辑器。', disabled: !store.aiResult, primary: true },
     { label: '查看核验记录', command: '定位处理依据和核验记录。', disabled: !store.aiResult },
     { label: needsConfirm ? '人工确认' : '进入复核', emit: needsConfirm ? 'openHumanConfirm' : 'scrollReply', disabled: needsConfirm ? false : !store.aiResult },
   ]
@@ -797,15 +809,11 @@ defineExpose({ runTask, stopAgent })
     </section>
 
     <footer class="agent-composer">
-      <div v-if="suggestedCommand" class="manual-suggestion">
-        <span>收到业务信息，等待坐席唤起</span>
-        <button type="button" :disabled="isAgentRunning" @click="runQuickAction(suggestedCommand)">执行建议</button>
-      </div>
       <div v-if="quickActions.length" class="quick-strip" role="toolbar" aria-label="快捷操作">
         <button
           v-for="action in quickActions"
           :key="action.label"
-          class="quick-chip"
+          :class="['quick-chip', action.primary ? 'quick-chip--primary' : '']"
           type="button"
           :disabled="isAgentRunning || action.disabled"
           @click="runQuickAction(action)"
@@ -1028,6 +1036,21 @@ defineExpose({ runTask, stopAgent })
   color: #a3adba;
   background: #f5f6f8;
   cursor: not-allowed;
+}
+.quick-chip--primary {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+}
+.quick-chip--primary:hover:not(:disabled) {
+  border-color: #1e40af;
+  background: #1d4ed8;
+  color: #fff;
+}
+.quick-chip--primary:disabled {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+  color: #94a3b8;
 }
 .summary-card {
   border: 1px solid #dbe3eb;

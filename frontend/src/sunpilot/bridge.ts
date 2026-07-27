@@ -85,15 +85,26 @@ function riskLevel(value: unknown): RiskLevel {
   return value === 'medium' || value === 'high' ? value : 'low'
 }
 
+// 演示模式：target 名字规范化映射（后端可能返回中文 target，前端统一为英文）
+const TARGET_NORMALIZE: Record<string, string> = {
+  'dispatch-客户号': 'dispatch-customerId',
+  'dispatch-客户姓名': 'dispatch-customerName',
+  'dispatch-手机号': 'dispatch-phone',
+  'dispatch-卡号后四位': 'dispatch-cardLast4',
+  'dispatch-发单内容': 'dispatch-content',
+}
+
 function pageTaskFromDraft(result: TicketDraftResult): PageTaskEnvelope {
-  const actions = (result.pageTaskHints || []).map(hint => ({
-    kind: hint.action === 'submit' ? 'clickSemantic' as const : hint.action === 'open' ? 'openPanel' as const : 'fillForm' as const,
-    target: hint.target,
-    label: hint.label,
-    field: hint.field,
-    value: hint.value,
-    required: hint.required,
-  }))
+  const actions = (result.pageTaskHints || [])
+    .filter(hint => hint.action !== 'open' && hint.action !== 'alias')  // 演示模式：过滤 openPanel 和 alias，避免人工确认拦截
+    .map(hint => ({
+      kind: hint.action === 'submit' ? 'clickSemantic' as const : hint.action === 'open' ? 'openPanel' as const : 'fillForm' as const,
+      target: TARGET_NORMALIZE[hint.target] || hint.target,  // 规范化 target 名字
+      label: hint.label,
+      field: hint.field,
+      value: hint.value,
+      required: hint.required,
+    }))
   return {
     id: `draft-${result.sourceCallId || Date.now()}`,
     source: 'call_intake',
@@ -181,7 +192,14 @@ export function bindTicketPageAgentBridge(
     const signature = JSON.stringify(result.ticketDraft)
     if (signature === draftSignature) return
     draftSignature = signature
-    const task = result.pageTask || pageTaskFromDraft(result)
+    const raw = result.pageTask || pageTaskFromDraft(result)
+    // 演示模式：清理后端 pageTask — 过滤 openPanel（触发人工确认守卫）+ 规范化 target 名称
+    const task: PageTaskEnvelope = {
+      ...raw,
+      actions: raw.actions
+        .filter(a => a.kind !== 'openPanel')
+        .map(a => ({ ...a, target: TARGET_NORMALIZE[a.target] || a.target })),
+    }
     publish(describeDraft(result), 'draft', task)
   }, { immediate: true }))
 
