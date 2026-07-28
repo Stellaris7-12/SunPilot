@@ -1,11 +1,12 @@
-# evaluation — 评测与冒烟测试目录
+# tests — 评测与冒烟测试目录
 
-一组**独立运行的 async 冒烟脚本**（非 pytest 套件）。每个脚本自带 `main()` 并以 `asyncio.run(main())` 运行，通过 `sys.path.insert(ENGINE_DIR)` 引入引擎模块。脚本分两风格：纯内存 / SQLite + Fake Agent（A/B/C），以及依赖 MySQL 测试库 `ticket_agent_test`（D/I*/K/M）。
+一组**独立运行的 async 冒烟脚本**（非 pytest 套件）。每个脚本自带 `main()` 并以 `asyncio.run(main())` 运行。脚本分两风格：纯内存 / SQLite + Fake Agent（A/B/C/O/P），以及依赖 MySQL 测试库 `ticket_agent_test`（D/I*/K/M）。
 
 运行单个脚本示例：
 
 ```bash
-uv run python ai-engine/evaluation/smoke_module_k_workflow_routing.py
+cd backend
+uv run python tests/smoke_module_k_workflow_routing.py
 ```
 
 ## 公共工具
@@ -35,5 +36,3 @@ uv run python ai-engine/evaluation/smoke_module_k_workflow_routing.py
 | `smoke_module_p_architecture_guardrails.py` | 架构护栏（防回退到额外业务 Agent、legacy 名泄漏、越出 SunPilot 白名单）。 |
 | `smoke_module_p_agent_contracts.py` | AgentCard 运行时输入/输出契约校验。 |
 | `smoke_module_p_workflow_contracts.py` | workflow 配置契约（classifier 输出 enum 与场景一致、页面任务 hints）。 |
-
-> 目录下的 `module_f_*.json` 为历史评测输出快照（数据文件，非代码）。

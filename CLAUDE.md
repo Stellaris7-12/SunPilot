@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Backend (`ai-engine/`, Python 3.10–3.12, managed with `uv`):
+Backend (`backend/`, Python 3.10–3.12, managed with `uv`):
 
 ```bash
-uv sync                                                                    # install/sync deps + venv
-uv run python -m uvicorn main:app --app-dir ai-engine --reload --port 8000 # run API (dev)
-uv run python -m compileall ai-engine                                      # fast syntax/compile check
+cd backend
+uv sync                                                # install/sync deps + venv
+uv run uvicorn ticket_agent.main:app --reload --port 8000  # run API (dev)
+uv run python -m compileall src/ticket_agent           # fast syntax/compile check
+uv run python _generate_diverse_tickets.py             # generate 50 diverse demo tickets
 ```
 
 Frontend (`frontend/`, Vue 3 + Vite + TypeScript; use `npm.cmd` on Windows):
@@ -25,16 +27,17 @@ npm.cmd run smoke:page-agent
 Tests are standalone async smoke scripts (no pytest suite). Run a **single** one directly, e.g.:
 
 ```bash
-uv run python ai-engine/evaluation/smoke_module_k_workflow_routing.py
+cd backend
+uv run python tests/smoke_module_k_workflow_routing.py
 ```
 
-Smoke modules run against a MySQL test database (`ticket_agent_test`), separate from the demo DB (`ticket_agent`). They insert `ENGINE_DIR` into `sys.path`, reload config/database/repositories, and call `configure_mysql_test_database` / `reset_mysql_test_data` before `asyncio.run(main())`.
+Smoke modules run against a MySQL test database (`ticket_agent_test`), separate from the demo DB (`ticket_agent`). They call `configure_mysql_test_database` / `reset_mysql_test_data` from `tests/mysql_smoke_utils.py` before `asyncio.run(main())`.
 
 ## Architecture
 
-**Pipeline.** A phone-call transcript is turned into a standard ticket, processed by a multi-agent orchestrator, audited via Mock Tools, assisted by PageAgent/SunPilot for form-fill/reply, and closed only after human review. `main.py` (FastAPI, ~1300 lines) exposes ticket CRUD, `/api/tickets/{id}/ai-process[-stream]` (SSE), call-record→draft generation, and config/metrics endpoints.
+**Pipeline.** A phone-call transcript is turned into a standard ticket, processed by a multi-agent orchestrator, audited via Mock Tools, assisted by PageAgent/SunPilot for form-fill/reply, and closed only after human review. `src/ticket_agent/main.py` (FastAPI) exposes ticket CRUD, `/api/tickets/{id}/ai-process[-stream]` (SSE), call-record→draft generation, and config/metrics endpoints.
 
-**Five business agents** (`ai-engine/agents/`): Classifier, Intake, Resolution, Escalation, Notification. Each extends `BaseAgent` (`agents/base.py`), is constructed from an `AgentCard`, and shares one module-level `AsyncOpenAI` client. `Orchestrator` (`orchestrator/orchestrator.py`) builds all five from `agent_registry` and keeps legacy aliases (`intent_agent`, `extract_agent`, `tool_agent`, `verify_agent`, `reply_agent`) pointing at them — files like `reply_agent.py`/`intent_agent.py` are compat shims, not a 6th agent.
+**Five business agents** (`src/ticket_agent/agents/`): Classifier, Intake, Resolution, Escalation, Notification. Each extends `BaseAgent` (`agents/base.py`), is constructed from an `AgentCard`, and shares one module-level `AsyncOpenAI` client. `Orchestrator` (`orchestrator/orchestrator.py`) builds all five from `agent_registry` and keeps legacy aliases (`intent_agent`, `extract_agent`, `tool_agent`, `verify_agent`, `reply_agent`) pointing at them — files like `reply_agent.py`/`intent_agent.py` are compat shims, not a 6th agent.
 
 **Orchestration order** in `process_ticket()`: load → IN_PROGRESS → high-risk short-circuit → classifier → normalize intent → intake → field enrichment → escalation (risk gate) → maybe stop (PENDING_INFO / PENDING_HUMAN_CONFIRM) → resolution (tool plan) → `tool_registry.validate_tool_call` → `mock_executor.execute` → re-run escalation → finish review (PENDING_HUMAN_REVIEW) or escalate. `public_result()` strips `_`-prefixed internal keys.
 
@@ -44,7 +47,7 @@ Smoke modules run against a MySQL test database (`ticket_agent_test`), separate 
 
 **Two separate LLM configs** (`config.py`): business agents use `LLM_*` (DeepSeek-compatible gateway, default model `deepseek-v4-flash`); PageAgent/SunPilot use `PAGE_AGENT_LLM_*` (Ali/Qwen), proxied through backend endpoints (`/api/llm/proxy/*`). Keep them distinct.
 
-**Persistence.** MySQL via SQLAlchemy 2 + asyncmy; schema in `ai-engine/migrations/mysql/` (`001_i1_schema.sql`, `002_dispatch_ext.sql`); Alembic present. DB config from `.env` (`DATABASE_URL=mysql+asyncmy://...`); see `.env.example`.
+**Persistence.** MySQL via SQLAlchemy 2 + asyncmy; schema in `backend/src/ticket_agent/migrations/mysql/` (`001_i1_schema.sql`, `002_dispatch_ext.sql`); Alembic present. DB config from `.env` (`DATABASE_URL=mysql+asyncmy://...`); see `.env.example`. **Transaction management**: uses SQLAlchemy 2.0 async context manager pattern (`async with engine.connect() as conn: async with conn.begin() as trans:`); transactions auto-commit on context exit (no exception) or auto-rollback (on exception). Do not call `commit()` manually — it closes the transaction and causes "closed transaction" errors on subsequent operations. Database layer is in `src/ticket_agent/models/database.py` (connection/init) and `src/ticket_agent/repositories/repositories.py` (CRUD operations).
 
 ## Boundaries (do not violate)
 

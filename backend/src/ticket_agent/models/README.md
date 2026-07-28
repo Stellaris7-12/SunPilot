@@ -20,5 +20,5 @@
 | `workflow.py` | 工作流配置校验模型。`WorkflowField`/`WorkflowScenario`/`WorkflowConfig` 解析 `workflow_config.json`，`to_runtime_dict()` 转 snake_case 运行时字典，`scenario()` 按意图取场景并对 UNKNOWN 兜底。 |
 | `scenario_detection.py` | 共享的确定性 FITS 场景识别（不依赖 LLM）。用正则从摘要/转写命中场景，`normalize_scene`/`normalize_intent_type` 归一化，`detect_fits_scenario` 产出结构化识别结果。 |
 | `api_schemas.py` | FastAPI 请求/响应 schema 集合：工单 CRUD、通话记录转草稿、AI 处理、确认/结单、各类日志响应、评测指标 `EvaluationMetrics`。 |
-| `database.py` | MySQL/TDSQL 的初始化、种子数据与底层连接助手。`init_db` 建库建表、幂等补列、灌演示数据；提供 `get_db()` 连接上下文、行归一化、`?` 占位符转命名参数等低层封装（不含业务查询）。 |
+| `database.py` | MySQL/TDSQL 的初始化、种子数据与底层连接助手。`init_db` 建库建表、幂等补列、灌演示数据；提供 `get_db()` 连接上下文、行归一化、`?` 占位符转命名参数等低层封装（不含业务查询）。**重要**：使用 SQLAlchemy 2.0 async context manager 模式，transaction 在 context 退出时自动 commit/rollback，不应手动调用 `commit()`。 |
 | `repositories.py` | 仓储层，封装各业务表 CRUD 与审计写入：`TicketRepository`（含状态流转 + 操作日志）、`AiResultRepository`、`TraceRepository`、`ToolCallRepository`、`CallRecordRepository`、`TicketDraftRepository`、`PageActionLogRepository`、`AgentExecutionLogRepository`、`MockBusinessRepository`，末尾实例化为模块级单例。 |

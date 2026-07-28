@@ -10,7 +10,7 @@ TicketAgent 是信用卡工单多 Agent 演示系统：
 
 主要目录：
 
-- `ai-engine/`：FastAPI、业务 Agent、编排、Mock Tools、数据库访问。
+- `backend/`：FastAPI、业务 Agent、编排、Mock Tools、数据库访问。
 - `frontend/`：Vue 3 + Vite + TypeScript 企业工单壳与 SunPilot。
 - `doc/`：需求、设计、指南、演示和规划。
 - `doc/planning/task_plan.md`：当前唯一 active 计划；历史在 `doc/planning/backup/`。
@@ -59,12 +59,14 @@ TicketAgent 是信用卡工单多 Agent 演示系统：
 
 后端：
 
-- 入口：`ai-engine/main.py`
-- 编排：`ai-engine/orchestrator/`
-- Agent：`ai-engine/agents/`
-- 模型与 Repository：`ai-engine/models/`
-- Mock Tools：`ai-engine/tools/`、`ai-engine/data/tools.json`
-- MySQL DDL：`ai-engine/migrations/mysql/`
+- 入口：`backend/src/ticket_agent/main.py`
+- 编排：`backend/src/ticket_agent/orchestrator/`
+- Agent：`backend/src/ticket_agent/agents/`
+- 模型：`backend/src/ticket_agent/models/`
+- 仓储：`backend/src/ticket_agent/repositories/`
+- Mock Tools：`backend/src/ticket_agent/tools/`、`backend/src/ticket_agent/data/tools.json`
+- MySQL DDL：`backend/src/ticket_agent/migrations/mysql/`
+- 测试：`backend/tests/`
 
 前端：
 
@@ -77,9 +79,11 @@ TicketAgent 是信用卡工单多 Agent 演示系统：
 ## 常用命令
 
 ```powershell
+cd backend
 uv sync
-uv run python -m uvicorn main:app --app-dir ai-engine --reload --port 8000
-.venv\Scripts\python.exe -m compileall ai-engine
+uv run uvicorn ticket_agent.main:app --reload --port 8000
+uv run python -m compileall src/ticket_agent
+uv run python _generate_diverse_tickets.py
 ```
 
 ```powershell
