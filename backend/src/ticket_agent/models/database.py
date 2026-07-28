@@ -515,13 +515,12 @@ def _get_engine() -> AsyncEngine:
 
 @asynccontextmanager
 async def _get_mysql_connection() -> AsyncGenerator["_MysqlConnection", None]:
-    connection = await _get_engine().connect()
-    transaction = await connection.begin()
-    wrapper = _MysqlConnection(connection, transaction)
-    try:
-        yield wrapper
-    finally:
-        await wrapper.close()
+    engine = _get_engine()
+    async with engine.connect() as connection:
+        async with connection.begin() as transaction:
+            wrapper = _MysqlConnection(connection, transaction)
+            yield wrapper
+            # transaction会在context退出时自动commit(无异常)或rollback(有异常)
 
 
 class _MysqlCursor:
@@ -539,6 +538,7 @@ class _MysqlConnection:
     def __init__(self, connection: AsyncConnection, transaction):
         self._connection = connection
         self._transaction = transaction
+        self._committed = False
 
     async def execute(self, sql: str, parameters: tuple[Any, ...] | list[Any] = ()):
         statement, values = _prepare_mysql_statement(sql, parameters)
@@ -548,15 +548,21 @@ class _MysqlConnection:
         return _MysqlCursor([])
 
     async def commit(self):
+        # 注意:在SQLAlchemy 2.0的async context manager模式下,
+        # 不应该手动调用commit(),应该让context manager自动处理。
+        # 如果手动commit,后续操作会报"closed transaction"错误。
+        # 保留此方法只是为了向后兼容,但会打印警告。
+        import warnings
+        warnings.warn(
+            "Manual commit() is deprecated when using async context manager. "
+            "Let the context manager auto-commit on exit instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         if self._transaction is not None:
             await self._transaction.commit()
             self._transaction = None
-
-    async def close(self):
-        if self._transaction is not None:
-            await self._transaction.rollback()
-            self._transaction = None
-        await self._connection.close()
+            self._committed = True
 
 
 def _prepare_mysql_statement(sql: str, parameters: tuple[Any, ...] | list[Any]):
