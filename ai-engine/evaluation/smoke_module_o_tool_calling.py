@@ -5,13 +5,10 @@ import sys
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-from agents.resolution_agent import ResolutionAgent  # noqa: E402
-from models.agent_card import AgentCard  # noqa: E402
-from tools.mock_executor import MockExecutor  # noqa: E402
-from tools.registry import tool_registry  # noqa: E402
+from ticket_agent.agents.resolution_agent import ResolutionAgent  # noqa: E402
+from ticket_agent.models.domain.agent_card import AgentCard  # noqa: E402
+from ticket_agent.tools.mock_executor import MockExecutor  # noqa: E402
+from ticket_agent.tools.registry import tool_registry  # noqa: E402
 
 
 WORKFLOW_CONFIG = {

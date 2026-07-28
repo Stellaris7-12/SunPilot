@@ -1,5 +1,12 @@
 """Module K MySQL smoke test for deterministic workflow routing."""
 
+import sys
+from pathlib import Path
+
+ENGINE_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = ENGINE_DIR.parent
+sys.path.insert(0, str(ENGINE_DIR))
+
 import asyncio
 import importlib
 import json
@@ -7,24 +14,21 @@ import sys
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-from agents.classifier_agent import ClassifierAgent  # noqa: E402
-from agents.escalation_agent import EscalationAgent  # noqa: E402
+from ticket_agent.agents.classifier_agent import ClassifierAgent  # noqa: E402
+from ticket_agent.agents.escalation_agent import EscalationAgent  # noqa: E402
 from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
-from models.agent_card import AgentCard  # noqa: E402
-from orchestrator.workflow_config import load_workflow_config  # noqa: E402
+from ticket_agent.models.domain.agent_card import AgentCard  # noqa: E402
+from ticket_agent.orchestrator.workflow_config import load_workflow_config  # noqa: E402
 
 
 def _load_database_modules():
-    import config
-    import models.database
-    import models.repositories
+    import ticket_agent.config
+    import ticket_agent.models.database
+    import ticket_agent.repositories.repositories
 
-    importlib.reload(config)
-    database_module = importlib.reload(models.database)
-    repositories_module = importlib.reload(models.repositories)
+    importlib.reload(ticket_agent.config)
+    database_module = importlib.reload(ticket_agent.models.database)
+    repositories_module = importlib.reload(ticket_agent.repositories.repositories)
     return database_module, repositories_module
 
 
@@ -51,7 +55,7 @@ async def main():
     config = load_workflow_config()
     tickets = {
         ticket["id"]: ticket
-        for ticket in json.loads((ENGINE_DIR / "data" / "tickets.json").read_text(encoding="utf-8"))
+        for ticket in json.loads((ROOT_DIR / "src" / "ticket_agent" / "data" /  "tickets.json").read_text(encoding="utf-8"))
     }
 
     classifier = ClassifierAgent(

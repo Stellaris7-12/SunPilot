@@ -7,11 +7,10 @@ import re
 import sys
 from pathlib import Path
 
+ENGINE_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = ENGINE_DIR.parent
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-DATA_DIR = ENGINE_DIR / "data"
+DATA_DIR = ROOT_DIR / "src" / "ticket_agent" / "data"
 SAMPLES_JSON = DATA_DIR / "evaluation_samples.json"
 DEMO_TICKETS_JSON = DATA_DIR / "tickets.json"
 

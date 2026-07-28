@@ -30,11 +30,11 @@ if hasattr(sys.stdout, "reconfigure"):
 ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
-from agents.agent_registry import agent_registry  # noqa: E402
-from agents.intake_agent import IntakeAgent, _deterministic_fields, _fields_from_config  # noqa: E402
-from models.agent_card import AgentCard  # noqa: E402
-from models.workflow import workflow_scenario  # noqa: E402
-from orchestrator.workflow_config import load_workflow_config  # noqa: E402
+from ticket_agent.agents.agent_registry import agent_registry  # noqa: E402
+from ticket_agent.agents.intake_agent import IntakeAgent, _deterministic_fields, _fields_from_config  # noqa: E402
+from ticket_agent.models.domain.agent_card import AgentCard  # noqa: E402
+from ticket_agent.models.domain.workflow import workflow_scenario  # noqa: E402
+from ticket_agent.orchestrator.workflow_config import load_workflow_config  # noqa: E402
 
 
 # 两个对照样例：一个字段齐全（走快车道），一个缺必填（触发 LLM 兜底）。

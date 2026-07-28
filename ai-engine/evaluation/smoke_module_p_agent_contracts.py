@@ -4,24 +4,21 @@ import sys
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-from orchestrator.schema_validator import (  # noqa: E402
+from ticket_agent.orchestrator.schema_validator import (  # noqa: E402
     SchemaValidationError,
     validate_agent_payload,
 )
-from orchestrator.orchestrator import Orchestrator  # noqa: E402
-from orchestrator.state_machine import TicketState  # noqa: E402
-from models.agent_contracts import (  # noqa: E402
+from ticket_agent.orchestrator.orchestrator import Orchestrator  # noqa: E402
+from ticket_agent.orchestrator.state_machine import TicketState  # noqa: E402
+from ticket_agent.models.schemas.agent_contracts import (  # noqa: E402
     ClassifierInput,
     IntakeInput,
     RiskDecision,
     TicketContext,
     ToolPlan,
 )
-from models.ai_result import FieldEnrichmentResult, IntentResult  # noqa: E402
-from models.ticket import Ticket, TicketStatus  # noqa: E402
+from ticket_agent.models.schemas.ai_result import FieldEnrichmentResult, IntentResult  # noqa: E402
+from ticket_agent.models.domain.ticket import Ticket, TicketStatus  # noqa: E402
 
 
 CLASSIFIER_INPUT_SCHEMA = {

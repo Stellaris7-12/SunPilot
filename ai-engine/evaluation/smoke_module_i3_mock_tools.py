@@ -1,5 +1,11 @@
 """Module I3 MySQL smoke test for mock tools and field enrichment."""
 
+import sys
+from pathlib import Path
+
+ENGINE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ENGINE_DIR))
+
 import asyncio
 import importlib
 import sys
@@ -7,26 +13,23 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
 from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
 
 
 def _load_modules():
-    import config
-    import models.database
-    import models.repositories
-    import tools.definitions
-    import tools.registry
-    import tools.mock_executor
+    import ticket_agent.config
+    import ticket_agent.models.database
+    import ticket_agent.repositories.repositories
+    import ticket_agent.tools.definitions
+    import ticket_agent.tools.registry
+    import ticket_agent.tools.mock_executor
 
-    importlib.reload(config)
-    database_module = importlib.reload(models.database)
-    importlib.reload(models.repositories)
-    importlib.reload(tools.definitions)
-    registry_module = importlib.reload(tools.registry)
-    executor_module = importlib.reload(tools.mock_executor)
+    importlib.reload(ticket_agent.config)
+    database_module = importlib.reload(ticket_agent.models.database)
+    importlib.reload(ticket_agent.repositories.repositories)
+    importlib.reload(ticket_agent.tools.definitions)
+    registry_module = importlib.reload(ticket_agent.tools.registry)
+    executor_module = importlib.reload(ticket_agent.tools.mock_executor)
     return database_module, registry_module, executor_module
 
 

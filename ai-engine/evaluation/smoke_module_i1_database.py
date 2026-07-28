@@ -1,5 +1,11 @@
 """Module I1 MySQL smoke test for schema, seed data, and repositories."""
 
+import sys
+from pathlib import Path
+
+ENGINE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ENGINE_DIR))
+
 import asyncio
 import importlib
 import json
@@ -7,21 +13,18 @@ import sys
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
 from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
-from models.agent_trace import TraceStep, TraceStatus  # noqa: E402
+from ticket_agent.models.schemas.agent_trace import TraceStep, TraceStatus  # noqa: E402
 
 
 def _load_database_modules():
-    import config
-    import models.database
-    import models.repositories
+    import ticket_agent.config
+    import ticket_agent.models.database
+    import ticket_agent.repositories.repositories
 
-    importlib.reload(config)
-    database_module = importlib.reload(models.database)
-    repo_module = importlib.reload(models.repositories)
+    importlib.reload(ticket_agent.config)
+    database_module = importlib.reload(ticket_agent.models.database)
+    repo_module = importlib.reload(ticket_agent.repositories.repositories)
     return database_module, repo_module
 
 

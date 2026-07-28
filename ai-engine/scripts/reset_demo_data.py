@@ -14,8 +14,8 @@ from pathlib import Path
 ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
-from config import DB_BACKEND, TICKETS_JSON  # noqa: E402
-from models.database import get_db, init_db, insert_ticket_row, _seed_mock_domain_data  # noqa: E402
+from ticket_agent.config import DB_BACKEND, TICKETS_JSON  # noqa: E402
+from ticket_agent.models.database import get_db, init_db, insert_ticket_row, _seed_mock_domain_data  # noqa: E402
 
 
 RESET_TABLES = (

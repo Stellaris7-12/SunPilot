@@ -8,10 +8,6 @@ import tempfile
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-
 class FakeClassifierAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         content = input_data.get("ticket_content", "")
@@ -106,12 +102,12 @@ async def main():
     with tempfile.TemporaryDirectory() as tmp_dir:
         os.environ["DATABASE_PATH"] = str(Path(tmp_dir) / "tickets.db")
 
-        from models.database import get_db, init_db
-        from orchestrator.trace import TraceCollector
-        import orchestrator.workflow_config as workflow_config_module
-        from agents.classifier_agent import ClassifierAgent
-        from models.agent_card import AgentCard
-        from orchestrator.workflow_config import load_workflow_config
+        from ticket_agent.models.database import get_db, init_db
+        from ticket_agent.orchestrator.trace import TraceCollector
+        import ticket_agent.orchestrator.workflow_config as workflow_config_module
+        from ticket_agent.agents.classifier_agent import ClassifierAgent
+        from ticket_agent.models.domain.agent_card import AgentCard
+        from ticket_agent.orchestrator.workflow_config import load_workflow_config
 
         orchestrator_module = importlib.import_module("orchestrator.orchestrator")
         orchestrator = orchestrator_module.orchestrator

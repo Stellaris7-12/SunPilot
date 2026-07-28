@@ -1,5 +1,11 @@
 """Module D smoke tests for notification and reply closure loop."""
 
+import sys
+from pathlib import Path
+
+ENGINE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ENGINE_DIR))
+
 import asyncio
 import importlib
 import os
@@ -7,9 +13,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
 
 from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
 
@@ -198,7 +201,7 @@ class BundleNotificationAgent:
 
 class FailingExecutor:
     async def execute(self, tool_name: str, params: dict):
-        from models.tool_schemas import ToolResult
+        from ticket_agent.models.schemas.tool_schemas import ToolResult
 
         return ToolResult(
             success=False,
@@ -220,21 +223,21 @@ async def main():
         os.environ["DATABASE_PATH"] = str(Path(tmp_dir) / "tickets.db")
         configure_mysql_test_database()
 
-        import config
-        import models.database
-        import models.repositories
+        import ticket_agent.config
+        import ticket_agent.models.database
+        import ticket_agent.repositories.repositories
 
-        importlib.reload(config)
-        database_module = importlib.reload(models.database)
-        importlib.reload(models.repositories)
+        importlib.reload(ticket_agent.config)
+        database_module = importlib.reload(ticket_agent.models.database)
+        importlib.reload(ticket_agent.repositories.repositories)
         await reset_mysql_test_data(database_module)
 
-        from agents.notification_agent import NotificationAgent
-        from models.api_schemas import CloseTicketRequest, ConfirmActionRequest
-        from models.agent_card import AgentCard
-        from models.database import get_db
-        from orchestrator.trace import TraceCollector
-        from main import close_ticket, confirm_action, get_ai_result, trigger_ai_process
+        from ticket_agent.agents.notification_agent import NotificationAgent
+        from ticket_agent.models.schemas.api_schemas import CloseTicketRequest, ConfirmActionRequest
+        from ticket_agent.models.domain.agent_card import AgentCard
+        from ticket_agent.models.database import get_db
+        from ticket_agent.orchestrator.trace import TraceCollector
+        from ticket_agent.main import close_ticket, confirm_action, get_ai_result, trigger_ai_process
 
         class MaliciousNotificationAgent(NotificationAgent):
             async def call_llm(self, system_prompt: str, user_prompt: str) -> dict:

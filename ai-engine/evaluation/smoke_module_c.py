@@ -9,10 +9,6 @@ import tempfile
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-
 class FakeClassifierAgent:
     def __init__(self, intent_type="COUPON_REISSUE"):
         self.intent_type = intent_type
@@ -110,7 +106,7 @@ class FakeNotificationAgent:
 
 class FailingExecutor:
     async def execute(self, tool_name: str, params: dict):
-        from models.tool_schemas import ToolResult
+        from ticket_agent.models.schemas.tool_schemas import ToolResult
 
         return ToolResult(
             success=False,
@@ -133,10 +129,10 @@ async def main():
 
         from fastapi.testclient import TestClient
 
-        from models.database import get_db, init_db
-        from orchestrator.trace import TraceCollector
-        from tools.registry import tool_registry
-        from main import app
+        from ticket_agent.models.database import get_db, init_db
+        from ticket_agent.orchestrator.trace import TraceCollector
+        from ticket_agent.tools.registry import tool_registry
+        from ticket_agent.main import app
 
         orchestrator_module = importlib.import_module("orchestrator.orchestrator")
         orchestrator = orchestrator_module.orchestrator
@@ -265,7 +261,7 @@ async def main():
 
         class ConflictExecutor:
             async def execute(self, tool_name: str, params: dict):
-                from models.tool_schemas import ToolResult
+                from ticket_agent.models.schemas.tool_schemas import ToolResult
 
                 return ToolResult(
                     success=True,

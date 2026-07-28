@@ -14,10 +14,6 @@ import tempfile
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-
 class FakeClassifierAgent:
     async def run(self, input_data: dict, context: dict = None) -> dict:
         content = input_data.get("ticket_content", "")
@@ -129,7 +125,7 @@ class FakeNotificationAgent:
 
 class FailingExecutor:
     async def execute(self, tool_name: str, params: dict):
-        from models.tool_schemas import ToolResult
+        from ticket_agent.models.schemas.tool_schemas import ToolResult
 
         return ToolResult(
             success=False,
@@ -147,10 +143,10 @@ async def main():
 
         import aiosqlite
 
-        from models.database import get_db, init_db, _migrate_ticket_status_check
-        from models.api_schemas import ConfirmActionRequest, ProcessTicketResponse
-        from orchestrator.trace import TraceCollector
-        from main import confirm_action
+        from ticket_agent.models.database import get_db, init_db, _migrate_ticket_status_check
+        from ticket_agent.models.schemas.api_schemas import ConfirmActionRequest, ProcessTicketResponse
+        from ticket_agent.orchestrator.trace import TraceCollector
+        from ticket_agent.main import confirm_action
 
         orchestrator_module = importlib.import_module("orchestrator.orchestrator")
         orchestrator = orchestrator_module.orchestrator

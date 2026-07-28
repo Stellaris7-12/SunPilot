@@ -46,7 +46,7 @@ def assert_not_contains(source: str, needle: str, message: str):
 
 
 def main():
-    cards_path = ENGINE_DIR / "data" / "agent_cards.json"
+    cards_path = ROOT_DIR / "src" / "ticket_agent" / "data" / "agent_cards.json"
     cards = json.loads(read_text(cards_path))
     agent_ids = {card["agent_id"] for card in cards}
 
@@ -59,7 +59,7 @@ def main():
         f"legacy shim ids must not be registered: {sorted(agent_ids & LEGACY_AGENT_IDS)}",
     )
 
-    orchestrator_source = read_text(ENGINE_DIR / "orchestrator" / "orchestrator.py")
+    orchestrator_source = read_text(ROOT_DIR / "src" / "ticket_agent" / "orchestrator" / "orchestrator.py")
     for agent_id in EXPECTED_BUSINESS_AGENTS:
         assert_true(
             f'agent_registry.get("{agent_id}")' in orchestrator_source,
@@ -74,7 +74,7 @@ def main():
     # P1-7 fix: PipelineContext is a dataclass, not a dict. The tool-failure
     # self-heal retry must use attribute access, never ctx.get()/ctx[...],
     # otherwise every tool failure raises AttributeError and collapses to FAILED.
-    pipeline_context_source = read_text(ENGINE_DIR / "orchestrator" / "pipeline_context.py")
+    pipeline_context_source = read_text(ROOT_DIR / "src" / "ticket_agent" / "orchestrator" / "pipeline_context.py")
     assert_true(
         "tool_retry_attempted" in pipeline_context_source,
         "PipelineContext must declare tool_retry_attempted for the self-heal retry guard",

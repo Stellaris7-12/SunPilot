@@ -6,10 +6,6 @@ import sys
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
-
 def _sample(sample_id: str, status: str, requires_human: bool, *, missing_coupon: bool = False) -> dict:
     expected_fields = {
         "customerId": f"C9{sample_id[-3:]}",

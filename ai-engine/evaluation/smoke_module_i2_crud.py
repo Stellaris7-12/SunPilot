@@ -1,5 +1,11 @@
 """Module I2 MySQL smoke test for CRUD, state transitions, and operation logs."""
 
+import sys
+from pathlib import Path
+
+ENGINE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ENGINE_DIR))
+
 import asyncio
 import importlib
 import sys
@@ -8,28 +14,25 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
-
 from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
 
 
 def _load_app():
-    import config
-    import models.database
-    import models.repositories
-    import tools.definitions
-    import tools.registry
-    import tools.mock_executor
-    import main
+    import ticket_agent.config
+    import ticket_agent.models.database
+    import ticket_agent.repositories.repositories
+    import ticket_agent.tools.definitions
+    import ticket_agent.tools.registry
+    import ticket_agent.tools.mock_executor
+    import ticket_agent.main
 
-    importlib.reload(config)
-    database_module = importlib.reload(models.database)
-    importlib.reload(models.repositories)
-    importlib.reload(tools.definitions)
-    importlib.reload(tools.registry)
-    importlib.reload(tools.mock_executor)
-    return importlib.reload(main).app, database_module
+    importlib.reload(ticket_agent.config)
+    database_module = importlib.reload(ticket_agent.models.database)
+    importlib.reload(ticket_agent.repositories.repositories)
+    importlib.reload(ticket_agent.tools.definitions)
+    importlib.reload(ticket_agent.tools.registry)
+    importlib.reload(ticket_agent.tools.mock_executor)
+    return importlib.reload(ticket_agent.main).app, database_module
 
 
 def main():
