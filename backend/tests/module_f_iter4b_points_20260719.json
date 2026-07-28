@@ -1,0 +1,395 @@
+{
+  "metrics": {
+    "intent_accuracy": 1.0,
+    "field_completeness": 1.0,
+    "tool_correctness": 0.0,
+    "avg_time_saved_seconds": 113.7,
+    "total_samples": 40,
+    "agents": {
+      "classifier": {
+        "intentAccuracy": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        },
+        "workflowConsistency": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        },
+        "priorityConsistency": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        }
+      },
+      "intake": {
+        "fieldCompleteness": {
+          "score": 1.0,
+          "correct": 4.0,
+          "total": 4
+        },
+        "missingFieldAccuracy": {
+          "score": 1.0,
+          "correct": 4.0,
+          "total": 4
+        }
+      },
+      "resolution": {
+        "toolCorrectness": {
+          "score": 0.0,
+          "correct": 0.0,
+          "total": 0
+        },
+        "parameterAccuracy": {
+          "score": 0.0,
+          "correct": 0.0,
+          "total": 0
+        },
+        "executionSuccess": {
+          "score": 0.0,
+          "correct": 0.0,
+          "total": 0
+        }
+      },
+      "notification": {
+        "replyPointCoverage": {
+          "score": 1.0,
+          "correct": 4.0,
+          "total": 4
+        },
+        "templateCompliance": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        },
+        "readabilityScore": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        }
+      },
+      "escalation": {
+        "exceptionRecognition": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        },
+        "humanInterventionAccuracy": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        }
+      }
+    },
+    "closed_loop_success_rate": 1.0,
+    "avg_processing_ms": 6274.5,
+    "evaluated_samples": 2,
+    "avg_manual_steps_saved": 1.0,
+    "source": "agent_run"
+  },
+  "records": [
+    {
+      "sample": {
+        "id": "eval-026",
+        "source": "manual_mvp",
+        "category": "points_dispute",
+        "ticket": {
+          "title": "积分未到账",
+          "content": "客户号C20026反馈上月消费后积分没有到账，涉及多笔线上消费，希望核查积分入账规则。",
+          "riskLevel": "medium",
+          "customerId": "C20026",
+          "phone": "132****2026",
+          "cardLast4": "2026"
+        },
+        "expected": {
+          "intentType": "UNKNOWN",
+          "ticketType": "积分到账/积分争议",
+          "workflowName": "unknown_flow",
+          "requiredFields": [
+            "customerId",
+            "summary"
+          ],
+          "expectedFields": {
+            "customerId": "C20026",
+            "summary": "核查消费积分未到账"
+          },
+          "expectedTool": "",
+          "expectedStatus": "escalated",
+          "expectedResult": "当前核心工具未覆盖积分流水，转人工核查",
+          "replyPoints": [
+            "说明已记录积分争议",
+            "提示人工核查积分规则和流水"
+          ],
+          "requiresHuman": true
+        }
+      },
+      "ticket": {
+        "title": "积分未到账",
+        "content": "客户号C20026反馈上月消费后积分没有到账，涉及多笔线上消费，希望核查积分入账规则。",
+        "riskLevel": "medium",
+        "customerId": "C20026",
+        "phone": "132****2026",
+        "cardLast4": "2026"
+      },
+      "expected": {
+        "intentType": "UNKNOWN",
+        "ticketType": "积分到账/积分争议",
+        "workflowName": "unknown_flow",
+        "requiredFields": [
+          "customerId",
+          "summary"
+        ],
+        "expectedFields": {
+          "customerId": "C20026",
+          "summary": "核查消费积分未到账"
+        },
+        "expectedTool": "",
+        "expectedStatus": "escalated",
+        "expectedResult": "当前核心工具未覆盖积分流水，转人工核查",
+        "replyPoints": [
+          "说明已记录积分争议",
+          "提示人工核查积分规则和流水"
+        ],
+        "requiresHuman": true
+      },
+      "outputs": {
+        "intent": {
+          "type": "UNKNOWN",
+          "label": "未知场景",
+          "confidence": 0.95,
+          "workflow_name": "unknown_flow",
+          "reason": "命中尚未接入自动工具的扩展场景关键词: 积分没有到账"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20026"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "诉求摘要",
+            "name": "summary",
+            "value": "反馈上月消费后积分未到账，涉及多笔线上消费，希望核查积分入账规则"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "未知场景需人工分流",
+              "status": "需复核"
+            }
+          ],
+          "risk_level": "medium",
+          "risk_decision": "当前场景未接入自动化工具，建议转人工处理",
+          "can_auto_proceed": false,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "",
+          "tool_params": {},
+          "skip": true,
+          "skip_reason": ""
+        },
+        "toolResult": {},
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "已认真核实您的未知场景诉求。由于当前场景未接入自动化工具，建议转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "C20026 的工单已升级人工。升级原因：当前场景未接入自动化工具，建议转人工处理。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "当前场景未接入自动化工具，建议转人工处理",
+            "risk_decision": "当前场景未接入自动化工具，建议转人工处理",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [],
+            "suggested_action": "人工复核风险原因、工具结果和客户原始诉求后处理。"
+          },
+          "closure_suggestion": {
+            "can_close": false,
+            "reason": "当前状态仍需补充、确认或人工处理，不建议直接结案。",
+            "final_reply": "已认真核实您的未知场景诉求。由于当前场景未接入自动化工具，建议转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+            "requires_human_review": true
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "",
+            "trigger_status": ""
+          }
+        },
+        "replyDraft": "已认真核实您的未知场景诉求。由于当前场景未接入自动化工具，建议转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+        "status": "escalated",
+        "durationMs": 6641,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-039",
+        "source": "manual_mvp",
+        "category": "points_dispute",
+        "ticket": {
+          "title": "积分兑换失败",
+          "content": "客户号C20039反馈积分兑换航空里程时系统提示失败，但积分已扣减，希望核查并恢复积分或完成兑换。",
+          "riskLevel": "medium",
+          "customerId": "C20039",
+          "phone": "137****2039",
+          "cardLast4": "2039"
+        },
+        "expected": {
+          "intentType": "UNKNOWN",
+          "ticketType": "积分兑换争议",
+          "workflowName": "unknown_flow",
+          "requiredFields": [
+            "customerId",
+            "summary"
+          ],
+          "expectedFields": {
+            "customerId": "C20039",
+            "summary": "积分兑换失败但积分已扣减"
+          },
+          "expectedTool": "",
+          "expectedStatus": "escalated",
+          "expectedResult": "积分兑换争议转人工核查",
+          "replyPoints": [
+            "说明已记录积分兑换异常",
+            "提示人工核查扣减和兑换记录"
+          ],
+          "requiresHuman": true
+        }
+      },
+      "ticket": {
+        "title": "积分兑换失败",
+        "content": "客户号C20039反馈积分兑换航空里程时系统提示失败，但积分已扣减，希望核查并恢复积分或完成兑换。",
+        "riskLevel": "medium",
+        "customerId": "C20039",
+        "phone": "137****2039",
+        "cardLast4": "2039"
+      },
+      "expected": {
+        "intentType": "UNKNOWN",
+        "ticketType": "积分兑换争议",
+        "workflowName": "unknown_flow",
+        "requiredFields": [
+          "customerId",
+          "summary"
+        ],
+        "expectedFields": {
+          "customerId": "C20039",
+          "summary": "积分兑换失败但积分已扣减"
+        },
+        "expectedTool": "",
+        "expectedStatus": "escalated",
+        "expectedResult": "积分兑换争议转人工核查",
+        "replyPoints": [
+          "说明已记录积分兑换异常",
+          "提示人工核查扣减和兑换记录"
+        ],
+        "requiresHuman": true
+      },
+      "outputs": {
+        "intent": {
+          "type": "UNKNOWN",
+          "label": "未知场景",
+          "confidence": 0.95,
+          "workflow_name": "unknown_flow",
+          "reason": "命中尚未接入自动工具的扩展场景关键词: 积分兑换"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20039"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "诉求摘要",
+            "name": "summary",
+            "value": "积分兑换航空里程失败，积分已扣减，要求核查并恢复积分或完成兑换"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "未知场景需人工分流",
+              "status": "需复核"
+            }
+          ],
+          "risk_level": "medium",
+          "risk_decision": "当前场景未接入自动化工具，建议转人工处理",
+          "can_auto_proceed": false,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "",
+          "tool_params": {},
+          "skip": true,
+          "skip_reason": ""
+        },
+        "toolResult": {},
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "已认真核实您的未知场景诉求。由于当前场景未接入自动化工具，建议转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "C20039 的工单已升级人工。升级原因：当前场景未接入自动化工具，建议转人工处理。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "当前场景未接入自动化工具，建议转人工处理",
+            "risk_decision": "当前场景未接入自动化工具，建议转人工处理",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [],
+            "suggested_action": "人工复核风险原因、工具结果和客户原始诉求后处理。"
+          },
+          "closure_suggestion": {
+            "can_close": false,
+            "reason": "当前状态仍需补充、确认或人工处理，不建议直接结案。",
+            "final_reply": "待人工处理完成后，根据结果生成最终回单。",
+            "requires_human_review": true
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "",
+            "trigger_status": ""
+          }
+        },
+        "replyDraft": "已认真核实您的未知场景诉求。由于当前场景未接入自动化工具，建议转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+        "status": "escalated",
+        "durationMs": 5908,
+        "requiresHumanReview": true
+      }
+    }
+  ]
+}

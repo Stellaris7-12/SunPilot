@@ -8,8 +8,9 @@ LLM directly.
 import sys
 from pathlib import Path
 
-ENGINE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ENGINE_DIR))
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
+sys.path.insert(0, str(BACKEND_DIR / "tests"))
 
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from pathlib import Path
 
 
 from ticket_agent.config import LLM_API_KEY  # noqa: E402
-from evaluation.evaluator import evaluator  # noqa: E402
+from evaluator import evaluator  # noqa: E402
 from ticket_agent.orchestrator.orchestrator import orchestrator  # noqa: E402
 from ticket_agent.orchestrator.workflow_config import load_workflow_config  # noqa: E402
 from ticket_agent.tools.mock_executor import mock_executor  # noqa: E402

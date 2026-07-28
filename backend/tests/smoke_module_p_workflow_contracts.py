@@ -4,8 +4,9 @@ import json
 import sys
 from pathlib import Path
 
-ENGINE_DIR = Path(__file__).resolve().parent.parent
-ROOT_DIR = ENGINE_DIR.parent
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
+ROOT_DIR = BACKEND_DIR.parent
 
 from ticket_agent.main import _build_page_task_from_hints, _build_page_task_hints, _detect_call_scenario  # noqa: E402
 from ticket_agent.models.domain.workflow import WorkflowConfig, workflow_scenario  # noqa: E402
@@ -20,7 +21,7 @@ def _classifier_enum_values(agent_cards: list[dict]) -> set[str]:
 def main():
     workflow_payload = load_workflow_config()
     workflow = WorkflowConfig.model_validate(workflow_payload)
-    cards = json.loads((ROOT_DIR / "src" / "ticket_agent" / "data" /  "agent_cards.json").read_text(encoding="utf-8"))
+    cards = json.loads((BACKEND_DIR / "src" / "ticket_agent" / "data" /  "agent_cards.json").read_text(encoding="utf-8"))
 
     scenario_names = set(workflow.scenarios.keys())
     classifier_enums = _classifier_enum_values(cards)

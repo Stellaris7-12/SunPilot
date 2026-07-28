@@ -1,0 +1,257 @@
+{
+  "metrics": {
+    "intent_accuracy": 1.0,
+    "field_completeness": 1.0,
+    "tool_correctness": 0.0,
+    "avg_time_saved_seconds": 113.1,
+    "total_samples": 40,
+    "agents": {
+      "classifier": {
+        "intentAccuracy": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "workflowConsistency": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "priorityConsistency": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      },
+      "intake": {
+        "fieldCompleteness": {
+          "score": 1.0,
+          "correct": 3.0,
+          "total": 3
+        },
+        "missingFieldAccuracy": {
+          "score": 1.0,
+          "correct": 3.0,
+          "total": 3
+        }
+      },
+      "resolution": {
+        "toolCorrectness": {
+          "score": 0.0,
+          "correct": 0.0,
+          "total": 0
+        },
+        "parameterAccuracy": {
+          "score": 0.0,
+          "correct": 0.0,
+          "total": 0
+        },
+        "executionSuccess": {
+          "score": 0.0,
+          "correct": 0.0,
+          "total": 0
+        }
+      },
+      "notification": {
+        "replyPointCoverage": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        },
+        "templateCompliance": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "readabilityScore": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      },
+      "escalation": {
+        "exceptionRecognition": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "humanInterventionAccuracy": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      }
+    },
+    "closed_loop_success_rate": 1.0,
+    "avg_processing_ms": 6881.0,
+    "evaluated_samples": 1,
+    "avg_manual_steps_saved": 3.0,
+    "source": "agent_run"
+  },
+  "records": [
+    {
+      "sample": {
+        "id": "eval-011",
+        "source": "manual_mvp",
+        "category": "customer_profile_update",
+        "ticket": {
+          "title": "新增紧急联系人地址备注",
+          "content": "客户号C20011希望把账单联系地址更新为北京市朝阳区样例街66号，并备注紧急联系人王先生，身份核验verifyStatus为PASSED。",
+          "riskLevel": "medium",
+          "customerId": "C20011",
+          "phone": "138****2011",
+          "cardLast4": "2011"
+        },
+        "expected": {
+          "intentType": "CUSTOMER_ADDRESS_UPDATE",
+          "ticketType": "资料变更",
+          "workflowName": "address_update_flow",
+          "requiredFields": [
+            "customerId",
+            "newAddress",
+            "verifyStatus"
+          ],
+          "expectedFields": {
+            "customerId": "C20011",
+            "newAddress": "北京市朝阳区样例街66号",
+            "verifyStatus": "PASSED"
+          },
+          "expectedTool": "customer.update-address",
+          "expectedStatus": "pending_human_confirm",
+          "expectedResult": "人工确认后更新账单联系地址",
+          "replyPoints": [
+            "说明地址变更处理结果",
+            "提醒敏感资料变更需复核"
+          ],
+          "requiresHuman": true
+        }
+      },
+      "ticket": {
+        "title": "新增紧急联系人地址备注",
+        "content": "客户号C20011希望把账单联系地址更新为北京市朝阳区样例街66号，并备注紧急联系人王先生，身份核验verifyStatus为PASSED。",
+        "riskLevel": "medium",
+        "customerId": "C20011",
+        "phone": "138****2011",
+        "cardLast4": "2011"
+      },
+      "expected": {
+        "intentType": "CUSTOMER_ADDRESS_UPDATE",
+        "ticketType": "资料变更",
+        "workflowName": "address_update_flow",
+        "requiredFields": [
+          "customerId",
+          "newAddress",
+          "verifyStatus"
+        ],
+        "expectedFields": {
+          "customerId": "C20011",
+          "newAddress": "北京市朝阳区样例街66号",
+          "verifyStatus": "PASSED"
+        },
+        "expectedTool": "customer.update-address",
+        "expectedStatus": "pending_human_confirm",
+        "expectedResult": "人工确认后更新账单联系地址",
+        "replyPoints": [
+          "说明地址变更处理结果",
+          "提醒敏感资料变更需复核"
+        ],
+        "requiresHuman": true
+      },
+      "outputs": {
+        "intent": {
+          "type": "CUSTOMER_ADDRESS_UPDATE",
+          "label": "资料修改",
+          "confidence": 1.0,
+          "workflow_name": "address_update_flow",
+          "reason": "客户明确要求更新账单联系地址和紧急联系人信息，属于资料修改场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20011"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "新地址",
+            "name": "newAddress",
+            "value": "北京市朝阳区样例街66号"
+          },
+          {
+            "label": "身份核验状态",
+            "name": "verifyStatus",
+            "value": "PASSED"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "敏感或中风险操作需人工确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "medium",
+          "risk_decision": "信息已基本齐全，但涉及敏感或中风险操作，需人工确认后再继续",
+          "can_auto_proceed": false,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "",
+          "tool_params": {},
+          "skip": true,
+          "skip_reason": ""
+        },
+        "toolResult": {},
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "已认真核实您的资料修改诉求。该事项涉及敏感业务操作，需要工作人员复核确认后继续处理。",
+            "status": "needs_review",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "C20011 的工单已暂停在人工确认节点，原因：信息已基本齐全，但涉及敏感或中风险操作，需人工确认后再继续。确认后再执行后续业务动作。 模板要求：已根据客户申请和身份核验结果处理资料修改，并提示客户关注后续生效状态。",
+            "status": "needs_review",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "信息已基本齐全，但涉及敏感或中风险操作，需人工确认后再继续",
+            "risk_decision": "信息已基本齐全，但涉及敏感或中风险操作，需人工确认后再继续",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [],
+            "suggested_action": "核对抽取字段与客户身份信息，确认后继续执行，拒绝则升级人工。"
+          },
+          "closure_suggestion": {
+            "can_close": false,
+            "reason": "当前状态仍需补充、确认或人工处理，不建议直接结案。",
+            "final_reply": "已认真核实您的资料修改诉求。该事项涉及敏感业务操作，需要工作人员复核确认后继续处理。",
+            "requires_human_review": true
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "",
+            "trigger_status": ""
+          }
+        },
+        "replyDraft": "已认真核实您的资料修改诉求。该事项涉及敏感业务操作，需要工作人员复核确认后继续处理。",
+        "status": "pending_human_confirm",
+        "durationMs": 6881,
+        "requiresHumanReview": true
+      }
+    }
+  ]
+}

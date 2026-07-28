@@ -3,8 +3,9 @@
 import sys
 from pathlib import Path
 
-ENGINE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ENGINE_DIR))
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
+sys.path.insert(0, str(BACKEND_DIR / "tests"))
 
 import asyncio
 import importlib
@@ -13,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
+from mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
 
 
 def _load_modules():

@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT_DIR / "backend" / "src"))
 
 from ticket_agent.config import DB_BACKEND, TICKETS_JSON  # noqa: E402
 from ticket_agent.models.database import get_db, init_db, insert_ticket_row, _seed_mock_domain_data  # noqa: E402

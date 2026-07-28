@@ -1,0 +1,1398 @@
+{
+  "metrics": {
+    "intent_accuracy": 1.0,
+    "field_completeness": 1.0,
+    "tool_correctness": 1.0,
+    "avg_time_saved_seconds": 111.3,
+    "total_samples": 40,
+    "agents": {
+      "classifier": {
+        "intentAccuracy": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        },
+        "workflowConsistency": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        },
+        "priorityConsistency": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        }
+      },
+      "intake": {
+        "fieldCompleteness": {
+          "score": 1.0,
+          "correct": 20.0,
+          "total": 20
+        },
+        "missingFieldAccuracy": {
+          "score": 1.0,
+          "correct": 20.0,
+          "total": 20
+        }
+      },
+      "resolution": {
+        "toolCorrectness": {
+          "score": 1.0,
+          "correct": 5.0,
+          "total": 5
+        },
+        "parameterAccuracy": {
+          "score": 1.0,
+          "correct": 13.0,
+          "total": 13
+        },
+        "executionSuccess": {
+          "score": 1.0,
+          "correct": 5.0,
+          "total": 5
+        }
+      },
+      "notification": {
+        "replyPointCoverage": {
+          "score": 0.9375,
+          "correct": 15.0,
+          "total": 16
+        },
+        "templateCompliance": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        },
+        "readabilityScore": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        }
+      },
+      "escalation": {
+        "exceptionRecognition": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        },
+        "humanInterventionAccuracy": {
+          "score": 1.0,
+          "correct": 7.0,
+          "total": 7
+        }
+      }
+    },
+    "closed_loop_success_rate": 1.0,
+    "avg_processing_ms": 8729.4,
+    "evaluated_samples": 7,
+    "avg_manual_steps_saved": 3.9,
+    "source": "agent_run"
+  },
+  "records": [
+    {
+      "sample": {
+        "id": "eval-004",
+        "source": "manual_mvp",
+        "category": "coupon_reissue",
+        "ticket": {
+          "title": "观影券过期争议",
+          "content": "客户号C20004反馈观影券MOVIE_60_20刚收到就显示过期，客户认为是系统延迟导致，原因是券状态异常过期，希望重新补发一张可用券。",
+          "riskLevel": "low",
+          "customerId": "C20004",
+          "phone": "136****2004",
+          "cardLast4": "2004"
+        },
+        "expected": {
+          "intentType": "COUPON_REISSUE",
+          "ticketType": "权益/优惠券补发",
+          "workflowName": "coupon_reissue_flow",
+          "requiredFields": [
+            "customerId",
+            "couponType",
+            "reason"
+          ],
+          "expectedFields": {
+            "customerId": "C20004",
+            "couponType": "MOVIE_60_20",
+            "reason": "券状态异常过期"
+          },
+          "expectedTool": "coupon.reissue",
+          "expectedStatus": "pending_human_review",
+          "expectedResult": "补发观影券或记录补发建议",
+          "replyPoints": [
+            "说明券状态核实结果",
+            "给出补发处理结论",
+            "提示客户查看有效期"
+          ],
+          "requiresHuman": false
+        }
+      },
+      "ticket": {
+        "title": "观影券过期争议",
+        "content": "客户号C20004反馈观影券MOVIE_60_20刚收到就显示过期，客户认为是系统延迟导致，原因是券状态异常过期，希望重新补发一张可用券。",
+        "riskLevel": "low",
+        "customerId": "C20004",
+        "phone": "136****2004",
+        "cardLast4": "2004"
+      },
+      "expected": {
+        "intentType": "COUPON_REISSUE",
+        "ticketType": "权益/优惠券补发",
+        "workflowName": "coupon_reissue_flow",
+        "requiredFields": [
+          "customerId",
+          "couponType",
+          "reason"
+        ],
+        "expectedFields": {
+          "customerId": "C20004",
+          "couponType": "MOVIE_60_20",
+          "reason": "券状态异常过期"
+        },
+        "expectedTool": "coupon.reissue",
+        "expectedStatus": "pending_human_review",
+        "expectedResult": "补发观影券或记录补发建议",
+        "replyPoints": [
+          "说明券状态核实结果",
+          "给出补发处理结论",
+          "提示客户查看有效期"
+        ],
+        "requiresHuman": false
+      },
+      "outputs": {
+        "intent": {
+          "type": "COUPON_REISSUE",
+          "label": "优惠券/权益补发",
+          "confidence": 0.95,
+          "workflow_name": "coupon_reissue_flow",
+          "reason": "客户反馈观影券刚收到就过期，认为是系统延迟导致，要求重新补发，属于优惠券补发场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20004"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "券类型描述",
+            "name": "couponType",
+            "value": "观影券MOVIE_60_20"
+          },
+          {
+            "label": "补发原因",
+            "name": "reason",
+            "value": "券状态异常过期"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "分类结果可信",
+              "status": "通过"
+            },
+            {
+              "label": "操作需人工终审确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "low",
+          "risk_decision": "低风险，可进入人工终审结单",
+          "can_auto_proceed": true,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "coupon.reissue",
+          "tool_params": {
+            "customerId": "C20004",
+            "couponType": "MOVIE_60_20",
+            "reason": "券状态异常过期"
+          },
+          "skip": false,
+          "skip_reason": ""
+        },
+        "toolResult": {
+          "success": true,
+          "toolName": "coupon.reissue",
+          "evidenceId": "CP20260719F83CD39A",
+          "action": "补发优惠券",
+          "businessResult": "优惠券已补发到账",
+          "nextStep": "通知客户在 App 优惠券中心查收",
+          "requiresHuman": false,
+          "failureReason": "",
+          "data": {
+            "success": true,
+            "couponId": "CP20260719010528",
+            "status": "ISSUED",
+            "businessResult": "优惠券已补发到账",
+            "nextStep": "通知客户在 App 优惠券中心查收",
+            "evidenceId": "CP20260719F83CD39A"
+          },
+          "message": "工具 优惠券补发 执行成功",
+          "durationMs": 510
+        },
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "尊敬的客户，您反馈的观影券（MOVIE_60_20）因状态异常过期问题，我们已核实并为您补发了一张新的优惠券，券号CP20260719010528，请登录App优惠券中心查收。如有疑问，请联系客服。",
+            "status": "ready",
+            "evidence_ids": [
+              "CP20260719F83CD39A"
+            ],
+            "next_owner": "customer"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "系统已通过工具coupon.reissue补发优惠券（证据ID: CP20260719F83CD39A），补发成功，券号CP20260719010528。原因：券状态异常过期。下一步：通知客户查收。",
+            "status": "ready",
+            "evidence_ids": [
+              "CP20260719F83CD39A"
+            ],
+            "next_owner": "agent"
+          },
+          "review_summary": {
+            "reason": "低风险，券状态异常过期，已自动补发成功",
+            "risk_decision": "low",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [
+              "CP20260719F83CD39A"
+            ],
+            "suggested_action": "确认补发结果，通知客户查收"
+          },
+          "closure_suggestion": {
+            "can_close": true,
+            "reason": "补发成功，无后续风险",
+            "final_reply": "尊敬的客户，您反馈的观影券（MOVIE_60_20）因状态异常过期问题，我们已核实并为您补发了一张新的优惠券，券号CP20260719010528，请登录App优惠券中心查收。如有疑问，请联系客服。",
+            "requires_human_review": false
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "建议结案后进行满意度回访，确认客户是否认可处理结果。",
+            "trigger_status": "closed"
+          }
+        },
+        "replyDraft": "尊敬的客户，您反馈的观影券（MOVIE_60_20）因状态异常过期问题，我们已核实并为您补发了一张新的优惠券，券号CP20260719010528，请登录App优惠券中心查收。如有疑问，请联系客服。",
+        "status": "pending_human_review",
+        "durationMs": 11578,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-006",
+        "source": "manual_mvp",
+        "category": "application_progress",
+        "ticket": {
+          "title": "额度调整申请进度查询",
+          "content": "客户号C20006反馈上周提交临时额度申请，业务流水号APP20260718006，想查询调额申请是否已经进入审核。",
+          "riskLevel": "low",
+          "customerId": "C20006",
+          "phone": "134****2006",
+          "cardLast4": "2006"
+        },
+        "expected": {
+          "intentType": "APPLICATION_PROGRESS_QUERY",
+          "ticketType": "申请进度查询",
+          "workflowName": "application_progress_query_flow",
+          "requiredFields": [
+            "customerId",
+            "applicationNo"
+          ],
+          "expectedFields": {
+            "customerId": "C20006",
+            "applicationNo": "APP20260718006"
+          },
+          "expectedTool": "application.progress-query",
+          "expectedStatus": "pending_human_review",
+          "expectedResult": "查询调额申请进度",
+          "replyPoints": [
+            "说明当前申请节点",
+            "提示审核结果以系统通知为准"
+          ],
+          "requiresHuman": false
+        }
+      },
+      "ticket": {
+        "title": "额度调整申请进度查询",
+        "content": "客户号C20006反馈上周提交临时额度申请，业务流水号APP20260718006，想查询调额申请是否已经进入审核。",
+        "riskLevel": "low",
+        "customerId": "C20006",
+        "phone": "134****2006",
+        "cardLast4": "2006"
+      },
+      "expected": {
+        "intentType": "APPLICATION_PROGRESS_QUERY",
+        "ticketType": "申请进度查询",
+        "workflowName": "application_progress_query_flow",
+        "requiredFields": [
+          "customerId",
+          "applicationNo"
+        ],
+        "expectedFields": {
+          "customerId": "C20006",
+          "applicationNo": "APP20260718006"
+        },
+        "expectedTool": "application.progress-query",
+        "expectedStatus": "pending_human_review",
+        "expectedResult": "查询调额申请进度",
+        "replyPoints": [
+          "说明当前申请节点",
+          "提示审核结果以系统通知为准"
+        ],
+        "requiresHuman": false
+      },
+      "outputs": {
+        "intent": {
+          "type": "APPLICATION_PROGRESS_QUERY",
+          "label": "申请进度查询",
+          "confidence": 1.0,
+          "workflow_name": "application_progress_query_flow",
+          "reason": "客户明确查询临时额度申请的审核进度，属于申请进度查询场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20006"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "申请单号",
+            "name": "applicationNo",
+            "value": "APP20260718006"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "分类结果可信",
+              "status": "通过"
+            },
+            {
+              "label": "操作需人工终审确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "low",
+          "risk_decision": "低风险，可进入人工终审结单",
+          "can_auto_proceed": true,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "application.progress-query",
+          "tool_params": {
+            "customerId": "C20006",
+            "applicationNo": "APP20260718006"
+          },
+          "skip": false,
+          "skip_reason": ""
+        },
+        "toolResult": {
+          "success": true,
+          "toolName": "application.progress-query",
+          "evidenceId": "APP2026071944A193FF",
+          "action": "查询申请进度",
+          "businessResult": "申请正在资料审核中",
+          "nextStep": "告知客户预计完成时间并提醒保持联系方式畅通",
+          "requiresHuman": false,
+          "failureReason": "",
+          "data": {
+            "success": true,
+            "applicationNo": "APP20260719010537",
+            "stage": "资料审核中",
+            "eta": "1-2个工作日",
+            "businessResult": "申请正在资料审核中",
+            "nextStep": "告知客户预计完成时间并提醒保持联系方式畅通",
+            "evidenceId": "APP2026071944A193FF"
+          },
+          "message": "工具 查询申请进度 执行成功",
+          "durationMs": 608
+        },
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "您好，您申请的信用卡（申请单号：APP20260719010537）当前进度为：资料审核中。预计完成时间为1-2个工作日，请您保持联系方式畅通。如有疑问，可致电客服热线。",
+            "status": "ready",
+            "evidence_ids": [
+              "APP2026071944A193FF"
+            ],
+            "next_owner": "customer"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "系统已通过工具application.progress-query查询申请进度，证据编号APP2026071944A193FF。结果为资料审核中，预计1-2个工作日。已生成标准回单，无需人工干预。",
+            "status": "ready",
+            "evidence_ids": [
+              "APP2026071944A193FF"
+            ],
+            "next_owner": "system"
+          },
+          "review_summary": {
+            "reason": "低风险，可进入人工终审结单",
+            "risk_decision": "low",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [
+              "APP2026071944A193FF"
+            ],
+            "suggested_action": "人工复核后结案"
+          },
+          "closure_suggestion": {
+            "can_close": true,
+            "reason": "查询结果明确，风险低，已生成标准回单",
+            "final_reply": "您好，您申请的信用卡（申请单号：APP20260719010537）当前进度为：资料审核中。预计完成时间为1-2个工作日，请您保持联系方式畅通。如有疑问，可致电客服热线。",
+            "requires_human_review": false
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "建议结案后进行满意度回访，确认客户是否认可处理结果。",
+            "trigger_status": "closed"
+          }
+        },
+        "replyDraft": "您好，您申请的信用卡（申请单号：APP20260719010537）当前进度为：资料审核中。预计完成时间为1-2个工作日，请您保持联系方式畅通。如有疑问，可致电客服热线。",
+        "status": "pending_human_review",
+        "durationMs": 7513,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-016",
+        "source": "manual_mvp",
+        "category": "benefit_query",
+        "ticket": {
+          "title": "积分兑换资格查询",
+          "content": "客户号C20016咨询积分兑换里程活动POINT_MILEAGE_2026是否可参加，查询原因是准备把积分兑换为航空里程。",
+          "riskLevel": "low",
+          "customerId": "C20016",
+          "phone": "133****2016",
+          "cardLast4": "2016"
+        },
+        "expected": {
+          "intentType": "BENEFIT_QUERY",
+          "ticketType": "积分兑换资格核验",
+          "workflowName": "benefit_query_flow",
+          "requiredFields": [
+            "customerId",
+            "benefitCode",
+            "queryReason"
+          ],
+          "expectedFields": {
+            "customerId": "C20016",
+            "benefitCode": "POINT_MILEAGE_2026",
+            "queryReason": "准备积分兑换航空里程"
+          },
+          "expectedTool": "benefit.query",
+          "expectedStatus": "pending_human_review",
+          "expectedResult": "查询积分兑换资格",
+          "replyPoints": [
+            "说明兑换资格",
+            "提示积分兑换规则"
+          ],
+          "requiresHuman": false
+        }
+      },
+      "ticket": {
+        "title": "积分兑换资格查询",
+        "content": "客户号C20016咨询积分兑换里程活动POINT_MILEAGE_2026是否可参加，查询原因是准备把积分兑换为航空里程。",
+        "riskLevel": "low",
+        "customerId": "C20016",
+        "phone": "133****2016",
+        "cardLast4": "2016"
+      },
+      "expected": {
+        "intentType": "BENEFIT_QUERY",
+        "ticketType": "积分兑换资格核验",
+        "workflowName": "benefit_query_flow",
+        "requiredFields": [
+          "customerId",
+          "benefitCode",
+          "queryReason"
+        ],
+        "expectedFields": {
+          "customerId": "C20016",
+          "benefitCode": "POINT_MILEAGE_2026",
+          "queryReason": "准备积分兑换航空里程"
+        },
+        "expectedTool": "benefit.query",
+        "expectedStatus": "pending_human_review",
+        "expectedResult": "查询积分兑换资格",
+        "replyPoints": [
+          "说明兑换资格",
+          "提示积分兑换规则"
+        ],
+        "requiresHuman": false
+      },
+      "outputs": {
+        "intent": {
+          "type": "BENEFIT_QUERY",
+          "label": "权益资格查询",
+          "confidence": 0.95,
+          "workflow_name": "benefit_query_flow",
+          "reason": "客户咨询积分兑换里程活动的参与资格，属于权益资格查询场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20016"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "权益或活动编码",
+            "name": "benefitCode",
+            "value": "POINT_MILEAGE_2026"
+          },
+          {
+            "label": "查询原因",
+            "name": "queryReason",
+            "value": "准备把积分兑换为航空里程"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "分类结果可信",
+              "status": "通过"
+            },
+            {
+              "label": "操作需人工终审确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "low",
+          "risk_decision": "低风险，可进入人工终审结单",
+          "can_auto_proceed": true,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "benefit.query",
+          "tool_params": {
+            "customerId": "C20016",
+            "benefitCode": "POINT_MILEAGE_2026",
+            "queryReason": "准备把积分兑换为航空里程"
+          },
+          "skip": false,
+          "skip_reason": ""
+        },
+        "toolResult": {
+          "success": true,
+          "toolName": "benefit.query",
+          "evidenceId": "BEN202607194EB7FCEB",
+          "action": "查询权益资格",
+          "businessResult": "客户具备该权益使用资格",
+          "nextStep": "向客户说明权益使用规则和有效期",
+          "requiresHuman": false,
+          "failureReason": "",
+          "data": {
+            "success": true,
+            "benefitCode": "AIRPORT_LOUNGE_2026",
+            "eligible": true,
+            "status": "ACTIVE",
+            "businessResult": "客户具备该权益使用资格",
+            "nextStep": "向客户说明权益使用规则和有效期",
+            "evidenceId": "BEN202607194EB7FCEB"
+          },
+          "message": "工具 查询权益资格 执行成功",
+          "durationMs": 460
+        },
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "尊敬的客户，您查询的权益（编码：POINT_MILEAGE_2026）当前状态为可用，您具备使用资格。该权益可用于将积分兑换为航空里程，具体使用规则和有效期请参考权益说明。如需进一步协助，请随时联系我们。",
+            "status": "ready",
+            "evidence_ids": [
+              "BEN202607194EB7FCEB"
+            ],
+            "next_owner": "customer"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "系统已通过工具benefit.query查询客户C20016的权益POINT_MILEAGE_2026资格，结果可用。证据编号BEN202607194EB7FCEB。因低风险，建议人工终审结单。",
+            "status": "ready",
+            "evidence_ids": [
+              "BEN202607194EB7FCEB"
+            ],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "低风险，可进入人工终审结单",
+            "risk_decision": "low",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [
+              "BEN202607194EB7FCEB"
+            ],
+            "suggested_action": "人工复核后结案"
+          },
+          "closure_suggestion": {
+            "can_close": true,
+            "reason": "查询成功，权益可用，低风险",
+            "final_reply": "尊敬的客户，您查询的权益（编码：POINT_MILEAGE_2026）当前状态为可用，您具备使用资格。该权益可用于将积分兑换为航空里程，具体使用规则和有效期请参考权益说明。如需进一步协助，请随时联系我们。",
+            "requires_human_review": false
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "建议结案后进行满意度回访，确认客户是否认可处理结果。",
+            "trigger_status": "closed"
+          }
+        },
+        "replyDraft": "尊敬的客户，您查询的权益（编码：POINT_MILEAGE_2026）当前状态为可用，您具备使用资格。该权益可用于将积分兑换为航空里程，具体使用规则和有效期请参考权益说明。如需进一步协助，请随时联系我们。",
+        "status": "pending_human_review",
+        "durationMs": 8070,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-018",
+        "source": "manual_mvp",
+        "category": "transaction_dispute",
+        "ticket": {
+          "title": "非本人消费争议",
+          "content": "客户号C20018投诉2026-07-11一笔199.00元交易非本人操作，商户为样例超市，怀疑卡片被盗刷，要求核查交易并申请争议处理。",
+          "riskLevel": "high",
+          "customerId": "C20018",
+          "phone": "131****2018",
+          "cardLast4": "2018"
+        },
+        "expected": {
+          "intentType": "TRANSACTION_DISPUTE",
+          "ticketType": "交易争议/盗刷疑似",
+          "workflowName": "transaction_dispute_flow",
+          "requiredFields": [
+            "customerId",
+            "transactionDate",
+            "amount",
+            "merchantName"
+          ],
+          "expectedFields": {
+            "customerId": "C20018",
+            "transactionDate": "2026-07-11",
+            "amount": "199.00",
+            "merchantName": "样例超市"
+          },
+          "expectedTool": "transaction.query",
+          "expectedStatus": "escalated",
+          "expectedResult": "高风险盗刷疑似场景升级人工争议岗",
+          "replyPoints": [
+            "说明已记录争议诉求",
+            "提示人工复核和材料要求",
+            "建议客户关注卡片安全"
+          ],
+          "requiresHuman": true
+        }
+      },
+      "ticket": {
+        "title": "非本人消费争议",
+        "content": "客户号C20018投诉2026-07-11一笔199.00元交易非本人操作，商户为样例超市，怀疑卡片被盗刷，要求核查交易并申请争议处理。",
+        "riskLevel": "high",
+        "customerId": "C20018",
+        "phone": "131****2018",
+        "cardLast4": "2018"
+      },
+      "expected": {
+        "intentType": "TRANSACTION_DISPUTE",
+        "ticketType": "交易争议/盗刷疑似",
+        "workflowName": "transaction_dispute_flow",
+        "requiredFields": [
+          "customerId",
+          "transactionDate",
+          "amount",
+          "merchantName"
+        ],
+        "expectedFields": {
+          "customerId": "C20018",
+          "transactionDate": "2026-07-11",
+          "amount": "199.00",
+          "merchantName": "样例超市"
+        },
+        "expectedTool": "transaction.query",
+        "expectedStatus": "escalated",
+        "expectedResult": "高风险盗刷疑似场景升级人工争议岗",
+        "replyPoints": [
+          "说明已记录争议诉求",
+          "提示人工复核和材料要求",
+          "建议客户关注卡片安全"
+        ],
+        "requiresHuman": true
+      },
+      "outputs": {
+        "intent": {
+          "type": "TRANSACTION_DISPUTE",
+          "label": "交易争议/交易核查",
+          "confidence": 1.0,
+          "workflow_name": "transaction_dispute_flow",
+          "reason": "客户明确表示交易非本人操作，要求核查并申请争议处理，符合交易争议场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20018"
+          },
+          {
+            "label": "交易日期",
+            "name": "transactionDate",
+            "value": "2026-07-11"
+          },
+          {
+            "label": "交易金额",
+            "name": "amount",
+            "value": "199.00"
+          },
+          {
+            "label": "商户名称",
+            "name": "merchantName",
+            "value": "样例超市"
+          },
+          {
+            "label": "争议原因",
+            "name": "disputeReason",
+            "value": "非本人操作，怀疑卡片被盗刷"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "工单标记为高风险，建议转人工",
+              "status": "已拦截"
+            }
+          ],
+          "risk_level": "high",
+          "risk_decision": "高风险工单，已转人工审核",
+          "can_auto_proceed": false,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "",
+          "tool_params": {},
+          "skip": true,
+          "skip_reason": ""
+        },
+        "toolResult": {},
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "已认真核实您的交易争议/交易核查诉求。由于高风险工单，已转人工审核，该工单已转人工复核处理，后续将由专员跟进。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "C20018 的工单已升级人工。升级原因：高风险工单，已转人工审核。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "高风险工单，已转人工审核",
+            "risk_decision": "高风险工单，已转人工审核",
+            "missing_fields": [
+              "卡片最后使用时间",
+              "客户联系方式",
+              "交易IP/设备信息"
+            ],
+            "tool_evidence_ids": [],
+            "suggested_action": "人工复核风险原因、工具结果和客户原始诉求后处理。"
+          },
+          "closure_suggestion": {
+            "can_close": false,
+            "reason": "当前状态仍需补充、确认或人工处理，不建议直接结案。",
+            "final_reply": "已认真核实您的交易争议/交易核查诉求。由于高风险工单，已转人工审核，该工单已转人工复核处理，后续将由专员跟进。",
+            "requires_human_review": true
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "",
+            "trigger_status": ""
+          }
+        },
+        "replyDraft": "已认真核实您的交易争议/交易核查诉求。由于高风险工单，已转人工审核，该工单已转人工复核处理，后续将由专员跟进。",
+        "status": "escalated",
+        "durationMs": 7219,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-031",
+        "source": "manual_mvp",
+        "category": "coupon_reissue",
+        "ticket": {
+          "title": "加油券未到账",
+          "content": "客户号C20031反馈加油满减活动达标后未收到FUEL_200_30加油券，原因是活动达标未到账，希望补发。",
+          "riskLevel": "low",
+          "customerId": "C20031",
+          "phone": "136****2031",
+          "cardLast4": "2031"
+        },
+        "expected": {
+          "intentType": "COUPON_REISSUE",
+          "ticketType": "权益/优惠券补发",
+          "workflowName": "coupon_reissue_flow",
+          "requiredFields": [
+            "customerId",
+            "couponType",
+            "reason"
+          ],
+          "expectedFields": {
+            "customerId": "C20031",
+            "couponType": "FUEL_200_30",
+            "reason": "活动达标未到账"
+          },
+          "expectedTool": "coupon.reissue",
+          "expectedStatus": "pending_human_review",
+          "expectedResult": "补发加油满减券",
+          "replyPoints": [
+            "说明补发结果",
+            "提示客户查看优惠券中心"
+          ],
+          "requiresHuman": false
+        }
+      },
+      "ticket": {
+        "title": "加油券未到账",
+        "content": "客户号C20031反馈加油满减活动达标后未收到FUEL_200_30加油券，原因是活动达标未到账，希望补发。",
+        "riskLevel": "low",
+        "customerId": "C20031",
+        "phone": "136****2031",
+        "cardLast4": "2031"
+      },
+      "expected": {
+        "intentType": "COUPON_REISSUE",
+        "ticketType": "权益/优惠券补发",
+        "workflowName": "coupon_reissue_flow",
+        "requiredFields": [
+          "customerId",
+          "couponType",
+          "reason"
+        ],
+        "expectedFields": {
+          "customerId": "C20031",
+          "couponType": "FUEL_200_30",
+          "reason": "活动达标未到账"
+        },
+        "expectedTool": "coupon.reissue",
+        "expectedStatus": "pending_human_review",
+        "expectedResult": "补发加油满减券",
+        "replyPoints": [
+          "说明补发结果",
+          "提示客户查看优惠券中心"
+        ],
+        "requiresHuman": false
+      },
+      "outputs": {
+        "intent": {
+          "type": "COUPON_REISSUE",
+          "label": "优惠券/权益补发",
+          "confidence": 1.0,
+          "workflow_name": "coupon_reissue_flow",
+          "reason": "客户反馈加油满减活动达标后未收到加油券，要求补发，属于优惠券未到账场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20031"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "券类型描述",
+            "name": "couponType",
+            "value": "FUEL_200_30加油券"
+          },
+          {
+            "label": "补发原因",
+            "name": "reason",
+            "value": "活动达标未到账"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "分类结果可信",
+              "status": "通过"
+            },
+            {
+              "label": "操作需人工终审确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "low",
+          "risk_decision": "低风险，可进入人工终审结单",
+          "can_auto_proceed": true,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "coupon.reissue",
+          "tool_params": {
+            "customerId": "C20031",
+            "couponType": "FUEL_200_30",
+            "reason": "活动达标未到账"
+          },
+          "skip": false,
+          "skip_reason": ""
+        },
+        "toolResult": {
+          "success": true,
+          "toolName": "coupon.reissue",
+          "evidenceId": "CP2026071943218E51",
+          "action": "补发优惠券",
+          "businessResult": "优惠券已补发到账",
+          "nextStep": "通知客户在 App 优惠券中心查收",
+          "requiresHuman": false,
+          "failureReason": "",
+          "data": {
+            "success": true,
+            "couponId": "CP20260719010601",
+            "status": "ISSUED",
+            "businessResult": "优惠券已补发到账",
+            "nextStep": "通知客户在 App 优惠券中心查收",
+            "evidenceId": "CP2026071943218E51"
+          },
+          "message": "工具 优惠券补发 执行成功",
+          "durationMs": 503
+        },
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "尊敬的客户，您反馈的FUEL_200_30加油券未到账问题已处理完毕。经核实，您已满足活动达标条件，优惠券已于2026年7月19日补发到账，券编号为CP20260719010601。请您登录App在优惠券中心查收。如有疑问，可联系客服。",
+            "status": "ready",
+            "evidence_ids": [
+              "CP2026071943218E51"
+            ],
+            "next_owner": "customer"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "系统已调用coupon.reissue工具补发优惠券，证据编号CP2026071943218E51，补发成功。客户C20031的FUEL_200_30加油券已到账。无需人工干预，请人工复核后结案。",
+            "status": "ready",
+            "evidence_ids": [
+              "CP2026071943218E51"
+            ],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "低风险，活动达标未到账，系统已自动补发成功。",
+            "risk_decision": "low",
+            "missing_fields": [],
+            "tool_evidence_ids": [
+              "CP2026071943218E51"
+            ],
+            "suggested_action": "人工复核后结案"
+          },
+          "closure_suggestion": {
+            "can_close": true,
+            "reason": "系统已成功补发优惠券，客户问题已解决，无风险。",
+            "final_reply": "尊敬的客户，您反馈的FUEL_200_30加油券未到账问题已处理完毕。经核实，您已满足活动达标条件，优惠券已于2026年7月19日补发到账，券编号为CP20260719010601。请您登录App在优惠券中心查收。如有疑问，可联系客服。",
+            "requires_human_review": false
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "建议结案后进行满意度回访，确认客户是否认可处理结果。",
+            "trigger_status": "closed"
+          }
+        },
+        "replyDraft": "尊敬的客户，您反馈的FUEL_200_30加油券未到账问题已处理完毕。经核实，您已满足活动达标条件，优惠券已于2026年7月19日补发到账，券编号为CP20260719010601。请您登录App在优惠券中心查收。如有疑问，可联系客服。",
+        "status": "pending_human_review",
+        "durationMs": 9814,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-032",
+        "source": "manual_mvp",
+        "category": "application_progress",
+        "ticket": {
+          "title": "补卡申请进度查询",
+          "content": "客户号C20032查询补卡业务进度，业务流水号APP20260718032，客户想知道卡片是否已寄出。",
+          "riskLevel": "low",
+          "customerId": "C20032",
+          "phone": "135****2032",
+          "cardLast4": "2032"
+        },
+        "expected": {
+          "intentType": "APPLICATION_PROGRESS_QUERY",
+          "ticketType": "申请进度查询",
+          "workflowName": "application_progress_query_flow",
+          "requiredFields": [
+            "customerId",
+            "applicationNo"
+          ],
+          "expectedFields": {
+            "customerId": "C20032",
+            "applicationNo": "APP20260718032"
+          },
+          "expectedTool": "application.progress-query",
+          "expectedStatus": "pending_human_review",
+          "expectedResult": "查询补卡业务进度",
+          "replyPoints": [
+            "同步当前业务节点",
+            "说明预计寄送或完成时间"
+          ],
+          "requiresHuman": false
+        }
+      },
+      "ticket": {
+        "title": "补卡申请进度查询",
+        "content": "客户号C20032查询补卡业务进度，业务流水号APP20260718032，客户想知道卡片是否已寄出。",
+        "riskLevel": "low",
+        "customerId": "C20032",
+        "phone": "135****2032",
+        "cardLast4": "2032"
+      },
+      "expected": {
+        "intentType": "APPLICATION_PROGRESS_QUERY",
+        "ticketType": "申请进度查询",
+        "workflowName": "application_progress_query_flow",
+        "requiredFields": [
+          "customerId",
+          "applicationNo"
+        ],
+        "expectedFields": {
+          "customerId": "C20032",
+          "applicationNo": "APP20260718032"
+        },
+        "expectedTool": "application.progress-query",
+        "expectedStatus": "pending_human_review",
+        "expectedResult": "查询补卡业务进度",
+        "replyPoints": [
+          "同步当前业务节点",
+          "说明预计寄送或完成时间"
+        ],
+        "requiresHuman": false
+      },
+      "outputs": {
+        "intent": {
+          "type": "APPLICATION_PROGRESS_QUERY",
+          "label": "申请进度查询",
+          "confidence": 1.0,
+          "workflow_name": "application_progress_query_flow",
+          "reason": "客户查询补卡业务进度，属于申请进度查询场景"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20032"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "申请单号",
+            "name": "applicationNo",
+            "value": "APP20260718032"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "分类结果可信",
+              "status": "通过"
+            },
+            {
+              "label": "操作需人工终审确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "low",
+          "risk_decision": "低风险，可进入人工终审结单",
+          "can_auto_proceed": true,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "application.progress-query",
+          "tool_params": {
+            "customerId": "C20032",
+            "applicationNo": "APP20260718032"
+          },
+          "skip": false,
+          "skip_reason": ""
+        },
+        "toolResult": {
+          "success": true,
+          "toolName": "application.progress-query",
+          "evidenceId": "APP20260719082F75A7",
+          "action": "查询申请进度",
+          "businessResult": "申请正在资料审核中",
+          "nextStep": "告知客户预计完成时间并提醒保持联系方式畅通",
+          "requiresHuman": false,
+          "failureReason": "",
+          "data": {
+            "success": true,
+            "applicationNo": "APP20260719010612",
+            "stage": "资料审核中",
+            "eta": "1-2个工作日",
+            "businessResult": "申请正在资料审核中",
+            "nextStep": "告知客户预计完成时间并提醒保持联系方式畅通",
+            "evidenceId": "APP20260719082F75A7"
+          },
+          "message": "工具 查询申请进度 执行成功",
+          "durationMs": 604
+        },
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "您好，您于2026年7月18日提交的信用卡申请（申请单号：APP20260718032）当前进度为：资料审核中。预计完成时间为1-2个工作日，请您保持联系方式畅通。如有疑问，可致电客服热线。",
+            "status": "ready",
+            "evidence_ids": [
+              "APP20260719082F75A7"
+            ],
+            "next_owner": "customer"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "系统已通过工具application.progress-query查询申请进度（证据编号：APP20260719082F75A7），结果为资料审核中，预计1-2个工作日。因低风险，需人工终审结单。请复核后确认是否结案。",
+            "status": "ready",
+            "evidence_ids": [
+              "APP20260719082F75A7"
+            ],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "低风险，需人工终审结单",
+            "risk_decision": "low",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [
+              "APP20260719082F75A7"
+            ],
+            "suggested_action": "复核工单信息，确认无异常后结案"
+          },
+          "closure_suggestion": {
+            "can_close": true,
+            "reason": "查询成功，结果明确，低风险",
+            "final_reply": "您好，您于2026年7月18日提交的信用卡申请（申请单号：APP20260718032）当前进度为：资料审核中。预计完成时间为1-2个工作日，请您保持联系方式畅通。如有疑问，可致电客服热线。",
+            "requires_human_review": false
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "建议结案后进行满意度回访，确认客户是否认可处理结果。",
+            "trigger_status": "closed"
+          }
+        },
+        "replyDraft": "您好，您于2026年7月18日提交的信用卡申请（申请单号：APP20260718032）当前进度为：资料审核中。预计完成时间为1-2个工作日，请您保持联系方式畅通。如有疑问，可致电客服热线。",
+        "status": "pending_human_review",
+        "durationMs": 10350,
+        "requiresHumanReview": true
+      }
+    },
+    {
+      "sample": {
+        "id": "eval-033",
+        "source": "manual_mvp",
+        "category": "customer_profile_update",
+        "ticket": {
+          "title": "地址变更身份核验失败",
+          "content": "客户号C20033要求将账单地址改为广州市天河区样例路18号，但身份核验verifyStatus为FAILED。",
+          "riskLevel": "medium",
+          "customerId": "C20033",
+          "phone": "134****2033",
+          "cardLast4": "2033"
+        },
+        "expected": {
+          "intentType": "CUSTOMER_ADDRESS_UPDATE",
+          "ticketType": "资料变更",
+          "workflowName": "address_update_flow",
+          "requiredFields": [
+            "customerId",
+            "newAddress",
+            "verifyStatus"
+          ],
+          "expectedFields": {
+            "customerId": "C20033",
+            "newAddress": "广州市天河区样例路18号",
+            "verifyStatus": "FAILED"
+          },
+          "expectedTool": "customer.update-address",
+          "expectedStatus": "escalated",
+          "expectedResult": "身份核验失败时升级人工，不直接修改资料",
+          "replyPoints": [
+            "说明身份核验未通过",
+            "提示需重新核验或人工处理"
+          ],
+          "requiresHuman": true
+        }
+      },
+      "ticket": {
+        "title": "地址变更身份核验失败",
+        "content": "客户号C20033要求将账单地址改为广州市天河区样例路18号，但身份核验verifyStatus为FAILED。",
+        "riskLevel": "medium",
+        "customerId": "C20033",
+        "phone": "134****2033",
+        "cardLast4": "2033"
+      },
+      "expected": {
+        "intentType": "CUSTOMER_ADDRESS_UPDATE",
+        "ticketType": "资料变更",
+        "workflowName": "address_update_flow",
+        "requiredFields": [
+          "customerId",
+          "newAddress",
+          "verifyStatus"
+        ],
+        "expectedFields": {
+          "customerId": "C20033",
+          "newAddress": "广州市天河区样例路18号",
+          "verifyStatus": "FAILED"
+        },
+        "expectedTool": "customer.update-address",
+        "expectedStatus": "escalated",
+        "expectedResult": "身份核验失败时升级人工，不直接修改资料",
+        "replyPoints": [
+          "说明身份核验未通过",
+          "提示需重新核验或人工处理"
+        ],
+        "requiresHuman": true
+      },
+      "outputs": {
+        "intent": {
+          "type": "CUSTOMER_ADDRESS_UPDATE",
+          "label": "资料修改",
+          "confidence": 1.0,
+          "workflow_name": "address_update_flow",
+          "reason": "客户明确要求修改账单地址，属于资料修改场景"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20033"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "新地址",
+            "name": "newAddress",
+            "value": "广州市天河区样例路18号"
+          },
+          {
+            "label": "身份核验状态",
+            "name": "verifyStatus",
+            "value": "FAILED"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "身份核验未通过",
+              "status": "已拦截"
+            }
+          ],
+          "risk_level": "high",
+          "risk_decision": "资料变更的身份核验未通过，已转人工处理",
+          "can_auto_proceed": false,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "",
+          "tool_params": {},
+          "skip": true,
+          "skip_reason": ""
+        },
+        "toolResult": {},
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "已认真核实您的资料修改诉求。由于资料变更的身份核验未通过，已转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "C20033 的工单已升级人工。升级原因：资料变更的身份核验未通过，已转人工处理。",
+            "status": "escalated",
+            "evidence_ids": [],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "资料变更的身份核验未通过，已转人工处理",
+            "risk_decision": "资料变更的身份核验未通过，已转人工处理",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [],
+            "suggested_action": "人工复核风险原因、工具结果和客户原始诉求后处理。"
+          },
+          "closure_suggestion": {
+            "can_close": false,
+            "reason": "当前状态仍需补充、确认或人工处理，不建议直接结案。",
+            "final_reply": "已转人工处理",
+            "requires_human_review": true
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "",
+            "trigger_status": ""
+          }
+        },
+        "replyDraft": "已认真核实您的资料修改诉求。由于资料变更的身份核验未通过，已转人工处理，该工单已转人工复核处理，后续将由专员跟进。",
+        "status": "escalated",
+        "durationMs": 6562,
+        "requiresHumanReview": true
+      }
+    }
+  ]
+}

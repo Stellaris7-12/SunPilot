@@ -1,0 +1,291 @@
+{
+  "metrics": {
+    "intent_accuracy": 1.0,
+    "field_completeness": 1.0,
+    "tool_correctness": 1.0,
+    "avg_time_saved_seconds": 110.8,
+    "total_samples": 40,
+    "agents": {
+      "classifier": {
+        "intentAccuracy": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "workflowConsistency": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "priorityConsistency": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      },
+      "intake": {
+        "fieldCompleteness": {
+          "score": 1.0,
+          "correct": 3.0,
+          "total": 3
+        },
+        "missingFieldAccuracy": {
+          "score": 1.0,
+          "correct": 3.0,
+          "total": 3
+        }
+      },
+      "resolution": {
+        "toolCorrectness": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "parameterAccuracy": {
+          "score": 1.0,
+          "correct": 3.0,
+          "total": 3
+        },
+        "executionSuccess": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      },
+      "notification": {
+        "replyPointCoverage": {
+          "score": 1.0,
+          "correct": 2.0,
+          "total": 2
+        },
+        "templateCompliance": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "readabilityScore": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      },
+      "escalation": {
+        "exceptionRecognition": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        },
+        "humanInterventionAccuracy": {
+          "score": 1.0,
+          "correct": 1.0,
+          "total": 1
+        }
+      }
+    },
+    "closed_loop_success_rate": 1.0,
+    "avg_processing_ms": 9232.0,
+    "evaluated_samples": 1,
+    "avg_manual_steps_saved": 5.0,
+    "source": "agent_run"
+  },
+  "records": [
+    {
+      "sample": {
+        "id": "eval-016",
+        "source": "manual_mvp",
+        "category": "benefit_query",
+        "ticket": {
+          "title": "积分兑换资格查询",
+          "content": "客户号C20016咨询积分兑换里程活动POINT_MILEAGE_2026是否可参加，查询原因是准备把积分兑换为航空里程。",
+          "riskLevel": "low",
+          "customerId": "C20016",
+          "phone": "133****2016",
+          "cardLast4": "2016"
+        },
+        "expected": {
+          "intentType": "BENEFIT_QUERY",
+          "ticketType": "积分兑换资格核验",
+          "workflowName": "benefit_query_flow",
+          "requiredFields": [
+            "customerId",
+            "benefitCode",
+            "queryReason"
+          ],
+          "expectedFields": {
+            "customerId": "C20016",
+            "benefitCode": "POINT_MILEAGE_2026",
+            "queryReason": "准备积分兑换航空里程"
+          },
+          "expectedTool": "benefit.query",
+          "expectedStatus": "pending_human_review",
+          "expectedResult": "查询积分兑换资格",
+          "replyPoints": [
+            "说明兑换资格",
+            "提示积分兑换规则"
+          ],
+          "requiresHuman": false
+        }
+      },
+      "ticket": {
+        "title": "积分兑换资格查询",
+        "content": "客户号C20016咨询积分兑换里程活动POINT_MILEAGE_2026是否可参加，查询原因是准备把积分兑换为航空里程。",
+        "riskLevel": "low",
+        "customerId": "C20016",
+        "phone": "133****2016",
+        "cardLast4": "2016"
+      },
+      "expected": {
+        "intentType": "BENEFIT_QUERY",
+        "ticketType": "积分兑换资格核验",
+        "workflowName": "benefit_query_flow",
+        "requiredFields": [
+          "customerId",
+          "benefitCode",
+          "queryReason"
+        ],
+        "expectedFields": {
+          "customerId": "C20016",
+          "benefitCode": "POINT_MILEAGE_2026",
+          "queryReason": "准备积分兑换航空里程"
+        },
+        "expectedTool": "benefit.query",
+        "expectedStatus": "pending_human_review",
+        "expectedResult": "查询积分兑换资格",
+        "replyPoints": [
+          "说明兑换资格",
+          "提示积分兑换规则"
+        ],
+        "requiresHuman": false
+      },
+      "outputs": {
+        "intent": {
+          "type": "BENEFIT_QUERY",
+          "label": "权益资格查询",
+          "confidence": 0.95,
+          "workflow_name": "benefit_query_flow",
+          "reason": "客户咨询积分兑换里程活动的参与资格，属于权益资格查询场景。"
+        },
+        "fields": [
+          {
+            "label": "客户号",
+            "name": "customerId",
+            "value": "C20016"
+          },
+          {
+            "label": "手机号",
+            "name": "phone",
+            "value": "未提供"
+          },
+          {
+            "label": "权益或活动编码",
+            "name": "benefitCode",
+            "value": "POINT_MILEAGE_2026"
+          },
+          {
+            "label": "查询原因",
+            "name": "queryReason",
+            "value": "准备把积分兑换为航空里程"
+          }
+        ],
+        "escalation": {
+          "checks": [
+            {
+              "label": "必填字段完整",
+              "status": "通过"
+            },
+            {
+              "label": "分类结果可信",
+              "status": "通过"
+            },
+            {
+              "label": "操作需人工终审确认",
+              "status": "待确认"
+            }
+          ],
+          "risk_level": "low",
+          "risk_decision": "低风险，可进入人工终审结单",
+          "can_auto_proceed": true,
+          "missing_fields": [],
+          "needs_more_info": false
+        },
+        "resolution": {
+          "tool_name": "benefit.query",
+          "tool_params": {
+            "customerId": "C20016",
+            "benefitCode": "POINT_MILEAGE_2026",
+            "queryReason": "准备把积分兑换为航空里程"
+          },
+          "skip": false,
+          "skip_reason": ""
+        },
+        "toolResult": {
+          "success": true,
+          "toolName": "benefit.query",
+          "evidenceId": "BEN202607196BE1DF1C",
+          "action": "查询权益资格",
+          "businessResult": "客户具备该权益使用资格",
+          "nextStep": "向客户说明权益使用规则和有效期",
+          "requiresHuman": false,
+          "failureReason": "",
+          "data": {
+            "success": true,
+            "benefitCode": "AIRPORT_LOUNGE_2026",
+            "eligible": true,
+            "status": "ACTIVE",
+            "businessResult": "客户具备该权益使用资格",
+            "nextStep": "向客户说明权益使用规则和有效期",
+            "evidenceId": "BEN202607196BE1DF1C"
+          },
+          "message": "工具 查询权益资格 执行成功",
+          "durationMs": 453
+        },
+        "notification": {
+          "standard_reply": {
+            "title": "标准回单",
+            "body": "尊敬的客户，您已具备积分兑换航空里程的权益资格（权益编码：POINT_MILEAGE_2026），当前状态为有效。请通过我行信用卡APP或客服热线办理兑换，具体规则和有效期可参考权益说明。如需进一步协助，请随时联系我们。",
+            "status": "ready",
+            "evidence_ids": [
+              "BEN202607196BE1DF1C"
+            ],
+            "next_owner": "customer"
+          },
+          "internal_notice": {
+            "title": "内部通知",
+            "body": "系统已通过工具benefit.query查询客户C20016的权益资格（POINT_MILEAGE_2026），结果具备资格，证据编号BEN202607196BE1DF1C。因客户未提供手机号，建议人工确认联系方式后发送回单。",
+            "status": "ready",
+            "evidence_ids": [
+              "BEN202607196BE1DF1C"
+            ],
+            "next_owner": "human"
+          },
+          "review_summary": {
+            "reason": "低风险，可进入人工终审结单",
+            "risk_decision": "low",
+            "missing_fields": [
+              "手机号"
+            ],
+            "tool_evidence_ids": [
+              "BEN202607196BE1DF1C"
+            ],
+            "suggested_action": "人工确认客户手机号后，发送标准回单并结案"
+          },
+          "closure_suggestion": {
+            "can_close": true,
+            "reason": "缺少客户手机号，需人工确认后发送回单",
+            "final_reply": "尊敬的客户，您已具备积分兑换航空里程的权益资格（权益编码：POINT_MILEAGE_2026），当前状态为有效。请通过我行信用卡APP或客服热线办理兑换，具体规则和有效期可参考权益说明。如需进一步协助，请随时联系我们。",
+            "requires_human_review": false
+          },
+          "follow_up": {
+            "enabled": false,
+            "template": "建议结案后进行满意度回访，确认客户是否认可处理结果。",
+            "trigger_status": "closed"
+          }
+        },
+        "replyDraft": "尊敬的客户，您已具备积分兑换航空里程的权益资格（权益编码：POINT_MILEAGE_2026），当前状态为有效。请通过我行信用卡APP或客服热线办理兑换，具体规则和有效期可参考权益说明。如需进一步协助，请随时联系我们。",
+        "status": "pending_human_review",
+        "durationMs": 9232,
+        "requiresHumanReview": true
+      }
+    }
+  ]
+}

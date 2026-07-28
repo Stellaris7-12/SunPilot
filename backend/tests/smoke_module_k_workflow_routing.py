@@ -3,9 +3,10 @@
 import sys
 from pathlib import Path
 
-ENGINE_DIR = Path(__file__).resolve().parent.parent
-ROOT_DIR = ENGINE_DIR.parent
-sys.path.insert(0, str(ENGINE_DIR))
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
+ROOT_DIR = BACKEND_DIR.parent
+sys.path.insert(0, str(BACKEND_DIR / "tests"))
 
 import asyncio
 import importlib
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from ticket_agent.agents.classifier_agent import ClassifierAgent  # noqa: E402
 from ticket_agent.agents.escalation_agent import EscalationAgent  # noqa: E402
-from evaluation.mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
+from mysql_smoke_utils import configure_mysql_test_database, reset_mysql_test_data  # noqa: E402
 from ticket_agent.models.domain.agent_card import AgentCard  # noqa: E402
 from ticket_agent.orchestrator.workflow_config import load_workflow_config  # noqa: E402
 
@@ -55,7 +56,7 @@ async def main():
     config = load_workflow_config()
     tickets = {
         ticket["id"]: ticket
-        for ticket in json.loads((ROOT_DIR / "src" / "ticket_agent" / "data" /  "tickets.json").read_text(encoding="utf-8"))
+        for ticket in json.loads((BACKEND_DIR / "src" / "ticket_agent" / "data" /  "tickets.json").read_text(encoding="utf-8"))
     }
 
     classifier = ClassifierAgent(

@@ -27,8 +27,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 
-ENGINE_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ENGINE_DIR))
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT_DIR / "backend" / "src"))
 
 from ticket_agent.agents.agent_registry import agent_registry  # noqa: E402
 from ticket_agent.agents.intake_agent import IntakeAgent, _deterministic_fields, _fields_from_config  # noqa: E402

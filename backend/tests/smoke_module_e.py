@@ -7,10 +7,11 @@ import re
 import sys
 from pathlib import Path
 
-ENGINE_DIR = Path(__file__).resolve().parent.parent
-ROOT_DIR = ENGINE_DIR.parent
+TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
+ROOT_DIR = BACKEND_DIR.parent
 
-DATA_DIR = ROOT_DIR / "src" / "ticket_agent" / "data"
+DATA_DIR = BACKEND_DIR / "src" / "ticket_agent" / "data"
 SAMPLES_JSON = DATA_DIR / "evaluation_samples.json"
 DEMO_TICKETS_JSON = DATA_DIR / "tickets.json"
 
