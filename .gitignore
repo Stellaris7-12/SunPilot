@@ -46,6 +46,8 @@ ai-engine/data/traces/
 # Large local datasets
 ai-engine/data/external/
 ai-engine/data/generated/
+backend/src/ticket_agent/data/external/
+backend/src/ticket_agent/data/generated/
 doc/SystemReference/
 doc/SystemReference/工单系统案例/
 
