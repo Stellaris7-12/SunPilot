@@ -48,8 +48,7 @@ ai-engine/data/external/
 ai-engine/data/generated/
 backend/src/ticket_agent/data/external/
 backend/src/ticket_agent/data/generated/
-doc/SystemReference/
-doc/SystemReference/工单系统案例/
+doc/reference/工单系统案例/
 
 # Node / frontend
 node_modules/
